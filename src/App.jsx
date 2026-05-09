@@ -128,7 +128,6 @@ const sh = (hex, p) => {
   const cl = v => Math.min(255,Math.max(0,v));
   return "rgb("+cl((n>>16)+p)+","+cl(((n>>8)&255)+p)+","+cl((n&255)+p)+")";
 };
-const fmtN = n => Number(n).toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const W = 210; /* sidebar width */
 
 const BM = {
@@ -225,30 +224,6 @@ function EF({ val, onSave, multi, style:ex }) {
       title="Cliquer pour modifier"
       style={{cursor:"pointer",borderBottom:"1px dashed #2E4A6A",display:"inline-block",minWidth:20,...ex}}>
       {display || <span style={{color:"#2E4A6A",fontStyle:"italic"}}>---</span>}
-    </span>
-  );
-}
-
-/* ---- NumInput: always-visible number input ---- */
-/* NumInput: saves on every keystroke via onChange — no blur, no ref, no effect */
-function NumInput({ value, onChange, unit }) {
-  return (
-    <span style={{display:"inline-flex",alignItems:"center",gap:8}}>
-      <input
-        type="number"
-        step="any"
-        value={value === "" || value == null ? "" : value}
-        onChange={function(e) { onChange(e.target.value); }}
-        placeholder="0"
-        style={{
-          width:96, background:"#0A1828",
-          border:"2px solid #00C2FF", borderRadius:6,
-          color:"#E8EDF5", fontSize:22, fontWeight:900,
-          fontFamily:"monospace", padding:"6px 10px",
-          outline:"none", textAlign:"right", boxSizing:"border-box",
-        }}
-      />
-      {unit ? <span style={{color:"#607898",fontSize:13,flexShrink:0}}>{unit}</span> : null}
     </span>
   );
 }
@@ -490,7 +465,6 @@ function Sidebar({ view, setView }) {
               display:"flex",alignItems:"center",gap:12,
               width:"100%",padding:"12px 16px",
               background:active ? "rgba(0,194,255,0.13)" : "transparent",
-              borderLeft:"3px solid " + (active ? "#00C2FF" : "transparent"),
               border:"none",
               borderLeft:"3px solid " + (active ? "#00C2FF" : "transparent"),
               color:active ? "#E8EDF5" : "#607898",
@@ -1100,13 +1074,12 @@ function TabDevis({ project, mat, setToast }) {
 }
 
 /* ---- Reports ---- */
-function Reports() {
-  var [rpts, setRpts] = useState(RPTS);
-  var [sel,  setSel]  = useState(RPTS[0].id);
+function Reports({ reports, setReports }) {
+  var [sel,  setSel]  = useState(reports[0] && reports[0].id);
   var [toast,setToast]= useState("");
-  var r = rpts.find(function(x){ return x.id === sel; });
-  function upd(id, p) { setRpts(function(rs){ return rs.map(function(x){ return x.id===id ? Object.assign({},x,p) : x; }); }); }
-  function updD(id, k, p) { setRpts(function(rs){ return rs.map(function(x){ if (x.id!==id) return x; var n={}; Object.keys(x[k]).forEach(function(f){n[f]=x[k][f];}); Object.keys(p).forEach(function(f){n[f]=p[f];}); return Object.assign({},x,{[k]:n}); }); }); }
+  var r = reports.find(function(x){ return x.id === sel; });
+  function upd(id, p) { setReports(function(rs){ return rs.map(function(x){ return x.id===id ? Object.assign({},x,p) : x; }); }); }
+  function updD(id, k, p) { setReports(function(rs){ return rs.map(function(x){ if (x.id!==id) return x; var n={}; Object.keys(x[k]).forEach(function(f){n[f]=x[k][f];}); Object.keys(p).forEach(function(f){n[f]=p[f];}); return Object.assign({},x,{[k]:n}); }); }); }
   var icons = {meas:"[M]",devis:"[$]",insp:"[I]",prop:"[P]"};
   return (
     <div style={{display:"flex",height:"100vh"}}>
@@ -1114,13 +1087,12 @@ function Reports() {
       <div style={{width:245,borderRight:"1px solid #1C3050",overflowY:"auto",
         padding:"14px 0",flexShrink:0}}>
         <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:700,color:"#607898",
-          textTransform:"uppercase",letterSpacing:"0.08em"}}>4 Rapports</div>
-        {rpts.map(function(x) {
+          textTransform:"uppercase",letterSpacing:"0.08em"}}>{reports.length} Rapports</div>
+        {reports.map(function(x) {
           return (
             <button type="button" key={x.id} onClick={function(){setSel(x.id);}} style={{
               display:"block",width:"100%",padding:"11px 14px",
               background:sel===x.id ? "rgba(0,194,255,0.13)" : "transparent",
-              borderLeft:"3px solid "+(sel===x.id ? "#00C2FF" : "transparent"),
               border:"none",
               borderLeft:"3px solid "+(sel===x.id ? "#00C2FF" : "transparent"),
               cursor:"pointer",textAlign:"left",outline:"none",marginBottom:1,
@@ -1720,12 +1692,35 @@ function Settings() {
   );
 }
 
+/* ---- localStorage persistence ---- */
+var STORE_KEY_PROJECTS = "mesurepro.projects.v1";
+var STORE_KEY_REPORTS  = "mesurepro.reports.v1";
+
+function loadStored(key, fallback) {
+  try {
+    var raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    var parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function saveStored(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+
 /* ---- App root ---- */
 export default function App() {
-  var [projects, setProjects] = useState(PROJS);
+  var [projects, setProjects] = useState(function(){ return loadStored(STORE_KEY_PROJECTS, PROJS); });
+  var [reports,  setReports]  = useState(function(){ return loadStored(STORE_KEY_REPORTS,  RPTS);  });
   var [view,     setView]     = useState("dash");
   var [openId,   setOpenId]   = useState(null);
   var [modal,    setModal]    = useState(false);
+
+  useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
+  useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
 
   var openP = projects.find(function(p){ return p.id === openId; }) || null;
 
@@ -1743,9 +1738,6 @@ export default function App() {
     setProjects(function(ps) {
       return ps.map(function(p){ return p.id === id ? Object.assign({},p,patch) : p; });
     });
-    if (openP && openP.id === id) {
-      setOpenId(id);
-    }
   }
 
   function addProject(info) {
@@ -1766,7 +1758,6 @@ export default function App() {
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",
       background:"#08111E",color:"#E8EDF5",minHeight:"100vh"}}>
-      <style>{"@keyframes spin{to{transform:rotate(360deg);}}"}</style>
       <Sidebar view={view} setView={nav}/>
       <div style={{marginLeft:W,minHeight:"100vh"}}>
         {view === "dash" && (
@@ -1779,7 +1770,7 @@ export default function App() {
             onUpdate={function(patch){updateProject(openP.id,patch);}}
           />
         )}
-        {view === "reports"  && <Reports/>}
+        {view === "reports"  && <Reports reports={reports} setReports={setReports}/>}
         {view === "settings" && <Settings/>}
       </div>
       {modal && (
