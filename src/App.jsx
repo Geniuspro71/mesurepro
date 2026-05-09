@@ -511,23 +511,67 @@ function House({ shape, matCol, small }) {
 /* ---- Iso 3D model (SVG, no canvas) ---- */
 function IsoModel({ matCol, floors, meas }) {
   var [angle, setAngle] = useState(30);
-  var [auto, setAuto]   = useState(true);
+  var [auto, setAuto]   = useState(false);
   var [showAnno, setShowAnno] = useState(true);
+  var dragRef = useRef(null);
 
-  /* auto-rotation — reads `auto` from state snapshot each tick via functional update */
+  /* Auto-rotation tick: only runs while auto=true. Cancels cleanly on toggle. */
   useEffect(function() {
-    var running = true;
-    function tick() {
-      if (!running) return;
-      setAuto(function(a) {
-        if (a) setAngle(function(ang) { return ang + 0.5; });
-        return a;
-      });
-      setTimeout(tick, 20);
+    if (!auto) return;
+    var t = setInterval(function() {
+      setAngle(function(a){ return a + 0.5; });
+    }, 30);
+    return function(){ clearInterval(t); };
+  }, [auto]);
+
+  /* Pointer drag (mouse + touch) for free rotation. Listeners on window so the
+     drag survives if the cursor leaves the SVG. */
+  useEffect(function() {
+    function getX(e) {
+      if (e.touches && e.touches[0]) return e.touches[0].clientX;
+      return e.clientX;
     }
-    tick();
-    return function() { running = false; };
+    function onMove(e) {
+      if (!dragRef.current) return;
+      var dx = getX(e) - dragRef.current.startX;
+      setAngle(dragRef.current.startAngle + dx * 0.7);
+      if (e.cancelable) e.preventDefault();
+    }
+    function onUp() { dragRef.current = null; document.body.style.cursor = ""; }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("touchmove", onMove, {passive:false});
+    window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
+    return function() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onUp);
+      window.removeEventListener("touchcancel", onUp);
+    };
   }, []);
+
+  function startDrag(e) {
+    setAuto(false);
+    var x = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+    dragRef.current = { startX: x, startAngle: angle };
+    document.body.style.cursor = "grabbing";
+    if (e.cancelable) e.preventDefault();
+  }
+
+  /* Building dimensions derived from project measurements when available */
+  var fl = Math.max(1, Math.min(5, parseInt(floors) || 2));
+  var m  = meas || {};
+  var realH = parseFloat(m.h) || (3.5 * fl);
+  var realFoot = parseFloat(m.foot) || 142;
+  var ratio = 1.6;
+  var realW = Math.sqrt(realFoot * ratio);
+  var realD = Math.sqrt(realFoot / ratio);
+  var unit = 8;
+  var bw = Math.max(80, Math.min(180, realW * unit));
+  var bd = Math.max(45, Math.min(90,  realD * unit));
+  var bh = Math.max(50, Math.min(140, realH * unit * 1.6));
 
   var wc  = matCol || "#BFB09A";
   var rc  = "#2E1E10";
@@ -540,20 +584,77 @@ function IsoModel({ matCol, floors, meas }) {
     };
   }
 
-  var bw = 130, bd = 65, bh = 60 + (floors || 2) * 12;
   var P = [
     proj(-bw/2,-bd/2,0), proj(bw/2,-bd/2,0), proj(bw/2,bd/2,0), proj(-bw/2,bd/2,0),
     proj(-bw/2,-bd/2,bh),proj(bw/2,-bd/2,bh),proj(bw/2,bd/2,bh),proj(-bw/2,bd/2,bh),
   ];
-  function pp(pts) { return pts.map(function(p){ return p.x+","+p.y; }).join(" "); }
-  var rid  = proj(0,-bd/2-3,bh+40);
-  var rid2 = proj(0, bd/2+3,bh+40);
+  function pp(pts){ return pts.map(function(p){ return p.x+","+p.y; }).join(" "); }
+  var rid  = proj(0,-bd/2-2,bh+30);
+  var rid2 = proj(0, bd/2+2,bh+30);
   function bi(bl,br,tl,tr,u,v2) {
     var bx=bl.x+(br.x-bl.x)*u, by=bl.y+(br.y-bl.y)*u;
     var tx=tl.x+(tr.x-tl.x)*u, ty=tl.y+(tr.y-tl.y)*u;
     return {x:bx+(tx-bx)*v2, y:by+(ty-by)*v2};
   }
-  var wins = [[0.08,0.30,0.20,0.62],[0.36,0.58,0.20,0.62]];
+
+  /* Generate windows + door for one face */
+  function faceFeatures(BL, BR, TL, TR, hasDoor) {
+    var feats = [];
+    var cols = fl <= 2 ? 4 : 5;
+    var winW = Math.min(0.18, 0.7/cols);
+    var pad  = (1 - winW * cols) / (cols + 1);
+    for (var f = 0; f < fl; f++) {
+      var fy0 = (f + 0.18) / fl;
+      var fy1 = (f + 0.78) / fl;
+      for (var c = 0; c < cols; c++) {
+        if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+        var x0 = pad + c * (winW + pad);
+        var x1 = x0 + winW;
+        feats.push({type:"win", key:"f"+f+"c"+c, points:[
+          bi(BL,BR,TL,TR,x0,fy0), bi(BL,BR,TL,TR,x1,fy0),
+          bi(BL,BR,TL,TR,x1,fy1), bi(BL,BR,TL,TR,x0,fy1),
+        ]});
+      }
+    }
+    if (hasDoor) {
+      var dCol = Math.floor(cols/2);
+      var dx0 = pad + dCol * (winW + pad);
+      var dx1 = dx0 + winW;
+      var dy0 = 0.02, dy1 = (0.85)/fl;
+      feats.push({type:"door", key:"door", points:[
+        bi(BL,BR,TL,TR,dx0,dy0), bi(BL,BR,TL,TR,dx1,dy0),
+        bi(BL,BR,TL,TR,dx1,dy1), bi(BL,BR,TL,TR,dx0,dy1),
+      ]});
+    }
+    return feats;
+  }
+
+  /* Floor-level horizontal lines */
+  function floorLines(BL, BR, TL, TR) {
+    var L = [];
+    for (var f = 1; f < fl; f++) {
+      var fy = f / fl;
+      var a = bi(BL,BR,TL,TR, 0, fy);
+      var b = bi(BL,BR,TL,TR, 1, fy);
+      L.push({key:"fl"+f, x1:a.x, y1:a.y, x2:b.x, y2:b.y});
+    }
+    return L;
+  }
+
+  var frontFeats = faceFeatures(P[0], P[1], P[4], P[5], true);
+  var leftFeats  = faceFeatures(P[3], P[0], P[7], P[4], false);
+  var frontFL    = floorLines(P[0], P[1], P[4], P[5]);
+  var leftFL     = floorLines(P[3], P[0], P[7], P[4]);
+
+  /* Chimney on left roof slope (offset toward back) */
+  var cx = -bw*0.18, cy = bd*0.05, cw = 6, cd = 6, ch = 22;
+  var cb = bh + 14;
+  var Cm = [
+    proj(cx-cw/2,cy-cd/2,cb), proj(cx+cw/2,cy-cd/2,cb),
+    proj(cx+cw/2,cy+cd/2,cb), proj(cx-cw/2,cy+cd/2,cb),
+    proj(cx-cw/2,cy-cd/2,cb+ch), proj(cx+cw/2,cy-cd/2,cb+ch),
+    proj(cx+cw/2,cy+cd/2,cb+ch), proj(cx-cw/2,cy+cd/2,cb+ch),
+  ];
 
   function rotate(delta) {
     setAuto(false);
@@ -569,31 +670,77 @@ function IsoModel({ matCol, floors, meas }) {
 
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%"}}>
-      {/* SVG — no mouse events, purely display */}
-      <div style={{flex:1, minHeight:220}}>
-        <svg width="100%" height="100%" viewBox="0 0 320 280" style={{display:"block"}}>
-          <ellipse cx="165" cy="232" rx="110" ry="17" fill="rgba(0,0,0,0.28)"/>
-          <polygon points={pp([P[0],P[3],P[7],P[4]])} fill={sh(wc,-22)} stroke="#0A0E1A" strokeWidth="1.2"/>
-          <polygon points={pp([P[0],P[1],P[5],P[4]])} fill={wc}         stroke="#0A0E1A" strokeWidth="1.2"/>
+      {/* SVG — drag-to-rotate (mouse + touch) */}
+      <div
+        onMouseDown={startDrag}
+        onTouchStart={startDrag}
+        style={{flex:1, minHeight:220, cursor:"grab",
+          userSelect:"none", WebkitUserSelect:"none", touchAction:"none"}}>
+        <svg width="100%" height="100%" viewBox="0 0 320 280"
+          style={{display:"block", pointerEvents:"none"}}>
+          {/* shadow */}
+          <ellipse cx="165" cy="232" rx={Math.min(140, bw*0.85)} ry={Math.min(20, bd*0.27)} fill="rgba(0,0,0,0.28)"/>
+
+          {/* left face */}
+          <polygon points={pp([P[0],P[3],P[7],P[4]])} fill={sh(wc,-22)} stroke="#0A0E1A" strokeWidth="1"/>
+          {/* front face */}
+          <polygon points={pp([P[0],P[1],P[5],P[4]])} fill={wc}         stroke="#0A0E1A" strokeWidth="1"/>
+
+          {/* roof slopes */}
           <polygon points={pp([P[4],P[7],rid2,rid])}  fill={sh(rc,-6)}  stroke="#100804" strokeWidth="1"/>
           <polygon points={pp([P[5],P[4],rid,rid2])}  fill={sh(rc,14)}  stroke="#100804" strokeWidth="1"/>
-          {wins.map(function(coords, i) {
-            var x1=coords[0],x2=coords[1],y1=coords[2],y2=coords[3];
-            var w=[bi(P[0],P[1],P[4],P[5],x1,y1),bi(P[0],P[1],P[4],P[5],x2,y1),
-                   bi(P[0],P[1],P[4],P[5],x2,y2),bi(P[0],P[1],P[4],P[5],x1,y2)];
-            return <polygon key={i} points={pp(w)} fill="rgba(100,178,228,0.88)" stroke="#3a6080" strokeWidth="0.8"/>;
+
+          {/* gable triangle (front) */}
+          <polygon points={pp([P[4],P[5],{x:(P[4].x+P[5].x)/2,y:rid.y}])}
+            fill={sh(wc,-10)} stroke="#0A0E1A" strokeWidth="0.8"/>
+
+          {/* floor lines */}
+          {frontFL.map(function(l) {
+            return <line key={l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+              stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
           })}
+          {leftFL.map(function(l) {
+            return <line key={"L"+l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+              stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
+          })}
+
+          {/* features front face */}
+          {frontFeats.map(function(f) {
+            if (f.type === "door") {
+              return <polygon key={f.key} points={pp(f.points)}
+                fill="#6B4226" stroke="#3a2614" strokeWidth="0.7"/>;
+            }
+            return <polygon key={f.key} points={pp(f.points)}
+              fill="rgba(100,178,228,0.92)" stroke="#3a6080" strokeWidth="0.6"/>;
+          })}
+          {/* features left face */}
+          {leftFeats.map(function(f) {
+            return <polygon key={"L"+f.key} points={pp(f.points)}
+              fill="rgba(100,178,228,0.78)" stroke="#3a6080" strokeWidth="0.6"/>;
+          })}
+
+          {/* chimney */}
+          <polygon points={pp([Cm[0],Cm[3],Cm[7],Cm[4]])} fill={sh(rc,-15)} stroke="#100804" strokeWidth="0.5"/>
+          <polygon points={pp([Cm[0],Cm[1],Cm[5],Cm[4]])} fill={sh(rc,-5)}  stroke="#100804" strokeWidth="0.5"/>
+          <polygon points={pp([Cm[4],Cm[5],Cm[6],Cm[7]])} fill={sh(rc,8)}   stroke="#100804" strokeWidth="0.5"/>
+
+          {/* door handle dot */}
+          {(function(){
+            var d = frontFeats[frontFeats.length-1];
+            if (!d || d.type !== "door") return null;
+            var hx = d.points[1].x - 1.5, hy = (d.points[1].y + d.points[2].y)/2;
+            return <circle cx={hx} cy={hy} r="0.9" fill="#DAA520"/>;
+          })()}
+
           {showAnno && (() => {
-            var m = meas || {};
-            var hLabel = m.h ? m.h + " m" : (bh/9.8).toFixed(1) + " m";
-            var perimLabel = m.perim ? m.perim + " m" : "perim.";
+            var hLabel = m.h ? m.h + " m" : realH.toFixed(1) + " m";
+            var perimLabel = m.perim ? m.perim + " m" : (2*(realW+realD)).toFixed(1) + " m";
             var wallsLabel = m.walls ? m.walls + " m²" : null;
             var roofLabel = m.roof ? m.roof + " m²" : null;
             var topMid = { x:(P[4].x+P[5].x+P[6].x+P[7].x)/4, y:(P[4].y+P[5].y+P[6].y+P[7].y)/4 };
             var ridgeMid = { x:(rid.x+rid2.x)/2, y:(rid.y+rid2.y)/2 };
             return (
               <g>
-                {/* hauteur — cote verticale gauche */}
                 <line x1={P[0].x-22} y1={P[0].y} x2={P[0].x-22} y2={P[4].y}
                   stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
                 <line x1={P[0].x-26} y1={P[0].y} x2={P[0].x-18} y2={P[0].y}
@@ -604,21 +751,17 @@ function IsoModel({ matCol, floors, meas }) {
                   fill="#00E5A0" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   {hLabel}
                 </text>
-                {/* perimetre / longueur — cote horizontale dessous */}
-                <text x={(P[0].x+P[1].x)/2-22} y={(P[0].y+P[1].y)/2+36}
+                <text x={(P[0].x+P[1].x)/2-22} y={(P[0].y+P[1].y)/2+34}
                   fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   {perimLabel}
                 </text>
-                {/* surface murs — sur la facade frontale */}
                 {wallsLabel && (
                   <text x={(P[0].x+P[1].x)/2-18} y={(P[0].y+P[5].y)/2+2}
                     fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
-                    style={{textShadow:"0 0 3px rgba(0,0,0,0.8)"}}
                     paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2">
                     {wallsLabel}
                   </text>
                 )}
-                {/* surface toit — sur la pente toit */}
                 {roofLabel && (
                   <text x={ridgeMid.x-18} y={(topMid.y+ridgeMid.y)/2}
                     fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
@@ -637,34 +780,28 @@ function IsoModel({ matCol, floors, meas }) {
         display:"flex", alignItems:"center", gap:10, padding:"10px 16px",
         borderTop:"1px solid #1C3050", background:"#0A1422", flexShrink:0,
       }}>
-        {/* Rotate left */}
-        <button type="button" onClick={function(){ rotate(-15); }} style={btnStyle}>&#8592;</button>
-
-        {/* Slider */}
+        <button type="button" onClick={function(){ rotate(-15); }} style={btnStyle} title="Tourner gauche">&#8592;</button>
         <input
-          type="range" min={0} max={360} value={Math.round(angle % 360 + 360) % 360}
+          type="range" min={0} max={360}
+          value={Math.round(angle % 360 + 360) % 360}
           onChange={function(e){ setAuto(false); setAngle(+e.target.value); }}
           style={{flex:1, accentColor:"#00C2FF", cursor:"pointer", height:4}}
         />
-
-        {/* Rotate right */}
-        <button type="button" onClick={function(){ rotate(15); }} style={btnStyle}>&#8594;</button>
-
-        {/* Auto toggle */}
+        <button type="button" onClick={function(){ rotate(15); }} style={btnStyle} title="Tourner droite">&#8594;</button>
         <button type="button"
           onClick={function(){ setAuto(function(a){ return !a; }); }}
+          title={auto ? "Pause rotation" : "Lecture rotation"}
           style={{
-            ...btnStyle, width:"auto", padding:"0 12px", fontSize:11, fontWeight:700,
-            background: auto ? "#00C2FF" : "#152135",
-            color: auto ? "#000" : "#607898",
+            ...btnStyle, width:"auto", padding:"0 12px", fontSize:13, fontWeight:700,
+            background: auto ? "#FF8C42" : "#152135",
+            color: auto ? "#000" : "#E8EDF5",
             border: auto ? "none" : "1px solid #1C3050",
           }}>
-          {auto ? "AUTO" : "PAUSE"}
+          {auto ? "⏸" : "▶"}
         </button>
-
-        {/* Annotations toggle */}
         <button type="button"
           onClick={function(){ setShowAnno(function(s){ return !s; }); }}
+          title="Afficher/masquer les cotes"
           style={{
             ...btnStyle, width:"auto", padding:"0 12px", fontSize:11, fontWeight:700,
             background: showAnno ? "#00E5A0" : "#152135",
@@ -957,7 +1094,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
       </div>
       <div style={{minHeight:"calc(100vh - 92px)"}}>
         {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
-        {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat}/>}
+        {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
         {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
         {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
@@ -1058,27 +1195,103 @@ function TabPhotos({ project, onUpdate }) {
   );
 }
 
-function TabModel({ project, mat, setMat }) {
+function TabModel({ project, mat, setMat, onUpdate }) {
+  var m = project.meas || {};
+  var fl = parseInt(project.floors) || 2;
+  var realH = parseFloat(m.h) || 7.4;
+  var realFoot = parseFloat(m.foot) || 142;
+
+  function setFloors(n) {
+    onUpdate && onUpdate({floors: n});
+  }
+  function setMeas(key, val) {
+    var next = Object.assign({}, m, {[key]: String(val)});
+    /* When the user moves dimensional sliders we also recompute the
+       derivable surfaces so the building visual + measurements stay
+       consistent. The user can still override any field manually in
+       the Mesures tab afterwards. */
+    if (key === "h" || key === "foot") {
+      var h = parseFloat(key === "h"    ? val : m.h)    || realH;
+      var f = parseFloat(key === "foot" ? val : m.foot) || realFoot;
+      var ratio = 1.6;
+      var w = Math.sqrt(f * ratio);
+      var d = Math.sqrt(f / ratio);
+      var perim = 2 * (w + d);
+      var walls = perim * h;
+      next.perim = perim.toFixed(1);
+      next.walls = walls.toFixed(1);
+      if (!m.roof || m.roof === "") next.roof = (f * 1.3).toFixed(1);
+    }
+    onUpdate && onUpdate({meas: next});
+  }
   return (
     <div style={{display:"flex",height:"calc(100vh - 92px)"}}>
       <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
         <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
           flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          <IsoModel matCol={mat ? mat.col : null} floors={project.floors || 2} meas={project.meas}/>
+          <IsoModel matCol={mat ? mat.col : null} floors={fl} meas={project.meas}/>
+        </div>
+        <div style={{fontSize:11,color:"#607898",marginTop:8,textAlign:"center"}}>
+          Glissez sur le modele pour le faire pivoter
         </div>
       </div>
-      <div style={{width:218,borderLeft:"1px solid #1C3050",overflowY:"auto",
+      <div style={{width:240,borderLeft:"1px solid #1C3050",overflowY:"auto",
         padding:"16px 14px",flexShrink:0}}>
+
+        {/* Edit sliders — always visible if onUpdate is provided */}
+        {onUpdate && (
+          <div style={{marginBottom:18}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#00C2FF",textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:10}}>Edition rapide</div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Etages</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{fl}</span>
+              </div>
+              <input type="range" min="1" max="5" step="1" value={fl}
+                onChange={function(e){ setFloors(parseInt(e.target.value)); }}
+                style={{width:"100%",accentColor:"#00C2FF",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Hauteur</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{(parseFloat(m.h) || realH).toFixed(1)} m</span>
+              </div>
+              <input type="range" min="3" max="20" step="0.1" value={parseFloat(m.h) || realH}
+                onChange={function(e){ setMeas("h", e.target.value); }}
+                style={{width:"100%",accentColor:"#00E5A0",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Emprise sol</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{(parseFloat(m.foot) || realFoot).toFixed(0)} m²</span>
+              </div>
+              <input type="range" min="40" max="500" step="2" value={parseFloat(m.foot) || realFoot}
+                onChange={function(e){ setMeas("foot", e.target.value); }}
+                style={{width:"100%",accentColor:"#FF8C42",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",lineHeight:1.4,
+              padding:"7px 0",borderTop:"1px solid #1C3050",marginTop:6}}>
+              Les murs et le perimetre sont recalcules automatiquement.
+              Pour saisir manuellement chaque cote, utilisez l'onglet <span style={{color:"#607898",fontWeight:700}}>Mesures</span>.
+            </div>
+          </div>
+        )}
+
         <div style={{fontSize:10,fontWeight:700,color:"#607898",textTransform:"uppercase",
           letterSpacing:"0.08em",marginBottom:12}}>Donnees projet</div>
         {project.meas && [
-          ["Murs",     project.meas.walls+" m2"],
-          ["Toit",     project.meas.roof+" m2"],
-          ["Perimetre",project.meas.perim+" m"],
-          ["Hauteur",  project.meas.h+" m"],
-          ["Emprise",  project.meas.foot+" m2"],
-          ["Fenetres", project.meas.win],
-          ["Portes",   project.meas.doors],
+          ["Murs",     (m.walls||"-")+" m²"],
+          ["Toit",     (m.roof||"-")+" m²"],
+          ["Perimetre",(m.perim||"-")+" m"],
+          ["Hauteur",  (m.h||"-")+" m"],
+          ["Emprise",  (m.foot||"-")+" m²"],
+          ["Fenetres", m.win||"-"],
+          ["Portes",   m.doors||"-"],
         ].map(function(pair) {
           return (
             <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
@@ -1090,19 +1303,19 @@ function TabModel({ project, mat, setMat }) {
         })}
         <div style={{marginTop:18,fontSize:10,fontWeight:700,color:"#607898",
           textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:11}}>Apercu materiau</div>
-        {MATS.map(function(m) {
-          var active = mat && mat.id === m.id;
+        {MATS.map(function(mt) {
+          var active = mat && mat.id === mt.id;
           return (
-            <button type="button" key={m.id}
-              onClick={function(){setMat(active ? null : m);}} style={{
+            <button type="button" key={mt.id}
+              onClick={function(){setMat(active ? null : mt);}} style={{
               display:"flex",alignItems:"center",gap:9,padding:"7px 9px",
               borderRadius:8,border:"1px solid "+(active ? "#00C2FF" : "#1C3050"),
               cursor:"pointer",background:active ? "rgba(0,194,255,0.13)" : "transparent",
               marginBottom:5,width:"100%",outline:"none",
             }}>
-              <div style={{width:17,height:17,borderRadius:4,background:m.col,
+              <div style={{width:17,height:17,borderRadius:4,background:mt.col,
                 border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
-              <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left"}}>{m.lbl}</span>
+              <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left"}}>{mt.lbl}</span>
               {active && <span style={{color:"#00C2FF",fontSize:12}}>OK</span>}
             </button>
           );
