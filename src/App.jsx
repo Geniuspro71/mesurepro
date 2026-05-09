@@ -2390,6 +2390,25 @@ export default function App() {
   useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
   useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
 
+  /* Boot-time auto-promote: any project stuck in 'processing' (demo data
+     or a refresh during the 3s window) gets bumped to 'draft' after 3s. */
+  useEffect(function() {
+    var stuck = projects.filter(function(p){ return p.status === "processing"; });
+    if (stuck.length === 0) return;
+    var timeouts = stuck.map(function(p) {
+      return setTimeout(function() {
+        setProjects(function(ps) {
+          return ps.map(function(x) {
+            return x.id === p.id && x.status === "processing"
+              ? Object.assign({},x,{status:"draft"})
+              : x;
+          });
+        });
+      }, 3000);
+    });
+    return function() { timeouts.forEach(clearTimeout); };
+  }, []);
+
   var openP = projects.find(function(p){ return p.id === openId; }) || null;
 
   function nav(v) {
