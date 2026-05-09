@@ -42,13 +42,94 @@ const PROJS = [
 ];
 
 const MATS = [
-  {id:"wood",  lbl:"Bardage Bois",     col:"#C68642", price:45},
-  {id:"stone", lbl:"Pierre Naturelle", col:"#9E8E7E", price:120},
-  {id:"brick", lbl:"Brique Rouge",     col:"#C04A2B", price:85},
-  {id:"white", lbl:"Enduit Blanc",     col:"#E8E4DC", price:35},
-  {id:"grey",  lbl:"Beton Cire",       col:"#7A8899", price:55},
-  {id:"slate", lbl:"Clin Gris",        col:"#4A5568", price:62},
+  {id:"wood",  lbl:"Bardage Bois",     col:"#C68642", price:45,  fill:"url(#mat-wood)"},
+  {id:"stone", lbl:"Pierre Naturelle", col:"#9E8E7E", price:120, fill:"url(#mat-stone)"},
+  {id:"brick", lbl:"Brique Rouge",     col:"#C04A2B", price:85,  fill:"url(#mat-brick)"},
+  {id:"white", lbl:"Enduit Blanc",     col:"#E8E4DC", price:35,  fill:"url(#mat-white)"},
+  {id:"grey",  lbl:"Beton Cire",       col:"#7A8899", price:55,  fill:"url(#mat-grey)"},
+  {id:"slate", lbl:"Clin Gris",        col:"#4A5568", price:62,  fill:"url(#mat-slate)"},
 ];
+
+/* ---- Material SVG patterns (procedural textures) ----
+   Defined as a <defs> block to be embedded inside each SVG that
+   wants to fill="url(#mat-XXX)". For uploaded photos, pass them
+   as `photos` and they'll be exposed as url(#mat-photo-{id}). */
+function MatDefs({ photos }) {
+  return (
+    <defs>
+      {/* Wood: vertical planks with grain */}
+      <pattern id="mat-wood" patternUnits="userSpaceOnUse" width="14" height="40">
+        <rect width="14" height="40" fill="#C68642"/>
+        <rect x="0"  width="0.7" height="40" fill="#7d4f25"/>
+        <rect x="13" width="0.7" height="40" fill="#7d4f25"/>
+        <rect x="6.6" width="0.7" height="40" fill="#7d4f25" opacity="0.5"/>
+        <ellipse cx="3.5" cy="12" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.5"/>
+        <ellipse cx="10" cy="28" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.5"/>
+        <line x1="0" y1="6" x2="14" y2="6.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
+        <line x1="0" y1="20" x2="14" y2="19.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
+        <line x1="0" y1="34" x2="14" y2="34.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
+      </pattern>
+      {/* Stone: irregular blocks */}
+      <pattern id="mat-stone" patternUnits="userSpaceOnUse" width="40" height="28">
+        <rect width="40" height="28" fill="#9E8E7E"/>
+        <path d="M 0 0 L 18 0 L 22 4 L 18 14 L 0 14 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.5"/>
+        <path d="M 22 4 L 40 0 L 40 14 L 22 14 Z" fill="#94836f" stroke="#5e564b" strokeWidth="0.5"/>
+        <path d="M 0 14 L 13 14 L 17 22 L 13 28 L 0 28 Z" fill="#988775" stroke="#5e564b" strokeWidth="0.5"/>
+        <path d="M 13 14 L 30 14 L 30 28 L 17 28 L 13 22 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.5"/>
+        <path d="M 30 14 L 40 14 L 40 28 L 30 28 Z" fill="#8d7c6a" stroke="#5e564b" strokeWidth="0.5"/>
+      </pattern>
+      {/* Brick: staggered rows with mortar */}
+      <pattern id="mat-brick" patternUnits="userSpaceOnUse" width="32" height="16">
+        <rect width="32" height="16" fill="#dcc7a8"/>
+        <rect x="0.6"  y="0.6"  width="14.8" height="6.8" fill="#a0381f"/>
+        <rect x="16.6" y="0.6"  width="14.8" height="6.8" fill="#b14528"/>
+        <rect x="0.6"  y="8.6"  width="6.8"  height="6.8" fill="#a0381f"/>
+        <rect x="8.6"  y="8.6"  width="14.8" height="6.8" fill="#b14528"/>
+        <rect x="24.6" y="8.6"  width="6.8"  height="6.8" fill="#a0381f"/>
+        <rect x="0.6"  y="0.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
+        <rect x="16.6" y="0.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
+        <rect x="0.6"  y="8.6"  width="6.8"  height="1.2" fill="#c25538" opacity="0.5"/>
+        <rect x="8.6"  y="8.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
+        <rect x="24.6" y="8.6"  width="6.8"  height="1.2" fill="#c25538" opacity="0.5"/>
+      </pattern>
+      {/* White stucco: subtle granular */}
+      <pattern id="mat-white" patternUnits="userSpaceOnUse" width="6" height="6">
+        <rect width="6" height="6" fill="#E8E4DC"/>
+        <circle cx="1.2" cy="1.5" r="0.35" fill="#bcb6a7" opacity="0.55"/>
+        <circle cx="4"   cy="3.4" r="0.3"  fill="#bcb6a7" opacity="0.45"/>
+        <circle cx="2.7" cy="4.6" r="0.35" fill="#a8a294" opacity="0.55"/>
+        <circle cx="5.2" cy="0.8" r="0.25" fill="#cdc6b7" opacity="0.5"/>
+      </pattern>
+      {/* Grey concrete: horizontal bands + speckle */}
+      <pattern id="mat-grey" patternUnits="userSpaceOnUse" width="20" height="20">
+        <rect width="20" height="20" fill="#7A8899"/>
+        <line x1="0" y1="3"  x2="20" y2="2.5" stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
+        <line x1="0" y1="10" x2="20" y2="11"  stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
+        <line x1="0" y1="17" x2="20" y2="16.5" stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
+        <circle cx="3" cy="6" r="0.3" fill="#5e6c7a" opacity="0.6"/>
+        <circle cx="14" cy="13" r="0.4" fill="#5e6c7a" opacity="0.6"/>
+        <circle cx="9" cy="18" r="0.3" fill="#5e6c7a" opacity="0.6"/>
+      </pattern>
+      {/* Slate: overlapping diamonds */}
+      <pattern id="mat-slate" patternUnits="userSpaceOnUse" width="14" height="10">
+        <rect width="14" height="10" fill="#4A5568"/>
+        <polygon points="0,0 7,5 0,10" fill="#3a4452" stroke="#2c333d" strokeWidth="0.3"/>
+        <polygon points="14,0 7,5 14,10" fill="#3a4452" stroke="#2c333d" strokeWidth="0.3"/>
+        <polygon points="7,5 14,5 14,10 7,10" fill="#414b5a" opacity="0.6"/>
+        <polygon points="0,5 7,5 7,10 0,10" fill="#414b5a" opacity="0.6"/>
+      </pattern>
+      {/* Photo-based custom material patterns */}
+      {(photos || []).map(function(p, i) {
+        return (
+          <pattern key={p.id || ("photo-"+i)} id={"mat-photo-"+(p.id || i)}
+            patternUnits="userSpaceOnUse" width="80" height="80">
+            <image href={p.url} width="80" height="80" preserveAspectRatio="xMidYMid slice"/>
+          </pattern>
+        );
+      })}
+    </defs>
+  );
+}
 
 const RPTS = [
   { id:"R1", kind:"meas", status:"sent", ref:"RPT-2026-001",
@@ -421,8 +502,11 @@ function EF({ val, onSave, multi, style:ex }) {
 }
 
 /* ---- House SVG (4 shapes) ---- */
-function House({ shape, matCol, small }) {
-  const wc = matCol || "#BFB09A";
+function House({ shape, mat, matCol, small, photos }) {
+  /* Wall fill: prefer pattern (mat.fill) > color (mat.col / matCol fallback) */
+  const colFallback = (mat && mat.col) || matCol || "#BFB09A";
+  const wc = (mat && mat.fill) || colFallback;
+  const wcDark = (mat && mat.fill) || sh(colFallback, -15);
   const rc = "#2E1E10";
   const win = "#7BBCE8";
   const dr = "#6B4226";
@@ -432,6 +516,7 @@ function House({ shape, matCol, small }) {
   if (shape === "S") {
     return (
       <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
         <rect x="25" y="85" width="270" height="115" fill={wc} rx="2"/>
         <polygon points="25,86 160,16 295,86" fill={rc}/>
         <rect x="55"  y="108" width="54" height="44" fill={win} rx="3" opacity="0.88"/>
@@ -449,6 +534,7 @@ function House({ shape, matCol, small }) {
   if (shape === "M") {
     return (
       <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
         <rect x="10" y="72" width="300" height="118" fill={wc} rx="4"/>
         <rect x="8"  y="63" width="304" height="13"  fill={rc} rx="2"/>
         <rect x="20" y="90" width="68"  height="50"  fill={win} rx="4" opacity="0.9"/>
@@ -468,6 +554,7 @@ function House({ shape, matCol, small }) {
   if (shape === "F") {
     return (
       <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
         <rect x="10" y="92" width="300" height="98" fill={wc} rx="2"/>
         <polygon points="10,93 160,25 310,93" fill={rc}/>
         <rect x="22"  y="110" width="58" height="46" fill={win} rx="2" opacity="0.85"/>
@@ -489,8 +576,9 @@ function House({ shape, matCol, small }) {
   }
   return (
     <svg width={W2} height={H2} viewBox="0 0 320 200">
+      <MatDefs photos={photos}/>
       <rect x="18"  y="98"  width="194" height="92" fill={wc}/>
-      <rect x="212" y="118" width="88"  height="72" fill={sh(wc,-15)} rx="1"/>
+      <rect x="212" y="118" width="88"  height="72" fill={wcDark} rx="1"/>
       <polygon points="8,99 122,35 214,99" fill={rc}/>
       <polygon points="208,119 255,84 308,119" fill={rc}/>
       <rect x="36"  y="117" width="52" height="41" fill={win} rx="3" opacity="0.88"/>
@@ -509,11 +597,16 @@ function House({ shape, matCol, small }) {
 }
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
-function IsoModel({ matCol, floors, meas }) {
+function IsoModel({ matCol, mat, photos, floors, meas }) {
   var [angle, setAngle] = useState(30);
   var [auto, setAuto]   = useState(false);
   var [showAnno, setShowAnno] = useState(true);
   var dragRef = useRef(null);
+
+  /* Wall fill: pattern preferred over flat color */
+  var matColor = (mat && mat.col) || matCol || "#BFB09A";
+  var matFill  = (mat && mat.fill) || matColor;
+  var matFillDark = (mat && mat.fill) || sh(matColor, -22);
 
   /* Auto-rotation tick: only runs while auto=true. Cancels cleanly on toggle. */
   useEffect(function() {
@@ -573,7 +666,8 @@ function IsoModel({ matCol, floors, meas }) {
   var bd = Math.max(45, Math.min(90,  realD * unit));
   var bh = Math.max(50, Math.min(140, realH * unit * 1.6));
 
-  var wc  = matCol || "#BFB09A";
+  var wc = matFill;            /* front face */
+  var wcSide = matFillDark;    /* left face: pattern same, color shaded */
   var rc  = "#2E1E10";
   var rad = (angle * Math.PI) / 180;
 
@@ -678,11 +772,16 @@ function IsoModel({ matCol, floors, meas }) {
           userSelect:"none", WebkitUserSelect:"none", touchAction:"none"}}>
         <svg width="100%" height="100%" viewBox="0 0 320 280"
           style={{display:"block", pointerEvents:"none"}}>
+          <MatDefs photos={photos}/>
           {/* shadow */}
           <ellipse cx="165" cy="232" rx={Math.min(140, bw*0.85)} ry={Math.min(20, bd*0.27)} fill="rgba(0,0,0,0.28)"/>
 
           {/* left face */}
-          <polygon points={pp([P[0],P[3],P[7],P[4]])} fill={sh(wc,-22)} stroke="#0A0E1A" strokeWidth="1"/>
+          <polygon points={pp([P[0],P[3],P[7],P[4]])} fill={wcSide} stroke="#0A0E1A" strokeWidth="1"/>
+          {/* darken overlay on left face when using a pattern (no shaded variant otherwise) */}
+          {(mat && mat.fill) && (
+            <polygon points={pp([P[0],P[3],P[7],P[4]])} fill="rgba(0,0,0,0.22)" stroke="none"/>
+          )}
           {/* front face */}
           <polygon points={pp([P[0],P[1],P[5],P[4]])} fill={wc}         stroke="#0A0E1A" strokeWidth="1"/>
 
@@ -692,7 +791,11 @@ function IsoModel({ matCol, floors, meas }) {
 
           {/* gable triangle (front) */}
           <polygon points={pp([P[4],P[5],{x:(P[4].x+P[5].x)/2,y:rid.y}])}
-            fill={sh(wc,-10)} stroke="#0A0E1A" strokeWidth="0.8"/>
+            fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
+          {(mat && mat.fill) && (
+            <polygon points={pp([P[4],P[5],{x:(P[4].x+P[5].x)/2,y:rid.y}])}
+              fill="rgba(0,0,0,0.10)" stroke="none"/>
+          )}
 
           {/* floor lines */}
           {frontFL.map(function(l) {
@@ -1229,7 +1332,7 @@ function TabModel({ project, mat, setMat, onUpdate }) {
       <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
         <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
           flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          <IsoModel matCol={mat ? mat.col : null} floors={fl} meas={project.meas}/>
+          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas}/>
         </div>
         <div style={{fontSize:11,color:"#607898",marginTop:8,textAlign:"center"}}>
           Glissez sur le modele pour le faire pivoter
@@ -1313,13 +1416,39 @@ function TabModel({ project, mat, setMat, onUpdate }) {
               cursor:"pointer",background:active ? "rgba(0,194,255,0.13)" : "transparent",
               marginBottom:5,width:"100%",outline:"none",
             }}>
-              <div style={{width:17,height:17,borderRadius:4,background:mt.col,
-                border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+              <MatTile m={mt} size={22}/>
               <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left"}}>{mt.lbl}</span>
               {active && <span style={{color:"#00C2FF",fontSize:12}}>OK</span>}
             </button>
           );
         })}
+
+        {(project.photos || []).length > 0 && (
+          <div style={{marginTop:14,paddingTop:11,borderTop:"1px solid #1C3050"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#00E5A0",textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:8}}>Vos photos</div>
+            {(project.photos || []).map(function(p, i) {
+              var pm = photoMat(p, i);
+              var active = mat && mat.id === pm.id;
+              return (
+                <button type="button" key={pm.id}
+                  onClick={function(){setMat(active ? null : pm);}} style={{
+                  display:"flex",alignItems:"center",gap:9,padding:"6px 9px",
+                  borderRadius:8,border:"1px solid "+(active ? "#00E5A0" : "#1C3050"),
+                  cursor:"pointer",background:active ? "rgba(0,229,160,0.10)" : "transparent",
+                  marginBottom:5,width:"100%",outline:"none",
+                }}>
+                  <img src={p.url} alt={p.name||""}
+                    style={{width:22,height:22,borderRadius:4,objectFit:"cover",
+                      border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+                  <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left",
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name || ("Photo "+(i+1))}</span>
+                  {active && <span style={{color:"#00E5A0",fontSize:12}}>OK</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1544,9 +1673,37 @@ function TabMeas({ project, onUpdate }) {
   );
 }
 
+/* Build a virtual material from an uploaded project photo */
+function photoMat(photo, idx) {
+  var idKey = photo.id || idx;
+  return {
+    id:    "photo-" + idKey,
+    lbl:   "Photo: " + (photo.name || ("image " + (idx+1))),
+    col:   "#9E8E7E",
+    fill:  "url(#mat-photo-" + idKey + ")",
+    price: null,
+    photo: photo,
+  };
+}
+
+/* Mini-tile that previews a material's pattern. Uses an inline SVG with
+   <MatDefs> + a square filled with the pattern URL. */
+function MatTile({ m, photos, size }) {
+  var s = size || 40;
+  return (
+    <svg width={s} height={s} viewBox={"0 0 "+s+" "+s}
+      style={{borderRadius:8,border:"1.5px solid rgba(255,255,255,0.1)",flexShrink:0,display:"block"}}>
+      <MatDefs photos={photos}/>
+      <rect width={s} height={s} fill={m.fill || m.col}/>
+    </svg>
+  );
+}
+
 function TabDesign({ project, mat, setMat }) {
   var [hov, setHov] = useState(null);
   var disp = hov || mat;
+  var photos = project.photos || [];
+  var photoMats = photos.map(photoMat);
   return (
     <div style={{display:"flex",minHeight:"calc(100vh - 92px)"}}>
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",
@@ -1560,7 +1717,7 @@ function TabDesign({ project, mat, setMat }) {
               {disp.lbl}
             </div>
           )}
-          <House shape={project.shape} matCol={disp ? disp.col : null}/>
+          <House shape={project.shape} mat={disp} photos={photos}/>
         </div>
         <p style={{color:"#607898",fontSize:11,textAlign:"center"}}>
           Survolez pour previsualiser - Cliquez pour selectionner
@@ -1580,8 +1737,7 @@ function TabDesign({ project, mat, setMat }) {
                 borderRadius:10,border:"1px solid "+(active ? "#00C2FF" : "#1C3050"),
                 cursor:"pointer",background:active ? "rgba(0,194,255,0.13)" : "#0F1C2E",
                 marginBottom:7,width:"100%",outline:"none"}}>
-              <div style={{width:40,height:40,borderRadius:8,background:m.col,
-                border:"1.5px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+              <MatTile m={m}/>
               <div style={{flex:1,textAlign:"left"}}>
                 <div style={{fontSize:12,fontWeight:600,color:"#E8EDF5"}}>{m.lbl}</div>
                 <div style={{fontSize:10,color:"#607898",marginTop:2}}>~{m.price} EUR/m2</div>
@@ -1590,6 +1746,41 @@ function TabDesign({ project, mat, setMat }) {
             </button>
           );
         })}
+
+        {/* Section: photos importees comme texture custom */}
+        <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #1C3050"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5",marginBottom:6}}>Vos photos</div>
+          <div style={{fontSize:10,color:"#607898",marginBottom:10,lineHeight:1.4}}>
+            {photoMats.length === 0
+              ? "Importez des photos dans l'onglet Photos pour creer des textures personnalisees."
+              : "Appliquez la texture d'une photo de chantier directement sur le batiment."}
+          </div>
+          {photoMats.map(function(pm) {
+            var active = mat && mat.id === pm.id;
+            return (
+              <button type="button" key={pm.id}
+                onClick={function(){setMat(active ? null : pm);}}
+                onMouseEnter={function(){setHov(pm);}}
+                onMouseLeave={function(){setHov(null);}}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"9px 11px",
+                  borderRadius:10,border:"1px solid "+(active ? "#00E5A0" : "#1C3050"),
+                  cursor:"pointer",background:active ? "rgba(0,229,160,0.10)" : "#0F1C2E",
+                  marginBottom:6,width:"100%",outline:"none"}}>
+                <img src={pm.photo.url} alt={pm.photo.name}
+                  style={{width:40,height:40,borderRadius:8,objectFit:"cover",
+                    border:"1.5px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+                <div style={{flex:1,textAlign:"left",minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#E8EDF5",
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {pm.photo.name || "Photo"}
+                  </div>
+                  <div style={{fontSize:10,color:"#607898",marginTop:2}}>texture personnalisee</div>
+                </div>
+                {active && <span style={{color:"#00E5A0",fontSize:12}}>OK</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
