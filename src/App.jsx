@@ -509,9 +509,10 @@ function House({ shape, matCol, small }) {
 }
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
-function IsoModel({ matCol, floors }) {
+function IsoModel({ matCol, floors, meas }) {
   var [angle, setAngle] = useState(30);
   var [auto, setAuto]   = useState(true);
+  var [showAnno, setShowAnno] = useState(true);
 
   /* auto-rotation — reads `auto` from state snapshot each tick via functional update */
   useEffect(function() {
@@ -582,14 +583,52 @@ function IsoModel({ matCol, floors }) {
                    bi(P[0],P[1],P[4],P[5],x2,y2),bi(P[0],P[1],P[4],P[5],x1,y2)];
             return <polygon key={i} points={pp(w)} fill="rgba(100,178,228,0.88)" stroke="#3a6080" strokeWidth="0.8"/>;
           })}
-          <text x={P[0].x-40} y={(P[0].y+P[4].y)/2+4}
-            fill="#00E5A0" fontSize="10" fontFamily="monospace" fontWeight="bold">
-            {(bh/9.8).toFixed(1)} m
-          </text>
-          <text x={(P[0].x+P[1].x)/2-18} y={(P[0].y+P[1].y)/2+34}
-            fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
-            16.4 m
-          </text>
+          {showAnno && (() => {
+            var m = meas || {};
+            var hLabel = m.h ? m.h + " m" : (bh/9.8).toFixed(1) + " m";
+            var perimLabel = m.perim ? m.perim + " m" : "perim.";
+            var wallsLabel = m.walls ? m.walls + " m²" : null;
+            var roofLabel = m.roof ? m.roof + " m²" : null;
+            var topMid = { x:(P[4].x+P[5].x+P[6].x+P[7].x)/4, y:(P[4].y+P[5].y+P[6].y+P[7].y)/4 };
+            var ridgeMid = { x:(rid.x+rid2.x)/2, y:(rid.y+rid2.y)/2 };
+            return (
+              <g>
+                {/* hauteur — cote verticale gauche */}
+                <line x1={P[0].x-22} y1={P[0].y} x2={P[0].x-22} y2={P[4].y}
+                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
+                <line x1={P[0].x-26} y1={P[0].y} x2={P[0].x-18} y2={P[0].y}
+                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
+                <line x1={P[0].x-26} y1={P[4].y} x2={P[0].x-18} y2={P[4].y}
+                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
+                <text x={P[0].x-44} y={(P[0].y+P[4].y)/2+4}
+                  fill="#00E5A0" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                  {hLabel}
+                </text>
+                {/* perimetre / longueur — cote horizontale dessous */}
+                <text x={(P[0].x+P[1].x)/2-22} y={(P[0].y+P[1].y)/2+36}
+                  fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
+                  {perimLabel}
+                </text>
+                {/* surface murs — sur la facade frontale */}
+                {wallsLabel && (
+                  <text x={(P[0].x+P[1].x)/2-18} y={(P[0].y+P[5].y)/2+2}
+                    fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
+                    style={{textShadow:"0 0 3px rgba(0,0,0,0.8)"}}
+                    paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2">
+                    {wallsLabel}
+                  </text>
+                )}
+                {/* surface toit — sur la pente toit */}
+                {roofLabel && (
+                  <text x={ridgeMid.x-18} y={(topMid.y+ridgeMid.y)/2}
+                    fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
+                    paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2">
+                    {roofLabel}
+                  </text>
+                )}
+              </g>
+            );
+          })()}
         </svg>
       </div>
 
@@ -621,6 +660,18 @@ function IsoModel({ matCol, floors }) {
             border: auto ? "none" : "1px solid #1C3050",
           }}>
           {auto ? "AUTO" : "PAUSE"}
+        </button>
+
+        {/* Annotations toggle */}
+        <button type="button"
+          onClick={function(){ setShowAnno(function(s){ return !s; }); }}
+          style={{
+            ...btnStyle, width:"auto", padding:"0 12px", fontSize:11, fontWeight:700,
+            background: showAnno ? "#00E5A0" : "#152135",
+            color: showAnno ? "#000" : "#607898",
+            border: showAnno ? "none" : "1px solid #1C3050",
+          }}>
+          COTES
         </button>
       </div>
     </div>
@@ -684,28 +735,80 @@ function Sidebar({ view, setView }) {
 }
 
 /* ---- Dashboard ---- */
-function Dashboard({ projects, onOpen, onNew }) {
+function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
   var [q, setQ] = useState("");
+  var [statusFilter, setStatusFilter] = useState("all");
+  var ql = q.toLowerCase().trim();
   var list = projects.filter(function(p) {
-    return (p.addr+p.city).toLowerCase().indexOf(q.toLowerCase()) !== -1;
+    var hay = ((p.addr||"")+" "+(p.city||"")+" "+(p.client||"")).toLowerCase();
+    if (ql && hay.indexOf(ql) === -1) return false;
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    return true;
   });
+  var matchedReports = (reports||[]).filter(function(r) {
+    if (!ql) return false;
+    var hay = ((r.title||"")+" "+(r.ref||"")+" "+(r.cl?r.cl.nom||"":"")+" "+(r.cl?r.cl.adr||"":"")).toLowerCase();
+    return hay.indexOf(ql) !== -1;
+  });
+  var STATUS_FILTERS = [
+    {id:"all",        lbl:"Tous"},
+    {id:"done",       lbl:"Termines"},
+    {id:"processing", lbl:"En cours"},
+    {id:"draft",      lbl:"Brouillons"},
+  ];
   return (
     <div style={{padding:"26px 28px",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
         <div>
           <div style={{fontSize:22,fontWeight:900,color:"#E8EDF5"}}>Mes Projets</div>
           <div style={{color:"#607898",fontSize:12,marginTop:3}}>
-            {projects.length} proprietes
+            {projects.length} proprietes{ql ? " - " + list.length + " resultat(s)" : ""}
           </div>
         </div>
         <Btn onClick={onNew} primary={true}>+ Nouveau projet</Btn>
       </div>
-      <div style={{position:"relative",marginBottom:18}}>
-        <input value={q} onChange={function(e){setQ(e.target.value);}} placeholder="Rechercher..."
+      <div style={{position:"relative",marginBottom:12}}>
+        <input value={q} onChange={function(e){setQ(e.target.value);}}
+          placeholder="Rechercher dans projets ET rapports (adresse, ville, client, ref)..."
           style={{width:"100%",boxSizing:"border-box",background:"#0F1C2E",
             border:"1px solid #1C3050",borderRadius:8,color:"#E8EDF5",
             fontSize:13,padding:"9px 12px",outline:"none"}}/>
       </div>
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+        {STATUS_FILTERS.map(function(sf) {
+          var active = statusFilter === sf.id;
+          return (
+            <button type="button" key={sf.id} onClick={function(){setStatusFilter(sf.id);}}
+              style={{background:active ? "#00C2FF" : "#152135",
+                color:active ? "#000" : "#607898",
+                border:"1px solid " + (active ? "#00C2FF" : "#1C3050"),
+                borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:active?700:500,
+                cursor:"pointer",outline:"none"}}>{sf.lbl}</button>
+          );
+        })}
+      </div>
+      {ql && matchedReports.length > 0 && (
+        <div style={{background:"rgba(0,194,255,0.06)",border:"1px solid #00C2FF",
+          borderRadius:10,padding:"10px 14px",marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:7,
+            textTransform:"uppercase",letterSpacing:"0.06em"}}>
+            {matchedReports.length} rapport(s) correspondant(s)
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {matchedReports.map(function(r) {
+              return (
+                <button type="button" key={r.id} onClick={function(){ onOpenReports && onOpenReports(); }}
+                  style={{background:"#152135",border:"1px solid #1C3050",
+                    color:"#E8EDF5",borderRadius:6,padding:"5px 10px",fontSize:11,
+                    cursor:"pointer",outline:"none",display:"inline-flex",alignItems:"center",gap:6}}>
+                  <span style={{color:"#607898",fontFamily:"monospace",fontSize:10}}>{r.ref}</span>
+                  <span>{r.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:22}}>
         {[
           {lbl:"Projets",   val:projects.length,                                    col:"#00C2FF"},
@@ -752,6 +855,14 @@ function Dashboard({ projects, onOpen, onNew }) {
                     <span style={{fontSize:36}}>+</span>
                   </div>
                 )}
+                {p.photos && p.photos.length > 0 && (
+                  <div style={{position:"absolute",bottom:6,left:6,
+                    background:"rgba(0,0,0,0.7)",border:"1px solid #00C2FF",
+                    borderRadius:14,padding:"2px 8px",fontSize:10,fontWeight:700,
+                    color:"#00C2FF",display:"inline-flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:11}}>📷</span>{p.photos.length}
+                  </div>
+                )}
               </div>
               <div style={{padding:"12px 14px"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5}}>
@@ -775,7 +886,9 @@ function Dashboard({ projects, onOpen, onNew }) {
                   </div>
                 )}
                 {p.status === "draft" && (
-                  <div style={{fontSize:11,color:"#607898",marginTop:6}}>Photos a capturer</div>
+                  <div style={{fontSize:11,color:"#607898",marginTop:6}}>
+                    {p.photos && p.photos.length > 0 ? p.photos.length + " photo(s) - prete a saisir" : "Photos a capturer"}
+                  </div>
                 )}
                 {p.status === "processing" && (
                   <div style={{fontSize:11,color:"#FF8C42",marginTop:6}}>Analyse en cours</div>
@@ -856,9 +969,13 @@ function ProjectDetail({ project, onBack, onUpdate }) {
 function TabPhotos({ project, onUpdate }) {
   var photos = project.photos || [];
   var [zoom, setZoom] = useState(null);
+  var [drag, setDrag] = useState(false);
   var inpRef = useRef();
   function addFiles(fileList) {
-    var arr = Array.prototype.slice.call(fileList);
+    var arr = Array.prototype.slice.call(fileList).filter(function(f){
+      return f.type && f.type.indexOf("image/") === 0;
+    });
+    if (arr.length === 0) return;
     var next = arr.map(function(f) {
       return { name: f.name, size: f.size, url: URL.createObjectURL(f) };
     });
@@ -869,8 +986,21 @@ function TabPhotos({ project, onUpdate }) {
     if (p && p.url) { try { URL.revokeObjectURL(p.url); } catch(e){} }
     onUpdate({ photos: photos.filter(function(_, j){ return j !== i; }) });
   }
+  function onDragOver(e) { e.preventDefault(); e.stopPropagation(); setDrag(true); }
+  function onDragLeave(e) { e.preventDefault(); e.stopPropagation(); setDrag(false); }
+  function onDrop(e) {
+    e.preventDefault(); e.stopPropagation();
+    setDrag(false);
+    if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  }
   return (
-    <div style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box"}}>
+    <div onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box",
+        position:"relative",
+        background: drag ? "rgba(0,194,255,0.08)" : "transparent",
+        outline: drag ? "2px dashed #00C2FF" : "none",
+        outlineOffset: drag ? "-12px" : "0",
+        transition:"background 0.15s, outline 0.15s"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
         <div>
           <div style={{fontSize:18,fontWeight:900,color:"#E8EDF5"}}>Photos du projet</div>
@@ -934,7 +1064,7 @@ function TabModel({ project, mat, setMat }) {
       <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
         <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
           flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          <IsoModel matCol={mat ? mat.col : null} floors={project.floors || 2}/>
+          <IsoModel matCol={mat ? mat.col : null} floors={project.floors || 2} meas={project.meas}/>
         </div>
       </div>
       <div style={{width:218,borderLeft:"1px solid #1C3050",overflowY:"auto",
@@ -1028,44 +1158,70 @@ function TabMeas({ project, onUpdate }) {
   return (
     <div style={{padding:"22px 24px", overflowY:"auto"}}>
 
-      {/* Hero instruction banner */}
-      <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid #00C2FF",
-        borderRadius:10, padding:"12px 18px", marginBottom:22,
-        display:"flex", alignItems:"center", gap:12}}>
-        <div style={{fontSize:28}}>📐</div>
-        <div>
-          <div style={{fontSize:14, fontWeight:800, color:"#00C2FF", marginBottom:2}}>
-            Saisie des mesures
+      {/* Hero instruction banner with progress */}
+      {(function(){
+        var filled = FIELDS.filter(function(f){ var v = m[f.key]; return v !== "" && v != null && parseFloat(v) > 0; }).length;
+        var total = FIELDS.length;
+        var pct = Math.round((filled/total)*100);
+        var ready = filled === total;
+        return (
+          <div style={{background: ready ? "rgba(0,229,160,0.10)" : "rgba(0,194,255,0.08)",
+            border:"1px solid " + (ready ? "#00E5A0" : "#00C2FF"),
+            borderRadius:10, padding:"12px 18px", marginBottom:22,
+            display:"flex", alignItems:"center", gap:14}}>
+            <div style={{fontSize:28}}>{ready ? "✓" : "📐"}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14, fontWeight:800, color: ready ? "#00E5A0" : "#00C2FF", marginBottom:4}}>
+                {ready ? "Toutes les mesures sont saisies" : "Saisie des mesures"}
+              </div>
+              <div style={{fontSize:12, color:"#607898"}}>
+                {filled}/{total} champs renseignes — sauvegarde automatique a chaque touche
+              </div>
+              <div style={{height:4, background:"#1C3050", borderRadius:2, marginTop:8, overflow:"hidden"}}>
+                <div style={{height:"100%", width:pct+"%",
+                  background: ready ? "#00E5A0" : "#00C2FF",
+                  transition:"width 0.3s"}}/>
+              </div>
+            </div>
           </div>
-          <div style={{fontSize:12, color:"#607898"}}>
-            Tapez directement dans chaque champ — les valeurs se sauvegardent a chaque touche
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* 7 measurement cards */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:26}}>
         {FIELDS.map(function(f) {
+          var v = m[f.key];
+          var empty = v === "" || v == null || !(parseFloat(v) > 0);
+          var borderCol = empty ? "rgba(255,140,66,0.55)" : f.col;
           return (
-            <div key={f.key} style={{background:"#0F1C2E", border:"1px solid #1C3050",
-              borderRadius:10, padding:"14px 16px"}}>
-              <div style={{fontSize:9, color:"#607898", textTransform:"uppercase",
-                letterSpacing:"0.08em", marginBottom:10}}>{f.lbl}</div>
+            <div key={f.key} style={{background:"#0F1C2E",
+              border: "1px solid " + (empty ? "rgba(255,140,66,0.35)" : "#1C3050"),
+              borderRadius:10, padding:"14px 16px",
+              transition:"border-color 0.2s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:9, color:"#607898", textTransform:"uppercase",
+                  letterSpacing:"0.08em"}}>{f.lbl}</div>
+                {empty && (
+                  <span style={{fontSize:8,color:"#FF8C42",fontWeight:700,
+                    textTransform:"uppercase",letterSpacing:"0.05em"}}>vide</span>
+                )}
+              </div>
               <div style={{display:"flex", alignItems:"center", gap:8}}>
                 <input
                   type="number"
                   step="any"
-                  value={m[f.key] === "" || m[f.key] == null ? "" : m[f.key]}
+                  value={v === "" || v == null ? "" : v}
                   onChange={function(e){ setMeasField(f.key, e.target.value); }}
                   placeholder="0"
                   style={{
                     flex:1, background:"#0A1828",
-                    border:"2px solid " + f.col,
-                    borderRadius:6, color:f.col,
+                    border:"2px solid " + borderCol,
+                    borderRadius:6, color: empty ? "#607898" : f.col,
                     fontSize:22, fontWeight:900,
                     fontFamily:"monospace", padding:"6px 10px",
                     outline:"none", textAlign:"right",
                     boxSizing:"border-box",
+                    transition:"border-color 0.2s, color 0.2s",
                   }}
                 />
                 {f.unit ? <span style={{color:"#607898", fontSize:13, flexShrink:0}}>{f.unit}</span> : null}
@@ -1351,29 +1507,147 @@ function TabDevis({ project, mat, setToast }) {
 }
 
 /* ---- Reports ---- */
+var REPORT_TEMPLATES = {
+  meas: {
+    title:"Nouveau Rapport de Mesures",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    tech:"", techDate:new Date().toLocaleDateString("fr-FR"),
+    notes:"",
+    data:{"Surface murs":"","Surface toit":"","Perimetre":"","Hauteur":"","Emprise sol":"","Fenetres":"","Portes":""},
+    rows:[],
+  },
+  devis: {
+    title:"Nouveau Devis",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    lines:[{d:"Prestation 1",q:"1",u:"fft",pu:"0.00",t:"0.00"}],
+    discount:"0", acompte:"30",
+    payTerms:"Acompte 30% a la commande, solde a reception.",
+    notes:"Delai 3 semaines. Garantie decennale incluse. TVA 20%.",
+    validity:"30 jours",
+  },
+  insp: {
+    title:"Nouveau Rapport Inspection",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    tech:"", techDate:new Date().toLocaleDateString("fr-FR"),
+    checks:[
+      {z:"Facade", it:"Etat general facade", s:"ok", note:""},
+      {z:"Toiture", it:"Etat tuiles ardoises", s:"ok", note:""},
+      {z:"Murs porteurs", it:"Integrite structurelle", s:"ok", note:""},
+    ],
+    reco:"",
+  },
+  prop: {
+    title:"Nouvelle Proposition",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    intro:"",
+    projs:[],
+    gantt:[],
+    cgu:"Tout devis accepte engage le client. Prix fermes 30 jours.",
+    sigCl:"", sigPro:"",
+    version:"v1.0",
+  },
+};
+
+function nextRefForKind(kind, reports) {
+  var prefix = {meas:"RPT",devis:"DEV",insp:"INS",prop:"PRO"}[kind] || "DOC";
+  var year = new Date().getFullYear();
+  var n = (reports||[]).filter(function(r){ return r.kind === kind; }).length + 1;
+  return prefix + "-" + year + "-" + String(n).padStart(3,"0");
+}
+
 function Reports({ reports, setReports }) {
   var [sel,  setSel]  = useState(reports[0] && reports[0].id);
   var [toast,setToast]= useState("");
+  var [showNew, setShowNew] = useState(false);
   var r = reports.find(function(x){ return x.id === sel; });
   function upd(id, p) { setReports(function(rs){ return rs.map(function(x){ return x.id===id ? Object.assign({},x,p) : x; }); }); }
   function updD(id, k, p) { setReports(function(rs){ return rs.map(function(x){ if (x.id!==id) return x; var n={}; Object.keys(x[k]).forEach(function(f){n[f]=x[k][f];}); Object.keys(p).forEach(function(f){n[f]=p[f];}); return Object.assign({},x,{[k]:n}); }); }); }
+  function createReport(kind) {
+    var tpl = REPORT_TEMPLATES[kind];
+    if (!tpl) return;
+    var nr = Object.assign({}, JSON.parse(JSON.stringify(tpl)), {
+      id: "R" + Date.now(),
+      kind: kind,
+      status: "draft",
+      ref: nextRefForKind(kind, reports),
+      updated: new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),
+    });
+    setReports(function(rs){ return rs.concat([nr]); });
+    setSel(nr.id);
+    setShowNew(false);
+    setToast("Rapport cree");
+  }
+  function deleteReport(id) {
+    if (!window.confirm("Supprimer ce rapport definitivement?")) return;
+    setReports(function(rs){ return rs.filter(function(x){ return x.id !== id; }); });
+    setToast("Rapport supprime");
+    var rest = reports.filter(function(x){ return x.id !== id; });
+    setSel(rest[0] ? rest[0].id : null);
+  }
   var icons = {meas:"[M]",devis:"[$]",insp:"[I]",prop:"[P]"};
+  var KINDS = [
+    {id:"meas",  lbl:"Rapport de mesures"},
+    {id:"devis", lbl:"Devis commercial"},
+    {id:"insp",  lbl:"Inspection technique"},
+    {id:"prop",  lbl:"Proposition / contrat"},
+  ];
   return (
     <div style={{display:"flex",height:"100vh"}}>
       {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
+      {showNew && (
+        <div onClick={function(){setShowNew(false);}}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:200,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={function(e){e.stopPropagation();}}
+            style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
+              padding:24,width:460,maxWidth:"90vw"}}>
+            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:14}}>
+              Nouveau rapport - choisir un type
+            </div>
+            {KINDS.map(function(k) {
+              return (
+                <button type="button" key={k.id} onClick={function(){createReport(k.id);}}
+                  style={{display:"flex",alignItems:"center",gap:12,width:"100%",
+                    padding:"12px 14px",background:"#152135",border:"1px solid #1C3050",
+                    borderRadius:8,marginBottom:8,cursor:"pointer",outline:"none",
+                    color:"#E8EDF5",fontSize:13,fontWeight:600,textAlign:"left"}}>
+                  <span style={{fontFamily:"monospace",fontSize:12,color:"#00C2FF"}}>{icons[k.id]}</span>
+                  {k.lbl}
+                </button>
+              );
+            })}
+            <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+              <Btn sm={true} onClick={function(){setShowNew(false);}}>Annuler</Btn>
+            </div>
+          </div>
+        </div>
+      )}
       <div data-noprint="1" style={{width:245,borderRight:"1px solid #1C3050",overflowY:"auto",
         padding:"14px 0",flexShrink:0}}>
-        <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:700,color:"#607898",
-          textTransform:"uppercase",letterSpacing:"0.08em"}}>{reports.length} Rapports</div>
+        <div style={{padding:"0 14px 10px",display:"flex",justifyContent:"space-between",
+          alignItems:"center"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#607898",
+            textTransform:"uppercase",letterSpacing:"0.08em"}}>{reports.length} Rapports</div>
+          <button type="button" onClick={function(){setShowNew(true);}}
+            style={{background:"#00C2FF",color:"#000",border:"none",borderRadius:5,
+              padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer",outline:"none"}}>+</button>
+        </div>
         {reports.map(function(x) {
+          var active = sel===x.id;
           return (
-            <button type="button" key={x.id} onClick={function(){setSel(x.id);}} style={{
-              display:"block",width:"100%",padding:"11px 14px",
-              background:sel===x.id ? "rgba(0,194,255,0.13)" : "transparent",
-              border:"none",
-              borderLeft:"3px solid "+(sel===x.id ? "#00C2FF" : "transparent"),
-              cursor:"pointer",textAlign:"left",outline:"none",marginBottom:1,
-            }}>
+            <div key={x.id} onClick={function(){setSel(x.id);}}
+              role="button" tabIndex={0}
+              style={{
+                display:"block",width:"100%",padding:"11px 14px",
+                background:active ? "rgba(0,194,255,0.13)" : "transparent",
+                borderLeft:"3px solid "+(active ? "#00C2FF" : "transparent"),
+                cursor:"pointer",textAlign:"left",outline:"none",marginBottom:1,
+                position:"relative",
+              }}>
               <div style={{display:"flex",justifyContent:"space-between",
                 alignItems:"flex-start",marginBottom:3}}>
                 <span style={{fontSize:12,fontWeight:700,color:"#E8EDF5",flex:1,
@@ -1384,7 +1658,17 @@ function Reports({ reports, setReports }) {
               </div>
               <div style={{fontSize:10,color:"#607898"}}>{x.ref}</div>
               <div style={{fontSize:10,color:"#2E4A6A",marginTop:2}}>{x.updated}</div>
-            </button>
+              {active && (
+                <button type="button"
+                  onClick={function(e){ e.stopPropagation(); deleteReport(x.id); }}
+                  title="Supprimer"
+                  style={{position:"absolute",top:8,right:8,
+                    background:"rgba(255,71,87,0.13)",border:"1px solid #FF4757",
+                    color:"#FF4757",borderRadius:4,width:20,height:20,
+                    fontSize:11,fontWeight:900,cursor:"pointer",outline:"none",
+                    display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>X</button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -2156,7 +2440,9 @@ export default function App() {
       <Sidebar view={view} setView={nav}/>
       <div style={{marginLeft:W,minHeight:"100vh"}}>
         {view === "dash" && (
-          <Dashboard projects={projects} onOpen={openProject} onNew={function(){setModal(true);}}/>
+          <Dashboard projects={projects} reports={reports} onOpen={openProject}
+            onNew={function(){setModal(true);}}
+            onOpenReports={function(){nav("reports");}}/>
         )}
         {view === "project" && openP && (
           <ProjectDetail
