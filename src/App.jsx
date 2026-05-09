@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 
 const C = {
   bg:"#08111E", surf:"#0F1C2E", card:"#152135", border:"#1C3050",
@@ -129,6 +131,196 @@ const sh = (hex, p) => {
   return "rgb("+cl((n>>16)+p)+","+cl(((n>>8)&255)+p)+","+cl((n&255)+p)+")";
 };
 const W = 210; /* sidebar width */
+
+function slug(s) {
+  return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"")
+    .replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase() || "export";
+}
+
+function downloadBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+
+function csvEscape(v) {
+  var s = String(v == null ? "" : v);
+  if (s.indexOf('"') !== -1 || s.indexOf(";") !== -1 || s.indexOf("\n") !== -1) {
+    return '"' + s.replace(/"/g,'""') + '"';
+  }
+  return s;
+}
+
+function exportCsv(rows, filename) {
+  var content = "﻿" + rows.map(function(r){ return r.map(csvEscape).join(";"); }).join("\n");
+  downloadBlob(new Blob([content], {type:"text/csv;charset=utf-8"}), filename);
+}
+
+function exportProjectPdf(project) {
+  var doc = new jsPDF();
+  var m = project.meas || {};
+  doc.setFontSize(18); doc.setTextColor(0); doc.text("MesurePro - Rapport mesures", 14, 18);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text(project.addr || "", 14, 26);
+  doc.text(project.city || "", 14, 31);
+  doc.setTextColor(0);
+  autoTable(doc, {
+    startY: 38,
+    head: [["Mesure","Valeur","Unite"]],
+    body: [
+      ["Surface murs", m.walls||"-", "m2"],
+      ["Surface toit", m.roof||"-", "m2"],
+      ["Perimetre",    m.perim||"-","m"],
+      ["Hauteur",      m.h||"-",    "m"],
+      ["Emprise sol",  m.foot||"-", "m2"],
+      ["Fenetres",     m.win||"-",  ""],
+      ["Portes",       m.doors||"-",""],
+    ],
+    headStyles: {fillColor: [21,33,53]},
+  });
+  if (project.rooms && project.rooms.length > 0) {
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [["Facade","Surface","Long.","Haut.","Type"]],
+      body: project.rooms.map(function(r){ return [r.n||"",r.a||"",r.l||"",r.h||"",r.t==="r"?"Toit":"Mur"]; }),
+      headStyles: {fillColor: [21,33,53]},
+    });
+  }
+  doc.save("mesurepro-" + slug(project.addr) + ".pdf");
+}
+
+function exportProjectCsv(project) {
+  var m = project.meas || {};
+  var rows = [
+    ["Champ","Valeur"],
+    ["Adresse", project.addr||""],
+    ["Ville", project.city||""],
+    ["Surface murs (m2)", m.walls||""],
+    ["Surface toit (m2)", m.roof||""],
+    ["Perimetre (m)", m.perim||""],
+    ["Hauteur (m)", m.h||""],
+    ["Emprise sol (m2)", m.foot||""],
+    ["Fenetres", m.win||""],
+    ["Portes", m.doors||""],
+    [],
+    ["Facades:"],
+    ["Nom","Surface (m2)","Longueur","Hauteur","Type"],
+  ];
+  (project.rooms||[]).forEach(function(r){
+    rows.push([r.n||"",r.a||"",r.l||"",r.h||"",r.t==="r"?"Toit":"Mur"]);
+  });
+  exportCsv(rows, "mesurepro-" + slug(project.addr) + ".csv");
+}
+
+function exportProjectXlsx(project) { exportProjectCsv(project); }
+
+function exportReportPdf(r) {
+  var doc = new jsPDF();
+  doc.setFontSize(16); doc.text(r.title||"Rapport", 14, 18);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text("Reference: " + (r.ref||""), 14, 26);
+  if (r.updated) doc.text("Mise a jour: " + r.updated, 14, 31);
+  doc.setTextColor(0);
+  var y = 38;
+  if (r.co || r.cl) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Entreprise", r.co ? (r.co.nom||"") : "", "Client", r.cl ? (r.cl.nom||"") : ""]],
+      body: [
+        ["Adresse", r.co?(r.co.adr||""):"", "Adresse", r.cl?(r.cl.adr||""):""],
+        ["Tel",     r.co?(r.co.tel||""):"", "Tel",     r.cl?(r.cl.tel||""):""],
+        ["Email",   r.co?(r.co.email||""):"","Email",  r.cl?(r.cl.email||""):""],
+      ],
+      headStyles: {fillColor: [21,33,53]},
+      styles: {fontSize: 9},
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+  if (r.kind === "meas") {
+    if (r.data) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Mesure","Valeur"]],
+        body: Object.keys(r.data).map(function(k){ return [k, r.data[k]]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    }
+    if (r.rows) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Facade","Surface","Long.","Haut.","Materiau"]],
+        body: r.rows.map(function(row){ return [row.n,row.s,row.l,row.h,row.m]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    }
+    if (r.notes) {
+      doc.setFontSize(10);
+      var notes = doc.splitTextToSize("Notes: " + r.notes, 180);
+      doc.text(notes, 14, y);
+    }
+  }
+  if (r.kind === "devis") {
+    if (r.lines) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Description","Qte","Unite","P.U. EUR","Total EUR"]],
+        body: r.lines.map(function(l){ return [l.d,l.q,l.u,l.pu,l.t]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+    var sub = (r.lines||[]).reduce(function(a,l){ return a + parseFloat(l.t||0); }, 0);
+    var disc = parseFloat(r.discount||0);
+    var ad = sub*(1-disc/100), tva = ad*0.2, tot = ad+tva;
+    autoTable(doc, {
+      startY: y,
+      body: [
+        ["Sous-total HT", sub.toFixed(2)+" EUR"],
+        ["Remise "+disc+"%", "-"+(sub*disc/100).toFixed(2)+" EUR"],
+        ["TVA 20%", tva.toFixed(2)+" EUR"],
+        ["TOTAL TTC", tot.toFixed(2)+" EUR"],
+      ],
+      styles: {fontSize: 11, fontStyle: "bold"},
+      columnStyles: {1: {halign: "right"}},
+    });
+  }
+  if (r.kind === "insp" && r.checks) {
+    var STAT = {ok:"Conforme",warn:"Surveiller",crit:"Critique"};
+    autoTable(doc, {
+      startY: y,
+      head: [["Zone","Item","Statut","Note"]],
+      body: r.checks.map(function(c){ return [c.z,c.it,STAT[c.s]||c.s,c.note||""]; }),
+      headStyles: {fillColor: [21,33,53]},
+      styles: {fontSize: 9},
+    });
+    y = doc.lastAutoTable.finalY + 8;
+    if (r.reco) {
+      doc.setFontSize(11); doc.text("Recommandations:", 14, y);
+      doc.setFontSize(9);
+      doc.text(doc.splitTextToSize(r.reco, 180), 14, y + 6);
+    }
+  }
+  if (r.kind === "prop") {
+    if (r.intro) {
+      doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(r.intro, 180), 14, y);
+      y += 24;
+    }
+    if (r.projs) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Projet","Surface","Budget","Delai","Priorite"]],
+        body: r.projs.map(function(p){ return [p.n,p.s,p.b,p.d,p.p]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+    }
+  }
+  doc.save("mesurepro-" + slug(r.ref || r.title) + ".pdf");
+}
 
 const BM = {
   done:      {lbl:"Termine",     col:"#00E5A0", bg:"rgba(0,229,160,0.12)"},
@@ -443,7 +635,7 @@ function Sidebar({ view, setView }) {
     {id:"settings",icon:"S", lbl:"Parametres"},
   ];
   return (
-    <div style={{position:"fixed",top:0,left:0,width:W,height:"100vh",
+    <div data-noprint="1" style={{position:"fixed",top:0,left:0,width:W,height:"100vh",
       background:"#0F1C2E",borderRight:"1px solid #1C3050",
       display:"flex",flexDirection:"column",zIndex:100}}>
       <div style={{padding:"18px 16px 14px",borderBottom:"1px solid #1C3050"}}>
@@ -534,12 +726,12 @@ function Dashboard({ projects, onOpen, onNew }) {
         {list.map(function(p) {
           return (
             <div key={p.id}
-              onClick={p.status !== "draft" ? function(){onOpen(p);} : undefined}
+              onClick={p.status !== "processing" ? function(){onOpen(p);} : undefined}
               style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
-                overflow:"hidden",cursor:p.status==="draft" ? "default" : "pointer",
+                overflow:"hidden",cursor:p.status==="processing" ? "default" : "pointer",
                 transition:"border-color .2s,transform .2s"}}
               onMouseEnter={function(e){
-                if(p.status!=="draft"){e.currentTarget.style.borderColor="#00C2FF";e.currentTarget.style.transform="translateY(-2px)";}
+                if(p.status!=="processing"){e.currentTarget.style.borderColor="#00C2FF";e.currentTarget.style.transform="translateY(-2px)";}
               }}
               onMouseLeave={function(e){e.currentTarget.style.borderColor="#1C3050";e.currentTarget.style.transform="none";}}>
               <div style={{background:"#060D18",height:140,display:"flex",alignItems:"center",
@@ -599,6 +791,7 @@ function Dashboard({ projects, onOpen, onNew }) {
 
 /* ---- ProjectDetail ---- */
 var PTABS = [
+  {id:"photos",lbl:"Photos"},
   {id:"model", lbl:"Modele 3D"},
   {id:"meas",  lbl:"Mesures"},
   {id:"design",lbl:"Design"},
@@ -612,7 +805,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
   return (
     <div>
       {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
-      <div style={{position:"sticky",top:0,zIndex:10,height:50,background:"#0F1C2E",
+      <div data-noprint="1" style={{position:"sticky",top:0,zIndex:10,height:50,background:"#0F1C2E",
         borderBottom:"1px solid #1C3050",
         display:"flex",alignItems:"center",gap:12,padding:"0 20px"}}>
         <Btn sm={true} onClick={onBack}>Retour</Btn>
@@ -621,10 +814,18 @@ function ProjectDetail({ project, onBack, onUpdate }) {
           <span style={{fontSize:11,color:"#607898",marginLeft:8}}>{project.city}</span>
         </div>
         <Badge s={project.status}/>
-        <Btn sm={true} onClick={function(){setToast("PDF genere");}}>PDF</Btn>
-        <Btn sm={true} onClick={function(){setToast("Excel genere");}}>Excel</Btn>
+        {project.status === "draft" && (
+          <Btn sm={true} primary={true} onClick={function(){
+            var m = project.meas || {};
+            var area = parseFloat(m.foot) || parseFloat(m.walls) || 0;
+            onUpdate({status:"done", area:Math.round(area)});
+            setToast("Projet marque comme termine");
+          }}>Terminer</Btn>
+        )}
+        <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF telecharge");}}>PDF</Btn>
+        <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel telecharge");}}>Excel</Btn>
       </div>
-      <div style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
+      <div data-noprint="1" style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
         borderBottom:"1px solid #1C3050",
         display:"flex",alignItems:"flex-end",paddingLeft:20}}>
         {PTABS.map(function(t) {
@@ -642,11 +843,87 @@ function ProjectDetail({ project, onBack, onUpdate }) {
         })}
       </div>
       <div style={{minHeight:"calc(100vh - 92px)"}}>
+        {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat}/>}
         {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
         {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
       </div>
+    </div>
+  );
+}
+
+function TabPhotos({ project, onUpdate }) {
+  var photos = project.photos || [];
+  var [zoom, setZoom] = useState(null);
+  var inpRef = useRef();
+  function addFiles(fileList) {
+    var arr = Array.prototype.slice.call(fileList);
+    var next = arr.map(function(f) {
+      return { name: f.name, size: f.size, url: URL.createObjectURL(f) };
+    });
+    onUpdate({ photos: photos.concat(next) });
+  }
+  function removeAt(i) {
+    var p = photos[i];
+    if (p && p.url) { try { URL.revokeObjectURL(p.url); } catch(e){} }
+    onUpdate({ photos: photos.filter(function(_, j){ return j !== i; }) });
+  }
+  return (
+    <div style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:"#E8EDF5"}}>Photos du projet</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:3}}>{photos.length} fichier(s)</div>
+        </div>
+        <Btn primary={true} onClick={function(){ inpRef.current.click(); }}>+ Ajouter</Btn>
+        <input ref={inpRef} type="file" multiple accept="image/*" style={{display:"none"}}
+          onChange={function(e){ addFiles(e.target.files); e.target.value=""; }}/>
+      </div>
+      {photos.length === 0 && (
+        <div onClick={function(){ inpRef.current.click(); }}
+          style={{border:"2px dashed #1C3050",borderRadius:12,padding:"50px 20px",
+            textAlign:"center",cursor:"pointer",background:"rgba(0,194,255,0.04)"}}>
+          <div style={{fontSize:42,marginBottom:8,color:"#607898"}}>+</div>
+          <div style={{fontSize:14,color:"#E8EDF5",fontWeight:600}}>Glisser des photos ou cliquer</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:5}}>JPG, PNG, WEBP - aucune limite</div>
+        </div>
+      )}
+      {photos.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+          {photos.map(function(p, i) {
+            return (
+              <div key={i} style={{position:"relative",aspectRatio:"4/3",
+                borderRadius:8,overflow:"hidden",border:"1px solid #1C3050",
+                cursor:"pointer",background:"#060D18"}}
+                onClick={function(){ setZoom(p); }}>
+                <img src={p.url} alt={p.name}
+                  style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                <button type="button"
+                  onClick={function(e){ e.stopPropagation(); removeAt(i); }}
+                  style={{position:"absolute",top:5,right:5,
+                    background:"rgba(255,71,87,0.92)",color:"#fff",
+                    border:"none",borderRadius:4,width:22,height:22,
+                    fontSize:12,fontWeight:900,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>X</button>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,
+                  background:"rgba(0,0,0,0.7)",padding:"4px 8px",
+                  fontSize:10,color:"#E8EDF5",
+                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {zoom && (
+        <div onClick={function(){ setZoom(null); }}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,
+            display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",
+            padding:30,boxSizing:"border-box"}}>
+          <img src={zoom.url} alt={zoom.name}
+            style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+        </div>
+      )}
     </div>
   );
 }
@@ -1064,7 +1341,7 @@ function TabDevis({ project, mat, setToast }) {
             style={{width:"100%",marginBottom:9}}>
             Generer la proposition
           </Btn>
-          <Btn onClick={function(){setToast("Export PDF en cours");}} style={{width:"100%"}}>
+          <Btn onClick={function(){exportProjectPdf(project); setToast("PDF telecharge");}} style={{width:"100%"}}>
             Exporter en PDF
           </Btn>
         </div>
@@ -1084,7 +1361,7 @@ function Reports({ reports, setReports }) {
   return (
     <div style={{display:"flex",height:"100vh"}}>
       {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
-      <div style={{width:245,borderRight:"1px solid #1C3050",overflowY:"auto",
+      <div data-noprint="1" style={{width:245,borderRight:"1px solid #1C3050",overflowY:"auto",
         padding:"14px 0",flexShrink:0}}>
         <div style={{padding:"0 14px 10px",fontSize:11,fontWeight:700,color:"#607898",
           textTransform:"uppercase",letterSpacing:"0.08em"}}>{reports.length} Rapports</div>
@@ -1139,6 +1416,7 @@ function RptHead({ r, upd, T2, stats }) {
           return <option key={s} value={s}>{BM[s] ? BM[s].lbl : s}</option>;
         })}
       </select>
+      <Btn sm={true} onClick={function(){exportReportPdf(r); T2("PDF telecharge");}}>PDF</Btn>
       <Btn sm={true} onClick={function(){window.print();}}>Imprimer</Btn>
       <Btn sm={true} primary={true} onClick={function(){T2("Duplique");}}>Dupliquer</Btn>
     </div>
@@ -1462,6 +1740,7 @@ function RptProp({ r, upd, updD, T2 }) {
             return <option key={s} value={s}>{BM[s] ? BM[s].lbl : s}</option>;
           })}
         </select>
+        <Btn sm={true} onClick={function(){exportReportPdf(r); T2("PDF telecharge");}}>PDF</Btn>
         <Btn sm={true} onClick={function(){window.print();}}>Imprimer</Btn>
         <Btn sm={true} primary={true} onClick={function(){T2("Duplique");}}>Dupliquer</Btn>
       </div>
@@ -1566,9 +1845,23 @@ function Modal({ onClose, onCreate }) {
   var [addr, setAddr]   = useState("");
   var [city, setCity]   = useState("");
   var [cli,  setCli]    = useState("");
-  var [nPh,  setNPh]    = useState(0);
+  var [photos, setPhotos] = useState([]);
   var fRef = useRef();
   var ok = step === 0 ? addr.trim().length > 3 : true;
+  function onFiles(fileList) {
+    var arr = Array.prototype.slice.call(fileList);
+    var next = arr.map(function(f) {
+      return { name: f.name, size: f.size, url: URL.createObjectURL(f) };
+    });
+    setPhotos(function(prev){ return prev.concat(next); });
+  }
+  function removePhoto(i) {
+    setPhotos(function(prev) {
+      var p = prev[i];
+      if (p && p.url) { try { URL.revokeObjectURL(p.url); } catch(e){} }
+      return prev.filter(function(_, j){ return j !== i; });
+    });
+  }
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
@@ -1618,14 +1911,34 @@ function Modal({ onClose, onCreate }) {
               style={{border:"2px dashed #1C3050",borderRadius:10,padding:"24px",
                 textAlign:"center",cursor:"pointer",marginBottom:12,
                 background:"rgba(0,194,255,0.04)"}}>
-              <div style={{fontSize:32,marginBottom:7}}>{nPh > 0 ? "=" : "+"}</div>
+              <div style={{fontSize:32,marginBottom:7}}>{photos.length > 0 ? "=" : "+"}</div>
               <div style={{color:"#E8EDF5",fontSize:13,fontWeight:600}}>
-                {nPh > 0 ? nPh+" photo(s)" : "Glisser vos photos ici"}
+                {photos.length > 0 ? photos.length+" photo(s) selectionnee(s)" : "Glisser vos photos ici ou cliquer"}
               </div>
-              <div style={{color:"#607898",fontSize:11,marginTop:3}}>JPG, PNG</div>
+              <div style={{color:"#607898",fontSize:11,marginTop:3}}>JPG, PNG, WEBP</div>
               <input ref={fRef} type="file" multiple accept="image/*" style={{display:"none"}}
-                onChange={function(e){setNPh(e.target.files.length);}}/>
+                onChange={function(e){onFiles(e.target.files); e.target.value="";}}/>
             </div>
+            {photos.length > 0 && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,
+                maxHeight:160,overflowY:"auto",padding:"4px 2px"}}>
+                {photos.map(function(p, i) {
+                  return (
+                    <div key={i} style={{position:"relative",aspectRatio:"1/1",
+                      borderRadius:6,overflow:"hidden",border:"1px solid #1C3050"}}>
+                      <img src={p.url} alt={p.name}
+                        style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                      <button type="button" onClick={function(){removePhoto(i);}}
+                        style={{position:"absolute",top:3,right:3,
+                          background:"rgba(255,71,87,0.92)",color:"#fff",
+                          border:"none",borderRadius:4,width:18,height:18,
+                          fontSize:11,fontWeight:900,cursor:"pointer",lineHeight:1,
+                          display:"flex",alignItems:"center",justifyContent:"center"}}>X</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
         {step === 2 && (
@@ -1634,7 +1947,7 @@ function Modal({ onClose, onCreate }) {
             <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,
               padding:"13px 16px",marginBottom:14}}>
               {[["Adresse",addr||"--"],["Ville",city||"--"],
-                ["Client",cli||"--"],["Photos",nPh+" fichiers"]
+                ["Client",cli||"--"],["Photos",photos.length+" fichier(s)"]
               ].map(function(pair) {
                 return (
                   <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
@@ -1653,7 +1966,7 @@ function Modal({ onClose, onCreate }) {
           <Btn sm={true} primary={true}
             onClick={function(){
               if (step < 2) setStep(function(s){return s+1;});
-              else { onCreate({addr:addr,city:city,client:cli}); onClose(); }
+              else { onCreate({addr:addr,city:city,client:cli,photos:photos}); onClose(); }
             }}
             style={{opacity:ok ? 1 : 0.5, cursor:ok ? "pointer" : "not-allowed"}}>
             {step < 2 ? "Suivant" : "Lancer"}
@@ -1665,29 +1978,97 @@ function Modal({ onClose, onCreate }) {
 }
 
 /* ---- Settings ---- */
-function Settings() {
-  var rows = [
-    ["Profil","Jean Dupont - Entrepreneur - Paris"],
-    ["Abonnement","Pro - Renouvele le 1er juin 2026"],
-    ["Notifications","Email active - Push desactive"],
-    ["Export","PDF - Excel - JSON - DWG"],
+var DEFAULT_PROFILE = { nom:"Jean Dupont", role:"Entrepreneur", ville:"Paris", tel:"", email:"" };
+
+function Settings({ projects, reports }) {
+  var [profile, setProfile] = useState(function(){
+    return loadStored(STORE_KEY_PROFILE, DEFAULT_PROFILE);
+  });
+  var [toast, setToast] = useState("");
+  useEffect(function(){ saveStored(STORE_KEY_PROFILE, profile); }, [profile]);
+
+  function setField(k, v) { setProfile(function(p){ return Object.assign({},p,{[k]:v}); }); }
+  function resetDemo() {
+    if (!window.confirm("Effacer toutes vos donnees (projets + rapports + profil) et restaurer la demo?")) return;
+    try {
+      window.localStorage.removeItem(STORE_KEY_PROJECTS);
+      window.localStorage.removeItem(STORE_KEY_REPORTS);
+      window.localStorage.removeItem(STORE_KEY_PROFILE);
+    } catch(e) {}
+    window.location.reload();
+  }
+
+  var stats = [
+    {lbl:"Projets",   val:(projects||[]).length, col:"#00C2FF"},
+    {lbl:"Rapports",  val:(reports||[]).length,  col:"#00E5A0"},
+    {lbl:"En cours",  val:(projects||[]).filter(function(p){return p.status==="processing";}).length, col:"#FF8C42"},
+    {lbl:"Termines",  val:(projects||[]).filter(function(p){return p.status==="done";}).length, col:"#E8EDF5"},
   ];
+
+  var fields = [
+    ["Nom", "nom"],
+    ["Role", "role"],
+    ["Ville", "ville"],
+    ["Telephone", "tel"],
+    ["Email", "email"],
+  ];
+
   return (
-    <div style={{padding:"26px 28px"}}>
+    <div style={{padding:"26px 28px",overflowY:"auto",height:"100vh",boxSizing:"border-box"}}>
+      {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
       <div style={{fontSize:21,fontWeight:900,color:"#E8EDF5",marginBottom:18}}>Parametres</div>
-      {rows.map(function(row) {
-        return (
-          <div key={row[0]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
-            borderRadius:10,padding:"13px 16px",marginBottom:9,
-            display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>{row[0]}</div>
-              <div style={{fontSize:11,color:"#607898",marginTop:2}}>{row[1]}</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:22}}>
+        {stats.map(function(s) {
+          return (
+            <div key={s.lbl} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:10,padding:"12px 14px"}}>
+              <div style={{fontSize:20,fontWeight:900,color:s.col,fontFamily:"monospace"}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",marginTop:3}}>{s.lbl}</div>
             </div>
-            <Btn sm={true} onClick={function(){}}>Modifier</Btn>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:14}}>Profil utilisateur</div>
+        {fields.map(function(f) {
+          return (
+            <div key={f[1]} style={{display:"flex",alignItems:"center",gap:12,marginBottom:9}}>
+              <div style={{width:90,fontSize:11,color:"#607898"}}>{f[0]}</div>
+              <input value={profile[f[1]]||""}
+                onChange={function(e){setField(f[1], e.target.value);}}
+                style={{flex:1,background:"#08111E",border:"1px solid #1C3050",
+                  borderRadius:6,color:"#E8EDF5",fontSize:13,padding:"7px 10px",outline:"none"}}/>
+            </div>
+          );
+        })}
+        <div style={{fontSize:10,color:"#2E4A6A",marginTop:8}}>
+          Modifications sauvegardees automatiquement dans votre navigateur
+        </div>
+      </div>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:8}}>Stockage</div>
+        <div style={{fontSize:11,color:"#607898",marginBottom:12}}>
+          Toutes vos donnees sont stockees localement dans votre navigateur (localStorage).
+          Effacer le cache du navigateur supprimera tout.
+        </div>
+        <Btn sm={true} onClick={resetDemo}
+          style={{background:"rgba(255,71,87,0.13)",border:"1px solid #FF4757",color:"#FF4757"}}>
+          Reinitialiser (restaurer la demo)
+        </Btn>
+      </div>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14,opacity:0.6}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:6}}>Apparence</div>
+        <div style={{fontSize:11,color:"#607898"}}>
+          Theme clair - prevu dans une prochaine version (refonte CSS variables requise)
+        </div>
+      </div>
     </div>
   );
 }
@@ -1695,13 +2076,16 @@ function Settings() {
 /* ---- localStorage persistence ---- */
 var STORE_KEY_PROJECTS = "mesurepro.projects.v1";
 var STORE_KEY_REPORTS  = "mesurepro.reports.v1";
+var STORE_KEY_PROFILE  = "mesurepro.profile.v1";
 
 function loadStored(key, fallback) {
   try {
     var raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
     var parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : fallback;
+    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : fallback;
+    if (parsed && typeof parsed === "object") return parsed;
+    return fallback;
   } catch (e) {
     return fallback;
   }
@@ -1749,10 +2133,21 @@ export default function App() {
       date: new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),
       area:0, floors:0, roof:"--", shape:"M",
       client: info.client || "",
+      photos: info.photos || [],
       meas: Object.assign({},EMPTY_MEAS),
       rooms:[],
     };
     setProjects(function(ps){ return ps.concat([np]); });
+    /* Auto-promote processing -> draft after 3s (no real CV pipeline yet) */
+    setTimeout(function() {
+      setProjects(function(ps) {
+        return ps.map(function(p) {
+          return p.id === np.id && p.status === "processing"
+            ? Object.assign({},p,{status:"draft"})
+            : p;
+        });
+      });
+    }, 3000);
   }
 
   return (
@@ -1771,7 +2166,7 @@ export default function App() {
           />
         )}
         {view === "reports"  && <Reports reports={reports} setReports={setReports}/>}
-        {view === "settings" && <Settings/>}
+        {view === "settings" && <Settings projects={projects} reports={reports}/>}
       </div>
       {modal && (
         <Modal

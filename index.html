@@ -8,6 +8,30 @@
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body { background: #08111E; color: #E8EDF5; font-family: system-ui, -apple-system, sans-serif; }
       @keyframes spin { to { transform: rotate(360deg); } }
+
+      @media print {
+        @page { margin: 14mm; }
+        [data-noprint] { display: none !important; }
+        body, body * {
+          background: #fff !important;
+          color: #000 !important;
+          border-color: #ccc !important;
+          box-shadow: none !important;
+        }
+        body { margin: 0 !important; }
+        /* Force the main content to take the full width (sidebar is hidden) */
+        body > div > div[style*="margin-left"] { margin-left: 0 !important; }
+        /* Remove the sticky behaviour and any restricted heights */
+        [style*="position:sticky"], [style*="position: sticky"] { position: static !important; }
+        [style*="100vh"], [style*="calc(100vh"] { height: auto !important; min-height: 0 !important; }
+        [style*="overflow:hidden"], [style*="overflow: hidden"],
+        [style*="overflowY:auto"], [style*="overflow-y: auto"] { overflow: visible !important; }
+        /* Stop spinning animations */
+        [style*="animation"] { animation: none !important; }
+        /* Page breaks */
+        h1, h2, h3 { page-break-after: avoid; }
+        table, tr, td, th { page-break-inside: avoid; }
+      }
     </style>
   </head>
   <body>
