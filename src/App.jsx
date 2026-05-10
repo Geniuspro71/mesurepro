@@ -286,66 +286,120 @@ const MATS = [
 function MatDefs({ photos }) {
   return (
     <defs>
-      {/* Wood: vertical planks with grain */}
-      <pattern id="mat-wood" patternUnits="userSpaceOnUse" width="14" height="40">
-        <rect width="14" height="40" fill="#C68642"/>
-        <rect x="0"  width="0.7" height="40" fill="#7d4f25"/>
-        <rect x="13" width="0.7" height="40" fill="#7d4f25"/>
-        <rect x="6.6" width="0.7" height="40" fill="#7d4f25" opacity="0.5"/>
-        <ellipse cx="3.5" cy="12" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.5"/>
-        <ellipse cx="10" cy="28" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.5"/>
-        <line x1="0" y1="6" x2="14" y2="6.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
-        <line x1="0" y1="20" x2="14" y2="19.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
-        <line x1="0" y1="34" x2="14" y2="34.5" stroke="#a86c34" strokeWidth="0.2" opacity="0.5"/>
+      {/* Wood: horizontal lap siding with shadow lines (US clapboard) */}
+      <pattern id="mat-wood" patternUnits="userSpaceOnUse" width="60" height="14">
+        <rect width="60" height="14" fill="#C68642"/>
+        {/* Plank gradient (top lighter, bottom darker for relief) */}
+        <rect width="60" height="14" fill="url(#mat-wood-grad)"/>
+        {/* Cast shadow line at bottom of each plank */}
+        <rect x="0" y="12" width="60" height="2" fill="#5a3a1a" opacity="0.85"/>
+        <rect x="0" y="11" width="60" height="1" fill="#3a2410" opacity="0.5"/>
+        {/* Subtle horizontal grain */}
+        <line x1="0" y1="3" x2="60" y2="3.2" stroke="#a86c34" strokeWidth="0.25" opacity="0.5"/>
+        <line x1="0" y1="7" x2="60" y2="6.8" stroke="#a86c34" strokeWidth="0.25" opacity="0.4"/>
+        {/* Knots */}
+        <ellipse cx="14" cy="6" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.55"/>
+        <ellipse cx="42" cy="9" rx="1.6" ry="0.5" fill="#8a5828" opacity="0.55"/>
       </pattern>
-      {/* Stone: irregular blocks */}
-      <pattern id="mat-stone" patternUnits="userSpaceOnUse" width="40" height="28">
-        <rect width="40" height="28" fill="#9E8E7E"/>
-        <path d="M 0 0 L 18 0 L 22 4 L 18 14 L 0 14 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.5"/>
-        <path d="M 22 4 L 40 0 L 40 14 L 22 14 Z" fill="#94836f" stroke="#5e564b" strokeWidth="0.5"/>
-        <path d="M 0 14 L 13 14 L 17 22 L 13 28 L 0 28 Z" fill="#988775" stroke="#5e564b" strokeWidth="0.5"/>
-        <path d="M 13 14 L 30 14 L 30 28 L 17 28 L 13 22 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.5"/>
-        <path d="M 30 14 L 40 14 L 40 28 L 30 28 Z" fill="#8d7c6a" stroke="#5e564b" strokeWidth="0.5"/>
+      <linearGradient id="mat-wood-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stopColor="#dba463" stopOpacity="0.55"/>
+        <stop offset="100%" stopColor="#8a5828" stopOpacity="0.35"/>
+      </linearGradient>
+
+      {/* Stone: rich irregular ashlar masonry with cast shadow */}
+      <pattern id="mat-stone" patternUnits="userSpaceOnUse" width="50" height="34">
+        <rect width="50" height="34" fill="#9E8E7E"/>
+        <path d="M 0 0  L 22 0  L 26 5  L 24 16 L 0 16  Z"  fill="#aa9886" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 26 5 L 50 0  L 50 16 L 24 16 Z"          fill="#92816e" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 0 16 L 16 16 L 20 26 L 14 34 L 0 34 Z"   fill="#98876f" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 16 16 L 36 16 L 38 26 L 30 34 L 14 34 L 20 26 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 36 16 L 50 16 L 50 34 L 30 34 L 38 26 Z" fill="#8d7c6a" stroke="#5e564b" strokeWidth="0.6"/>
+        {/* Texture noise inside each stone */}
+        <circle cx="8"  cy="6"  r="0.4" fill="#5e564b" opacity="0.5"/>
+        <circle cx="18" cy="11" r="0.3" fill="#5e564b" opacity="0.4"/>
+        <circle cx="34" cy="9"  r="0.4" fill="#5e564b" opacity="0.5"/>
+        <circle cx="42" cy="4"  r="0.3" fill="#5e564b" opacity="0.4"/>
+        <circle cx="6"  cy="22" r="0.5" fill="#5e564b" opacity="0.5"/>
+        <circle cx="22" cy="28" r="0.4" fill="#5e564b" opacity="0.45"/>
+        <circle cx="40" cy="20" r="0.4" fill="#5e564b" opacity="0.5"/>
+        {/* Cast shadow under each top edge */}
+        <line x1="0"  y1="0.6"  x2="22" y2="0.6"  stroke="#5e564b" strokeWidth="0.4" opacity="0.4"/>
+        <line x1="26" y1="5.4"  x2="50" y2="0.6"  stroke="#5e564b" strokeWidth="0.4" opacity="0.4"/>
+        <line x1="0"  y1="16.6" x2="50" y2="16.6" stroke="#5e564b" strokeWidth="0.4" opacity="0.5"/>
       </pattern>
-      {/* Brick: staggered rows with mortar */}
-      <pattern id="mat-brick" patternUnits="userSpaceOnUse" width="32" height="16">
-        <rect width="32" height="16" fill="#dcc7a8"/>
-        <rect x="0.6"  y="0.6"  width="14.8" height="6.8" fill="#a0381f"/>
-        <rect x="16.6" y="0.6"  width="14.8" height="6.8" fill="#b14528"/>
-        <rect x="0.6"  y="8.6"  width="6.8"  height="6.8" fill="#a0381f"/>
-        <rect x="8.6"  y="8.6"  width="14.8" height="6.8" fill="#b14528"/>
-        <rect x="24.6" y="8.6"  width="6.8"  height="6.8" fill="#a0381f"/>
-        <rect x="0.6"  y="0.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
-        <rect x="16.6" y="0.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
-        <rect x="0.6"  y="8.6"  width="6.8"  height="1.2" fill="#c25538" opacity="0.5"/>
-        <rect x="8.6"  y="8.6"  width="14.8" height="1.2" fill="#c25538" opacity="0.5"/>
-        <rect x="24.6" y="8.6"  width="6.8"  height="1.2" fill="#c25538" opacity="0.5"/>
+
+      {/* Brick: 5-shade variation, deep mortar, cast shadow under each course */}
+      <pattern id="mat-brick" patternUnits="userSpaceOnUse" width="48" height="20">
+        <rect width="48" height="20" fill="#c4ad88"/>
+        {/* Row 1 */}
+        <rect x="0.7"  y="0.7"  width="14.6" height="8.6" fill="#a0381f"/>
+        <rect x="16.7" y="0.7"  width="14.6" height="8.6" fill="#b14528"/>
+        <rect x="32.7" y="0.7"  width="14.6" height="8.6" fill="#933020"/>
+        {/* Row 2 (staggered, half-brick offset) */}
+        <rect x="0.7"  y="10.7" width="6.6"  height="8.6" fill="#a0381f"/>
+        <rect x="8.7"  y="10.7" width="14.6" height="8.6" fill="#b14528"/>
+        <rect x="24.7" y="10.7" width="14.6" height="8.6" fill="#a8401f"/>
+        <rect x="40.7" y="10.7" width="6.6"  height="8.6" fill="#933020"/>
+        {/* Highlight on top edge of each brick (sun lit) */}
+        <rect x="0.7"  y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="16.7" y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="32.7" y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="0.7"  y="10.7" width="6.6"  height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="8.7"  y="10.7" width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="24.7" y="10.7" width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="40.7" y="10.7" width="6.6"  height="1.2" fill="#d05f3e" opacity="0.55"/>
+        {/* Shadow on bottom edge */}
+        <rect x="0.7"  y="8.1"  width="46.6" height="1.2" fill="#3a1208" opacity="0.45"/>
+        <rect x="0.7"  y="18.1" width="46.6" height="1.2" fill="#3a1208" opacity="0.45"/>
       </pattern>
-      {/* White stucco: subtle granular */}
-      <pattern id="mat-white" patternUnits="userSpaceOnUse" width="6" height="6">
-        <rect width="6" height="6" fill="#E8E4DC"/>
-        <circle cx="1.2" cy="1.5" r="0.35" fill="#bcb6a7" opacity="0.55"/>
-        <circle cx="4"   cy="3.4" r="0.3"  fill="#bcb6a7" opacity="0.45"/>
-        <circle cx="2.7" cy="4.6" r="0.35" fill="#a8a294" opacity="0.55"/>
-        <circle cx="5.2" cy="0.8" r="0.25" fill="#cdc6b7" opacity="0.5"/>
+
+      {/* White stucco: rich granular finish with subtle shadows */}
+      <pattern id="mat-white" patternUnits="userSpaceOnUse" width="10" height="10">
+        <rect width="10" height="10" fill="#E8E4DC"/>
+        <circle cx="1.5" cy="1.8" r="0.5" fill="#bcb6a7" opacity="0.55"/>
+        <circle cx="6"   cy="2.2" r="0.4" fill="#bcb6a7" opacity="0.5"/>
+        <circle cx="3.5" cy="5"   r="0.55" fill="#a8a294" opacity="0.55"/>
+        <circle cx="8"   cy="5.5" r="0.45" fill="#bcb6a7" opacity="0.45"/>
+        <circle cx="2"   cy="8"   r="0.4" fill="#a8a294" opacity="0.55"/>
+        <circle cx="6.5" cy="8.5" r="0.5" fill="#bcb6a7" opacity="0.55"/>
+        <circle cx="9.2" cy="0.8" r="0.3" fill="#cdc6b7" opacity="0.5"/>
+        <circle cx="0.5" cy="6.5" r="0.3" fill="#cdc6b7" opacity="0.45"/>
       </pattern>
-      {/* Grey concrete: horizontal bands + speckle */}
-      <pattern id="mat-grey" patternUnits="userSpaceOnUse" width="20" height="20">
-        <rect width="20" height="20" fill="#7A8899"/>
-        <line x1="0" y1="3"  x2="20" y2="2.5" stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
-        <line x1="0" y1="10" x2="20" y2="11"  stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
-        <line x1="0" y1="17" x2="20" y2="16.5" stroke="#5e6c7a" strokeWidth="0.45" opacity="0.5"/>
-        <circle cx="3" cy="6" r="0.3" fill="#5e6c7a" opacity="0.6"/>
-        <circle cx="14" cy="13" r="0.4" fill="#5e6c7a" opacity="0.6"/>
-        <circle cx="9" cy="18" r="0.3" fill="#5e6c7a" opacity="0.6"/>
+
+      {/* Grey concrete: poured slabs with control joints */}
+      <pattern id="mat-grey" patternUnits="userSpaceOnUse" width="40" height="40">
+        <rect width="40" height="40" fill="#7A8899"/>
+        {/* Aggregate dots */}
+        <circle cx="4"  cy="6"  r="0.45" fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="11" cy="13" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="20" cy="9"  r="0.55" fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="28" cy="20" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="34" cy="6"  r="0.5"  fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="6"  cy="24" r="0.5"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="14" cy="32" r="0.45" fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="24" cy="34" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="32" cy="28" r="0.55" fill="#5e6c7a" opacity="0.7"/>
+        {/* Control joint */}
+        <line x1="0"  y1="20" x2="40" y2="20" stroke="#3a4452" strokeWidth="0.6" opacity="0.6"/>
+        <line x1="20" y1="0"  x2="20" y2="40" stroke="#3a4452" strokeWidth="0.6" opacity="0.55"/>
       </pattern>
-      {/* Slate: overlapping diamonds */}
-      <pattern id="mat-slate" patternUnits="userSpaceOnUse" width="14" height="10">
-        <rect width="14" height="10" fill="#4A5568"/>
-        <polygon points="0,0 7,5 0,10" fill="#3a4452" stroke="#2c333d" strokeWidth="0.3"/>
-        <polygon points="14,0 7,5 14,10" fill="#3a4452" stroke="#2c333d" strokeWidth="0.3"/>
-        <polygon points="7,5 14,5 14,10 7,10" fill="#414b5a" opacity="0.6"/>
-        <polygon points="0,5 7,5 7,10 0,10" fill="#414b5a" opacity="0.6"/>
+
+      {/* Slate: overlapping shingles with cast shadow under each row */}
+      <pattern id="mat-slate" patternUnits="userSpaceOnUse" width="22" height="14">
+        <rect width="22" height="14" fill="#4A5568"/>
+        {/* Top row of shingles */}
+        <path d="M 0 0  L 11 0  L 11 8 L 0 8  Z"  fill="#3f4a5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 11 0 L 22 0  L 22 8 L 11 8 Z"  fill="#475164" stroke="#2a323e" strokeWidth="0.3"/>
+        {/* Bottom row staggered */}
+        <path d="M -5.5 8  L 5.5 8  L 5.5 14 L -5.5 14 Z" fill="#414b5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 5.5 8   L 16.5 8 L 16.5 14 L 5.5 14 Z" fill="#3f4a5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 16.5 8  L 27.5 8 L 27.5 14 L 16.5 14 Z" fill="#475164" stroke="#2a323e" strokeWidth="0.3"/>
+        {/* Highlight at the top of each shingle (slight gloss) */}
+        <line x1="0" y1="0.5"  x2="22" y2="0.5"  stroke="#5a677c" strokeWidth="0.4" opacity="0.5"/>
+        <line x1="0" y1="8.5"  x2="22" y2="8.5"  stroke="#5a677c" strokeWidth="0.4" opacity="0.5"/>
+        {/* Shadow under each row */}
+        <line x1="0" y1="7.7"  x2="22" y2="7.7"  stroke="#1a1f28" strokeWidth="0.5" opacity="0.7"/>
+        <line x1="0" y1="13.7" x2="22" y2="13.7" stroke="#1a1f28" strokeWidth="0.5" opacity="0.7"/>
       </pattern>
       {/* Photo-based custom material patterns */}
       {(photos || []).map(function(p, i) {
@@ -1025,54 +1079,186 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
         <svg width="100%" height="100%" viewBox="0 0 320 280"
           style={{display:"block", pointerEvents:"none"}}>
           <MatDefs photos={photos}/>
-          {/* shadow */}
-          <ellipse cx="165" cy="232" rx={Math.min(140, bw*0.85)} ry={Math.min(20, bd*0.27)} fill="rgba(0,0,0,0.28)"/>
+          <defs>
+            {/* Environment gradients */}
+            <linearGradient id="iso-sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#dde9f3"/>
+              <stop offset="55%"  stopColor="#f1f5f8"/>
+              <stop offset="100%" stopColor="#fafbfc"/>
+            </linearGradient>
+            <linearGradient id="iso-ground" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#dcd9cf"/>
+              <stop offset="100%" stopColor="#c8c4b6"/>
+            </linearGradient>
+            {/* Per-face top-light, bottom-shade gradient (sun simulation) */}
+            <linearGradient id="iso-face-light" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#fff" stopOpacity="0.18"/>
+              <stop offset="55%"  stopColor="#fff" stopOpacity="0.04"/>
+              <stop offset="100%" stopColor="#000" stopOpacity="0.16"/>
+            </linearGradient>
+            <linearGradient id="iso-face-shade" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#000" stopOpacity="0.08"/>
+              <stop offset="100%" stopColor="#000" stopOpacity="0.32"/>
+            </linearGradient>
+            {/* Window glass reflection */}
+            <linearGradient id="iso-glass" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%"   stopColor="#cfe2ee" stopOpacity="0.95"/>
+              <stop offset="50%"  stopColor="#7aaccc" stopOpacity="0.95"/>
+              <stop offset="100%" stopColor="#5588ad" stopOpacity="0.95"/>
+            </linearGradient>
+            <linearGradient id="iso-glass-side" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%"   stopColor="#9bb6c8" stopOpacity="0.92"/>
+              <stop offset="100%" stopColor="#456e8a" stopOpacity="0.92"/>
+            </linearGradient>
+            {/* Door wood gradient */}
+            <linearGradient id="iso-door-wood" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stopColor="#8a5a30"/>
+              <stop offset="100%" stopColor="#4a2a14"/>
+            </linearGradient>
+            {/* Soft cast shadow */}
+            <radialGradient id="iso-shadow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stopColor="#000" stopOpacity="0.42"/>
+              <stop offset="55%"  stopColor="#000" stopOpacity="0.18"/>
+              <stop offset="100%" stopColor="#000" stopOpacity="0"/>
+            </radialGradient>
+          </defs>
+
+          {/* Sky background (top half) and ground (bottom half) */}
+          <rect x="0" y="0" width="320" height="160" fill="url(#iso-sky)"/>
+          <rect x="0" y="160" width="320" height="120" fill="url(#iso-ground)"/>
+          {/* Subtle horizon line + ground shadow band */}
+          <line x1="0" y1="160" x2="320" y2="160" stroke="#a8a594" strokeWidth="0.4" opacity="0.6"/>
+
+          {/* Soft layered cast shadow under building */}
+          <ellipse cx="165" cy="234" rx={Math.min(150, bw*0.95)} ry={Math.min(22, bd*0.30)}
+            fill="url(#iso-shadow)"/>
+          <ellipse cx="165" cy="234" rx={Math.min(120, bw*0.78)} ry={Math.min(15, bd*0.22)}
+            fill="rgba(0,0,0,0.22)"/>
 
           {/* Render every visible wall, back-to-front, with its windows + door + floor lines */}
           {visibleWalls.map(function(w, i) {
             var feats = faceFeatures(w.bl, w.br, w.tl, w.tr, w.hasDoor);
             var fLines = floorLines(w.bl, w.br, w.tl, w.tr);
-            /* Side walls (east/west) get a slight darkening overlay so they
-               read as "shaded" relative to the front wall. */
-            var isSide = (w.id === "east" || w.id === "west");
+            var isSide  = (w.id === "east" || w.id === "west");
+            var isBack  = (w.id === "north");
+            /* Sun direction (front+left lit, side+back darker) */
+            var faceShade = isBack ? 0.30 : (isSide ? 0.18 : 0);
+            /* Foundation strip: 9% of wall height at the bottom, darker concrete */
+            var foundH = 0.09;
+            var bl = w.bl, br = w.br, tl = w.tl, tr = w.tr;
+            var fbl = { x: bl.x + (tl.x-bl.x)*foundH, y: bl.y + (tl.y-bl.y)*foundH };
+            var fbr = { x: br.x + (tr.x-br.x)*foundH, y: br.y + (tr.y-br.y)*foundH };
+            /* Gutter line: thin band right at the wall top */
+            var gH = 0.04;
+            var gbl = { x: tl.x - (tl.x-bl.x)*gH, y: tl.y - (tl.y-bl.y)*gH };
+            var gbr = { x: tr.x - (tr.x-br.x)*gH, y: tr.y - (tr.y-br.y)*gH };
             return (
               <g key={w.id}>
+                {/* 1. Material fill (pattern or color) */}
                 <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
                   fill={matFill} stroke="#0A0E1A" strokeWidth="1"/>
-                {isSide && (
+                {/* 2. Top-light / bottom-shade gradient (sun simulation) */}
+                <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
+                  fill="url(#iso-face-light)" stroke="none"/>
+                {/* 3. Side / back darken overlay */}
+                {faceShade > 0 && (
                   <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
-                    fill="rgba(0,0,0,0.22)" stroke="none"/>
+                    fill={"rgba(0,0,0," + faceShade + ")"} stroke="none"/>
                 )}
+                {/* 4. Foundation strip (concrete-grey base) */}
+                <polygon points={pp([w.bl, w.br, fbr, fbl])}
+                  fill="rgba(70,68,62,0.55)" stroke="rgba(40,38,32,0.6)" strokeWidth="0.4"/>
+                {/* 5. Floor lines */}
                 {fLines.map(function(l) {
                   return <line key={w.id+l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-                    stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
+                    stroke="rgba(0,0,0,0.32)" strokeWidth="0.5" strokeDasharray="2,2"/>;
                 })}
+                {/* 6. Windows + door */}
                 {feats.map(function(f) {
                   if (f.type === "door") {
                     var hx = f.points[1].x - 1.5;
                     var hy = (f.points[1].y + f.points[2].y) / 2;
+                    var dlbl = f.points[0], dlbr = f.points[1];
+                    var dltl = f.points[3], dltr = f.points[2];
                     return (
                       <g key={w.id+f.key}>
+                        {/* Frame */}
                         <polygon points={pp(f.points)}
-                          fill="#6B4226" stroke="#3a2614" strokeWidth="0.7"/>
-                        <circle cx={hx} cy={hy} r="0.9" fill="#DAA520"/>
+                          fill="url(#iso-door-wood)" stroke="#2a1808" strokeWidth="0.7"/>
+                        {/* Inner panel split */}
+                        <line
+                          x1={(dlbl.x+dltl.x)/2 + (dlbr.x-dlbl.x)*0.42}
+                          y1={(dlbl.y+dltl.y)/2 + (dlbr.y-dlbl.y)*0.42}
+                          x2={(dlbl.x+dltl.x)/2 + (dlbr.x-dlbl.x)*0.42}
+                          y2={(dltl.y+dltr.y)/2 + (dltr.y-dltl.y)*0.42}
+                          stroke="#1a0c04" strokeWidth="0.4" opacity="0.7"/>
+                        {/* Threshold */}
+                        <line x1={dlbl.x} y1={dlbl.y} x2={dlbr.x} y2={dlbr.y}
+                          stroke="#1a0c04" strokeWidth="1.3"/>
+                        {/* Brass handle */}
+                        <circle cx={hx} cy={hy} r="1.0" fill="#DAA520" stroke="#a87c0c" strokeWidth="0.3"/>
                       </g>
                     );
                   }
-                  return <polygon key={w.id+f.key} points={pp(f.points)}
-                    fill={isSide ? "rgba(100,178,228,0.78)" : "rgba(100,178,228,0.92)"}
-                    stroke="#3a6080" strokeWidth="0.6"/>;
+                  /* Window: frame + glass with reflection gradient + sill */
+                  var p0 = f.points[0], p1 = f.points[1], p2 = f.points[2], p3 = f.points[3];
+                  /* Inner glass area shrunk by ~12% inward */
+                  function inset(p, towards1, towards2, k) {
+                    return {
+                      x: p.x + (towards1.x - p.x)*k + (towards2.x - p.x)*0,
+                      y: p.y + (towards1.y - p.y)*k + (towards2.y - p.y)*0,
+                    };
+                  }
+                  var k = 0.12;
+                  var gp0 = { x: p0.x + (p1.x-p0.x)*k + (p3.x-p0.x)*k, y: p0.y + (p1.y-p0.y)*k + (p3.y-p0.y)*k };
+                  var gp1 = { x: p1.x + (p0.x-p1.x)*k + (p2.x-p1.x)*k, y: p1.y + (p0.y-p1.y)*k + (p2.y-p1.y)*k };
+                  var gp2 = { x: p2.x + (p3.x-p2.x)*k + (p1.x-p2.x)*k, y: p2.y + (p3.y-p2.y)*k + (p1.y-p2.y)*k };
+                  var gp3 = { x: p3.x + (p2.x-p3.x)*k + (p0.x-p3.x)*k, y: p3.y + (p2.y-p3.y)*k + (p0.y-p3.y)*k };
+                  /* Sill: extend bottom edge slightly downward + outward */
+                  var sillEx = 0.04;
+                  var sl = { x: p0.x - (p3.x-p0.x)*sillEx, y: p0.y - (p3.y-p0.y)*sillEx };
+                  var sr = { x: p1.x - (p2.x-p1.x)*sillEx, y: p1.y - (p2.y-p1.y)*sillEx };
+                  return (
+                    <g key={w.id+f.key}>
+                      {/* Outer frame */}
+                      <polygon points={pp(f.points)}
+                        fill="#fff" stroke="#222" strokeWidth="0.7"/>
+                      {/* Glass with reflection gradient */}
+                      <polygon points={pp([gp0, gp1, gp2, gp3])}
+                        fill={isSide ? "url(#iso-glass-side)" : "url(#iso-glass)"}
+                        stroke="#3a6080" strokeWidth="0.4"/>
+                      {/* Cross mullions */}
+                      <line x1={(gp0.x+gp1.x)/2} y1={(gp0.y+gp1.y)/2}
+                        x2={(gp3.x+gp2.x)/2} y2={(gp3.y+gp2.y)/2}
+                        stroke="#fff" strokeWidth="0.5" opacity="0.85"/>
+                      <line x1={(gp0.x+gp3.x)/2} y1={(gp0.y+gp3.y)/2}
+                        x2={(gp1.x+gp2.x)/2} y2={(gp1.y+gp2.y)/2}
+                        stroke="#fff" strokeWidth="0.5" opacity="0.85"/>
+                      {/* Sill */}
+                      <polygon points={pp([sl, sr, p1, p0])}
+                        fill="#d8d4c8" stroke="#4a4636" strokeWidth="0.3"/>
+                    </g>
+                  );
                 })}
+                {/* 7. Gutter line at top of wall */}
+                <polygon points={pp([gbl, gbr, tr, tl])}
+                  fill="#e8e3d4" stroke="#666359" strokeWidth="0.4"/>
               </g>
             );
           })}
 
           {/* Roof slopes — render only those facing the camera */}
           {roofVisFront && (
-            <polygon points={pp([P[5],P[4],rid,rid2])} fill={sh(rc,14)} stroke="#100804" strokeWidth="1"/>
+            <g>
+              <polygon points={pp([P[5],P[4],rid,rid2])} fill={"url(#mat-slate)"} stroke="#100804" strokeWidth="1"/>
+              <polygon points={pp([P[5],P[4],rid,rid2])} fill="url(#iso-face-light)" stroke="none"/>
+            </g>
           )}
           {roofVisBack && (
-            <polygon points={pp([P[7],P[6],rid2,rid])} fill={sh(rc,-6)} stroke="#100804" strokeWidth="1"/>
+            <g>
+              <polygon points={pp([P[7],P[6],rid2,rid])} fill={"url(#mat-slate)"} stroke="#100804" strokeWidth="1"/>
+              <polygon points={pp([P[7],P[6],rid2,rid])} fill="rgba(0,0,0,0.20)" stroke="none"/>
+            </g>
           )}
 
           {/* Gable triangles on east/west sides — under the ridge */}
