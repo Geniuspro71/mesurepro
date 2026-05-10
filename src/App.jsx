@@ -1580,14 +1580,88 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
         );
       })}
 
+      {/* Horizontal dimension chain along the bottom: per-bay sub-cotes
+          + total facade width below them. Ticks rise from the ground line
+          to the cote line (extension lines), arrows point inward. */}
+      {(function(){
+        var subY  = GROUND_Y + 38;
+        var totY  = GROUND_Y + 60;
+        var arrowL = 4;
+
+        /* Build x-stops: left edge, then for each window/door, then right edge */
+        var stops = [bx];
+        for (var c = 0; c < cols; c++) {
+          var x = bx + pad + c * (winW + pad);
+          stops.push(x);
+          if (hasDoor && c === Math.floor(cols/2)) {
+            /* the door uses dW slightly wider than winW (1.1x), keep the same x for left edge */
+            stops.push(x + winW * 1.1);
+          } else {
+            stops.push(x + winW);
+          }
+        }
+        stops.push(bx + bw);
+
+        function arrow(x, y, dir) {
+          /* dir = 1 right-pointing, -1 left-pointing */
+          var dx = arrowL * dir;
+          return x + "," + y + " " + (x + dx) + "," + (y - 3) + " " + (x + dx) + "," + (y + 3);
+        }
+
+        function drawCote(x1, x2, y, value) {
+          var cx = (x1 + x2) / 2;
+          return (
+            <g key={"hc-"+x1+"-"+x2}>
+              <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} stroke="#222" strokeWidth="0.55"/>
+              <line x1={x2} y1={y - 5} x2={x2} y2={y + 5} stroke="#222" strokeWidth="0.55"/>
+              <line x1={x1} y1={y} x2={x2} y2={y}     stroke="#222" strokeWidth="0.55"/>
+              <polygon points={arrow(x1, y, 1)}  fill="#222"/>
+              <polygon points={arrow(x2, y, -1)} fill="#222"/>
+              <text x={cx} y={y - 4} textAnchor="middle"
+                fill="#222" fontSize="10.5" fontStyle="italic"
+                fontFamily="Helvetica, Arial, sans-serif">
+                {value.toFixed(2)}
+              </text>
+            </g>
+          );
+        }
+
+        /* Extension lines from ground to the lower cote line */
+        var ext = [];
+        ext.push(<line key="ex-l" x1={bx} y1={GROUND_Y+14} x2={bx} y2={totY+5} stroke="#222" strokeWidth="0.35" opacity="0.7"/>);
+        ext.push(<line key="ex-r" x1={bx+bw} y1={GROUND_Y+14} x2={bx+bw} y2={totY+5} stroke="#222" strokeWidth="0.35" opacity="0.7"/>);
+
+        /* Per-bay sub-cotes: only show if facade width is generous enough to keep numbers readable */
+        var subEls = [];
+        if (bw > 280 && stops.length <= 14) {
+          for (var i = 0; i < stops.length - 1; i++) {
+            var x1 = stops[i], x2 = stops[i+1];
+            var distM = (x2 - x1) / scale;
+            if (distM < 0.05) continue;
+            subEls.push(drawCote(x1, x2, subY, distM));
+            /* small extension tick from ground to subY for inner stops */
+            if (i > 0) {
+              ext.push(<line key={"exi-"+i} x1={x1} y1={GROUND_Y+14} x2={x1} y2={subY+5}
+                stroke="#222" strokeWidth="0.3" opacity="0.55"/>);
+            }
+          }
+        }
+
+        return (
+          <g>
+            {ext}
+            {subEls}
+            {drawCote(bx, bx+bw, totY, realW)}
+          </g>
+        );
+      })()}
+
       {/* Caption */}
-      <text x={VB_W/2} y={VB_H - 35} textAnchor="middle"
-        fill="#222" fontSize="18" fontStyle="italic"
+      <text x={VB_W/2} y={VB_H - 12} textAnchor="middle"
+        fill="#222" fontSize="17" fontStyle="italic"
         fontFamily="Georgia, 'Times New Roman', serif">
         - {label} -
       </text>
-      <line x1={VB_W/2 - 90} y1={VB_H - 22} x2={VB_W/2 + 90} y2={VB_H - 22}
-        stroke="#222" strokeWidth="0.5"/>
     </svg>
   );
 }
