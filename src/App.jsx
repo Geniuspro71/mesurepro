@@ -3581,10 +3581,26 @@ function saveStored(key, value) {
   try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
 }
 
+/* Merge stored items with hardcoded defaults: keeps user-created or
+   user-edited entries from localStorage, but adds any default item
+   whose id is not present yet. Lets new demo projects/reports show
+   up automatically on next reload without wiping user data. */
+function mergeWithDefaults(stored, defaults) {
+  if (!stored || !Array.isArray(stored)) return defaults;
+  var ids = {};
+  stored.forEach(function(x){ if (x && x.id != null) ids[String(x.id)] = true; });
+  var missing = defaults.filter(function(d){ return d && d.id != null && !ids[String(d.id)]; });
+  return missing.length === 0 ? stored : stored.concat(missing);
+}
+
 /* ---- App root ---- */
 export default function App() {
-  var [projects, setProjects] = useState(function(){ return loadStored(STORE_KEY_PROJECTS, PROJS); });
-  var [reports,  setReports]  = useState(function(){ return loadStored(STORE_KEY_REPORTS,  RPTS);  });
+  var [projects, setProjects] = useState(function(){
+    return mergeWithDefaults(loadStored(STORE_KEY_PROJECTS, null), PROJS);
+  });
+  var [reports,  setReports]  = useState(function(){
+    return mergeWithDefaults(loadStored(STORE_KEY_REPORTS, null), RPTS);
+  });
   var [view,     setView]     = useState("dash");
   var [openId,   setOpenId]   = useState(null);
   var [modal,    setModal]    = useState(false);
