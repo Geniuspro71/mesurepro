@@ -1,246 +1,240 @@
-# MesurePro — Contexte complet pour Claude Code
+# MesurePro — Contexte Claude Code
 
-## 🎯 Objectif du projet
-Clone de l'application **Hover** (hover.to) — application professionnelle de mesure immobilière avec modèle 3D isométrique, saisie de mesures, visualisation de matériaux, génération de devis et rapports éditables.
+> **Dernière mise à jour : 10 mai 2026 — fin session 1**
+> **Repo :** https://github.com/Geniuspro71/mesurepro (privé)
+> **Dev local :** http://127.0.0.1:3000 via `npm run dev` (port 3000)
 
 ---
 
-## 🏗 Stack technique
-- **React 18** (JSX, hooks : useState, useEffect, useRef)
-- **Vite 5** (bundler, dev server port 3000)
-- **Zéro dépendance UI** — tout en CSS-in-JS inline (pas de Tailwind, pas de MUI)
-- **Zéro canvas** — le modèle 3D est un SVG isométrique pur
-- **Node.js 18+** requis
+## 🎯 Objectif
 
-## 🚀 Démarrer
+Application professionnelle de mesure immobilière inspirée de **Hover.to** :
+- Tableau de bord projets multi-statuts
+- Modèle 3D WebGL en temps réel (matériaux + textures photoréalistes)
+- Plans d'élévation 2D type architecte (4 façades cotées + niveaux altimétriques)
+- Saisie de mesures guidée
+- Devis automatique + 4 types de rapports
+- Export PDF / CSV
+- Workflow intake riche (géolocalisation, autocomplete adresses Belgique)
+
+---
+
+## 🏗 Stack actuelle
+
+| Lib | Version | Rôle |
+|---|---|---|
+| **React** | ^18.3 | UI |
+| **Vite** | ^5.4 | Dev server + build |
+| **@react-three/fiber** | **8.17.10** (pinné) | Canvas 3D React |
+| **@react-three/drei** | **9.114.3** (pinné) | OrbitControls, Environment, ContactShadows |
+| **three** | **0.171.0** (pinné) | Moteur 3D WebGL |
+| **jspdf** + **jspdf-autotable** | ^3 | Export PDF |
+
+**⚠️ Versions pinées exactes** (pas de caret) car `@react-three/fiber@9` casse en React 18.
+
 ```bash
-cd mesurepro
-npm install
+# Démarrer
+cd ~/Desktop/mesurepro
+npm install --legacy-peer-deps
 npm run dev
-# → http://localhost:3000
 ```
 
 ---
 
 ## 📁 Structure
+
 ```
 mesurepro/
 ├── src/
-│   ├── App.jsx          ← TOUT LE CODE (composant unique, 1800+ lignes)
-│   └── main.jsx         ← point d'entrée React
+│   ├── App.jsx              ← TOUT le code (4679 lignes, mono-fichier)
+│   └── main.jsx             ← entry React
 ├── public/
+│   ├── textures/            ← 12 fichiers Polyhaven (5.3 MB)
+│   │   ├── red_brick_03_diff.jpg + _disp.jpg
+│   │   ├── wood_planks_diff.jpg + _disp.jpg
+│   │   ├── cobblestone_05_diff.jpg + _disp.jpg
+│   │   ├── roof_07_diff.jpg + _disp.jpg
+│   │   ├── painted_plaster_wall_diff.jpg + _disp.jpg
+│   │   └── painted_concrete_diff.jpg + _disp.jpg
+│   ├── photos/              ← 9 photos Unsplash (4.4 MB)
+│   │   └── <unsplash-id>.jpg × 9 (vraies façades)
+│   ├── data/
+│   │   └── be-postal-codes.json  ← 2781 codes postaux belges (100 KB)
 │   └── favicon.svg
-├── index.html
-├── vite.config.js
+├── .claude/
+│   └── launch.json          ← config preview Claude Code
 ├── package.json
-└── CLAUDE_CODE_CONTEXT.md  ← CE FICHIER
+├── vite.config.js
+├── CLAUDE_CODE_CONTEXT.md   ← CE FICHIER
+└── HANDOFF.md               ← récap session pour suite
 ```
 
 ---
 
-## 🧩 Architecture de App.jsx
+## 🧱 Architecture App.jsx (4679 lignes)
 
-### Constantes globales
-| Nom | Rôle |
-|-----|------|
-| `C` | Palette de couleurs (bg, surface, accent, green, orange...) |
-| `EMPTY_MEAS` | Template vide pour les mesures d'un projet |
-| `PROJS` | 4 projets exemples (2 "done", 1 "processing", 1 "draft") |
-| `MATS` | 6 matériaux de revêtement avec couleurs et prix |
-| `RPTS` | 4 rapports exemples (mesures, devis, inspection, proposition) |
-| `W = 210` | Largeur fixe de la sidebar en pixels |
+### Constantes globales (top of file)
+- `C` : palette couleurs (bg, surf, card, border, acc, grn, org, red, txt, mut, dim)
+- `EMPTY_MEAS` : template mesures vides
+- `PROJS` : 5 projets démo (id 1-5: Paris, Lyon, Bordeaux, Nantes, **Haussmann**)
+- `MATS` : 6 matériaux (wood, stone, brick, white, grey, slate)
+- `RPTS` : 4 rapports démo
+- `BM` : badges statuts
+- `STORE_KEY_*` : clés localStorage (projects, reports, profile, civilites)
+- `DEFAULT_CIVILITES` : ["M.", "Mme", "Mlle", "Monsieur", "Madame", "Société", "SCI", "ASBL"]
+- `BE_BBOX` : bbox Belgique pour Photon API
+- `POLYHAVEN_BASE` = `"/textures/"` + `POLYHAVEN_SLUGS` map
+- `DEMO_PHOTOS_*` : photos par projet, taggées `facade: sud/nord/est/ouest/vue`
 
-### Composants utilitaires
-| Composant | Rôle |
-|-----------|------|
-| `Badge` | Pastille de statut colorée (done/processing/draft/review/sent) |
-| `Btn` | Bouton unifié (props: onClick, primary, sm, style) |
-| `Toast` | Notification verte temporaire (2.4s) |
-| `EF` | Champ éditable click-to-edit avec bouton OK — **PAS de onBlur** |
-| `NumInput` | Input numérique avec onChange direct (chaque touche sauvegarde) |
-| `House` | SVG illustratif 4 formes (L/S/M/F) avec prop matCol |
-| `IsoModel` | Modèle 3D isométrique SVG avec slider + boutons ← → + AUTO/PAUSE |
-| `sh(hex, p)` | Utilitaire : éclaircir/assombrir une couleur hex |
+### Helpers
+- `slug()`, `downloadBlob()`, `csvEscape()`, `exportCsv()`
+- `exportProjectPdf()`, `exportProjectCsv()`, `exportReportPdf()` (jspdf)
+- `unsplash(id)` → `/photos/{id}.jpg`
+- `loadStored()`, `saveStored()`, `mergeWithDefaults()` (localStorage + auto-refresh demo photos)
+- `loadBePostalCodes()` (cache JSON 2781 entrées)
+- `reverseGeocode(lat, lng)` (Nominatim OSM)
+- `searchAddressBE(q)` + `searchCityBE(q)` (Photon Komoot)
 
-### Vues principales (géré par App root)
-| Vue | Composant | Condition |
-|-----|-----------|-----------|
-| Tableau de bord | `Dashboard` | `view === "dash"` |
-| Détail projet | `ProjectDetail` | `view === "project" && openP` |
-| Rapports | `Reports` | `view === "reports"` |
-| Paramètres | `Settings` | `view === "settings"` |
+### Composants 3D (R3F)
+- `drawBrickTex/Bump`, `drawWoodTex/Bump`, etc. — fallback Canvas2D si Polyhaven cassé
+- `useMatTexture(matId, photoUrl, repeat)` → `{map, bumpMap}` THREE.Texture
+- `windowsForFace(width, height, fl, hasDoor)` — grid fenêtres
+- `FacadeFeatures` — fenêtres + porte + allèges sur 1 façade (4 instances/bâtiment)
+- `Building3D` — meshs walls + roof variants (gable/4pans/mansart/flat) + foundation + gutter
+- `IsoModel` — Canvas R3F + lights (ambient+hemi+directional shadow) + `<Environment preset="apartment">` + ContactShadows + OrbitControls
 
-### ProjectDetail — onglets
-| Onglet | Composant | Fonctionnalité |
-|--------|-----------|----------------|
-| Modèle 3D | `TabModel` | IsoModel + sélecteur matériau |
-| Mesures | `TabMeas` | Grille 7 champs + tableau façades CRUD |
-| Design | `TabDesign` | Prévisualisation matériaux sur House SVG |
-| Devis | `TabDevis` | Calcul auto HT/TVA/TTC + slider marge |
+### Composants 2D
+- `MatDefs` (SVG patterns fallback)
+- `MatTile`, `photoMat()` — preview matériaux
+- `Elevation` — plan 2D pro 1 façade (cotes V+H, niveaux altim, TN, limites propriété, légende)
+- `TabPlans` — grille 2×2 des 4 élévations + lightbox + photos liées par façade + export PDF
 
-### Rapports (4 types)
-| Composant | Type | Contenu |
-|-----------|------|---------|
-| `RptMeas` | `meas` | Mesures éditables + tableau façades + notes |
-| `RptDevis` | `devis` | Lignes devis éditables + calcul auto + conditions |
-| `RptInsp` | `insp` | Checklist 10 points + score + recommandations |
-| `RptProp` | `prop` | Proposition + planning Gantt + CGU + signatures |
-
----
-
-## ⚠️ Points critiques — NE PAS CASSER
-
-### 1. EF (Editable Field) — règle absolue : PAS de onBlur
-Le sandbox Claude.ai tue le focus immédiatement → `onBlur` ferme l'input avant que l'user tape.
-**Pattern correct :**
-```jsx
-// Valider avec bouton OK ou touche Enter/Escape uniquement
-<input autoFocus value={v} onChange={e=>setV(e.target.value)}
-  onKeyDown={e=>{ if(e.key==="Enter") commit(); if(e.key==="Escape") cancel(); }}/>
-<button type="button" onClick={commit}>OK</button>
-```
-
-### 2. NumInput — onChange sur chaque touche
-```jsx
-// CORRECT — sauvegarde immédiate à chaque touche
-<input type="number" value={m[key]} onChange={e => onUpdate({meas:{...m,[key]:e.target.value}})}/>
-
-// INTERDIT — onBlur ne se déclenche pas de façon fiable
-<input onBlur={save}/> // ← NE PAS FAIRE
-```
-
-### 3. TabMeas — PAS de state local pour rooms
-```jsx
-// CORRECT — lit directement depuis project.rooms (prop)
-var rooms = project.rooms || [];
-function setRoomField(i, field, val) {
-  onUpdate({rooms: rooms.map((r,j) => j===i ? {...r,[field]:val} : r)});
-}
-
-// INTERDIT — state local se désynchronise du parent
-var [rooms, setRooms] = useState(project.rooms); // ← NE PAS FAIRE
-```
-
-### 4. Boutons — toujours type="button"
-```jsx
-// CORRECT
-<button type="button" onClick={...}>
-
-// INTERDIT — se comporte comme submit dans certains contextes
-<button onClick={...}> // ← ajouter type="button" systématiquement
-```
-
-### 5. IsoModel — PAS de drag SVG
-Le drag souris sur SVG dans un iframe perd les events mouseup/mouseleave.
-**Solution actuelle :** slider HTML + boutons ← →
-
-### 6. React.memo — NE PAS UTILISER
-```jsx
-// INTERDIT dans ce projet — créait une parenthèse non fermée
-const X = React.memo(function X() {...}) // ← ne pas utiliser
-
-// CORRECT — fonction simple
-function X() {...}
-```
+### UI
+- `AutoComplete` (filtre local sync)
+- `AsyncAutoComplete` (debounce 320ms + Photon API + loading)
+- `Modal` (3 étapes : Identification → Photos → Lancement)
+- `CivilitesEditor` (Settings)
+- `Sidebar`, `Dashboard`, `ProjectDetail`, `Reports`, `Settings`
+- `TabPhotos`, `TabModel`, `TabMeas`, `TabDesign`, `TabDevis`
+- `RptHead`, `CoCl`, `RptMeas`, `RptDevis`, `RptInsp`, `RptProp`
 
 ---
 
-## 🔄 Flux de données
+## ✅ Ce qui marche
 
-```
-App (state: projects[], view, openId, modal)
- ├── projects: PROJS initiaux + addProject()
- ├── updateProject(id, patch) → setProjects(...)
- └── ProjectDetail
-      ├── project: openP (dérivé de projects par id)
-      ├── onUpdate: patch => updateProject(openP.id, patch)
-      └── TabMeas
-           ├── lit: project.meas, project.rooms (depuis prop)
-           └── écrit: onUpdate({meas:...}) ou onUpdate({rooms:...})
-```
+### Dashboard
+- 5 projets démo + recherche globale (projets + rapports) + filtres statut
+- Auto-promote `processing` → `draft` après 3s
+- Compteur photos par card + badge statut
 
----
+### Modèle 3D (R3F WebGL)
+- Drag souris/touch pour rotation, molette zoom
+- 4 faces visibles avec back-face culling automatique
+- Textures Polyhaven 1K + bumpMap (relief joints, planches, tuiles)
+- Environment HDR `apartment` → vrais reflets sur verre/laiton
+- ContactShadow + directional light shadow
+- Sliders sidebar : Étages (1-8), Hauteur (3-20m), Emprise (40-500m²) → recalcule meas auto
+- Toit 4 variantes selon `project.roof` : pignon / 4 pans hipped / mansart / terrasse
+- Cheminée + gouttière + soubassement + lignes inter-étages
 
-## 🗺 Roadmap — travail restant
+### Plans (architecte)
+- 4 élévations Sud/Est/Nord/Ouest avec cotes V+H, niveaux altim (±0.00 / +X.XX), TN hachuré, limites propriété orange
+- Photo réelle de chaque façade liée automatiquement (badge couleur Sud/Nord/Est/Ouest)
+- Lightbox plein écran : plan + photo côte à côte
+- Export PDF A4 paysage 2 plans/page (jspdf + canvas raster)
 
-### Priorité HAUTE
-- [ ] **Export PDF réel** : utiliser `@react-pdf/renderer` ou `jspdf` + `html2canvas`
-- [ ] **Export Excel** : utiliser `xlsx` (SheetJS) pour générer les devis
-- [ ] **Persistance localStorage** : sauvegarder `projects` et `reports` entre les sessions
-- [ ] **Nouveau projet fonctionnel** : la modal crée un projet "processing" mais sans vraie analyse
-- [ ] **Photos upload** : intégrer l'upload réel dans la modal (actuellement simulé)
+### Photos
+- 9 vraies photos Unsplash en local (validées visuellement)
+- Tag façade par photo + badge couleur dans la grille
+- Lightbox + drag-drop upload + Object URL custom
 
-### Priorité MOYENNE
-- [ ] **Mode sombre/clair** : toggle dans Paramètres
-- [ ] **Annotations sur le modèle 3D** : afficher les cotes mesurées sur les faces du modèle
-- [ ] **Impression CSS** : `@media print` pour les rapports (window.print() est déjà branché)
-- [ ] **Validation des champs** : indicateurs visuels pour valeurs manquantes dans TabMeas
-- [ ] **Recherche globale** : barre de recherche qui cherche aussi dans les rapports
+### Mesures
+- Banner progression X/7 (barre cyan→verte)
+- Bordures orange si vide + badge VIDE
+- Tableau façades CRUD
 
-### Priorité BASSE
-- [ ] **Comparaison de matériaux** : afficher 2 matériaux côte à côte dans TabDesign
-- [ ] **Historique des modifications** : undo/redo sur les mesures
-- [ ] **Multi-langue** : i18n FR/EN/ES
-- [ ] **PWA** : service worker + manifest pour usage offline
-- [ ] **Backend API** : remplacer les données statiques par une vraie API REST
+### Devis
+- Calcul auto HT/TVA/TTC + slider marge
+- Export PDF jspdf
 
----
+### Rapports
+- 4 types : meas / devis / insp / prop
+- Création nouveau rapport vide (modale type) + suppression
+- Export PDF par rapport
 
-## 🐛 Bugs connus et résolus
+### Intake (modal `+ Nouveau projet`)
+- **Étape 1 (Identification)** : champs séparés rue + N° + CP + Ville
+- Civilité paramétrable (`Settings → Civilités`) avec personne (M./Mme/...) vs entité (Société/SCI/ASBL)
+- Bouton **📍 Géolocaliser** → Nominatim reverse → remplit tout
+- **Adresse rue** : `AsyncAutoComplete` Photon → toutes les rues de Belgique
+- **Ville** : `AsyncAutoComplete` Photon → toutes villes + sous-communes (Templeuve, Lillo, Anderlues...)
+- **CP** : `AutoComplete` local (offline-friendly, 2781 entrées GeoNames)
+- Validation stricte (regex `^\d{4}$` pour CP)
 
-| Bug | Cause | Solution appliquée |
-|-----|-------|-------------------|
-| Onglets de navigation ne cliquent pas | `marginBottom:-1` recouvert + pas de `type="button"` | Layout sticky + `type="button"` partout |
-| Champs EF se ferment seuls | `onBlur` tué par iframe sandbox | Bouton OK explicite |
-| NumInput ne sauvegarde pas | `onBlur` + `useEffect` réinitialise | `onChange` direct |
-| TabMeas rooms désynchronisé | State local isolé du parent | Suppression du state local |
-| Modèle 3D incontrôlable | Drag SVG perd les events dans iframe | Slider + boutons ← → |
-| Crash "Unexpected token" | `React.memo(fn)` parenthèse non fermée | Fonctions simples |
-| Crash "unexpected token (51:19)" | Caractères accentués dans data JS | ASCII pur dans les objets de données |
-| Optional chaining `on?.85` invalide | `?.` sur un nombre littéral | Ternaire `on ? 0.85 : 0.22` |
-
----
-
-## 💡 Conventions de code dans ce projet
-
-1. **Pas d'arrow functions dans les render** pour les handlers complexes (utiliser `function`)
-2. **Pas de backtick template literals** dans les styles inline (concatenation + pour les strings)
-3. **Pas de caractères Unicode/accentués** dans les chaînes JS des objets de données (mettre dans JSX text si nécessaire)
-4. **var au lieu de const/let** dans les composants fonctionnels pour éviter les problèmes de parsing
-5. **Vérifier avec Babel parser** avant tout commit : `node -e "require('@babel/parser').parse(require('fs').readFileSync('src/App.jsx','utf8'),{sourceType:'module',plugins:['jsx']})"`
+### Settings
+- Profil utilisateur éditable + persisté
+- 4 stats live (projets, rapports, en cours, terminés)
+- Civilités éditables (chips + add + reset)
+- Reset démo (clear localStorage)
 
 ---
 
-## 🧪 Vérification rapide
+## ⏳ À faire (prochaine session)
+
+### URGENT — reprise immédiate
+1. **Étape 2 du modal intake** : la phrase user était tronquée — *« apres l'etape 2 ne sera pas photo mais remplir »*. Probable : remplir les **mesures** (façade par façade ?). À clarifier avec lui avant de coder.
+2. **Bluetooth laser mètre** : Web Bluetooth API pour Leica DISTO / Bosch GLM / Stanley TLM. Gros chantier (~500 lignes) :
+   - `navigator.bluetooth.requestDevice()` avec filtres UUID
+   - Parser trames BLE selon modèle (Leica DISTO X3/D2 vs Bosch GLM 50C, etc.)
+   - Bouton « Connecter laser » dans TabMeas → écrit auto les mesures reçues
+
+### Backlog
+- Theme clair (CSS variables refactor)
+- Étendre photos demo Haussmann (chercher photos vraies façades haussmanniennes)
+- xlsx réel (vs CSV actuel)
+- PWA (service worker)
+- Backend API (remplacer localStorage)
+- Tests E2E
+
+---
+
+## 🔗 URLs utiles
+
+| Ressource | URL |
+|---|---|
+| Repo GitHub | https://github.com/Geniuspro71/mesurepro |
+| Dev local | http://127.0.0.1:3000 |
+| Polyhaven (textures CC0) | https://polyhaven.com |
+| Unsplash | https://unsplash.com |
+| Photon API (autocomplete OSM) | https://photon.komoot.io |
+| Nominatim (reverse geocoding) | https://nominatim.openstreetmap.org |
+| GeoNames Belgique | https://download.geonames.org/export/zip/BE.zip |
+
+---
+
+## 🚀 Prochaine session — démarrage rapide
 
 ```bash
-# Vérifier que le fichier parse correctement
-node -e "
-const p = require('@babel/parser');
-const fs = require('fs');
-try {
-  p.parse(fs.readFileSync('src/App.jsx','utf8'),{sourceType:'module',plugins:['jsx']});
-  console.log('OK');
-} catch(e) { console.log('ERREUR ligne',e.loc.line,':',e.message); }
-"
+# 1. Cloner si nouveau Mac
+git clone git@github.com:Geniuspro71/mesurepro.git
+cd mesurepro
+npm install --legacy-peer-deps
 
-# Lancer en dev
+# 2. Démarrer
 npm run dev
+# → http://localhost:3000
 
-# Build de production
-npm run build
+# 3. Si problème WebGL/textures
+# Cmd+Shift+R hard reload
+# Si vraiment cassé :  Settings → Réinitialiser (clear localStorage)
 ```
 
 ---
 
-## 📞 Historique de session
+## 📌 Règles à respecter
 
-Cette application a été développée entièrement dans une session Claude.ai (claude-sonnet-4-6).
-Les itérations principales :
-1. Premier prototype (hover-clone.jsx) — architecture de base
-2. Refactorisation multi-agents — 23 bugs corrigés, 4 rapports ajoutés
-3. Corrections sandbox — boutons, blur, layout, parsing
-4. Réécriture complète — ASCII pur, fonctions simples, parsing vérifié
-5. Corrections finales — 3D slider, NumInput onChange direct, TabMeas sans state local
-
-**Total : ~15 itérations, ~1800 lignes de code production.**
+- ⛔ **NE PAS** mettre à jour `@react-three/fiber` au-dessus de **v8** (v9 casse React 18)
+- ⛔ **NE PAS** supprimer `--legacy-peer-deps` du flow npm install
+- ⛔ **NE PAS** toucher `/public/textures/` ni `/public/photos/` (assets bundlés)
+- ✅ **TOUJOURS** lancer le smoke test Babel parser avant commit (voir HANDOFF.md)
+- ✅ Utiliser `useMemo` pour les CanvasTextures (sinon recreate à chaque render)
