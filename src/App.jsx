@@ -1522,18 +1522,22 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
   /* Cas 1 façade : on a soit roomW soit roomD, l'autre se déduit de
      l'emprise pour rester math-cohérent (W × D = foot). Fallback final
      ratio 1.6 si aucune des deux paires n'est saisie. */
-  var realW, realD;
+  var realW, realD, dimSource;
   if (roomW != null && roomD != null) {
     realW = roomW; realD = roomD;
+    dimSource = "façades exactes";
   } else if (roomW != null) {
     realW = roomW;
     realD = realFoot > 0 ? realFoot / roomW : roomW * 0.6;
+    dimSource = "Sud/Nord exact + profondeur déduite";
   } else if (roomD != null) {
     realD = roomD;
     realW = realFoot > 0 ? realFoot / roomD : roomD * 0.6;
+    dimSource = "Est/Ouest exact + largeur déduite";
   } else {
     realW = Math.sqrt(realFoot * ratio);
     realD = Math.sqrt(realFoot / ratio);
+    dimSource = "estimé (aucune façade)";
   }
 
   /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
@@ -1629,8 +1633,11 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
         <div style={{flex:1, fontSize:11, color:"#607898", textAlign:"center"}}>
           Glissez pour tourner — molette pour zoomer
         </div>
-        <div style={{fontSize:10, color:"#2E4A6A", fontFamily:"monospace"}}>
+        <div style={{fontSize:10, color:"#2E4A6A", fontFamily:"monospace", textAlign:"right"}}>
           {realW.toFixed(1)} × {realD.toFixed(1)} × {realH.toFixed(1)} m
+          <div style={{fontSize:8, color:"#00C2FF", marginTop:1}}>
+            v2.7 · {dimSource}
+          </div>
         </div>
       </div>
     </div>
@@ -2100,7 +2107,7 @@ function Sidebar({ view, setView }) {
             fontSize:16,fontWeight:900,color:"#000"}}>M</div>
           <div>
             <div style={{fontSize:15,fontWeight:900,color:"#E8EDF5"}}>MesurePro</div>
-            <div style={{fontSize:10,color:"#607898"}}>v2.6</div>
+            <div style={{fontSize:10,color:"#607898"}}>v2.7</div>
           </div>
         </div>
       </div>
