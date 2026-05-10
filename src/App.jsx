@@ -15,14 +15,12 @@ const C = {
 
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
-/* Demo photos: real Unsplash images (CC0-style royalty-free, hot-linkable).
-   A small ?w= query keeps the bandwidth manageable (~80-120 KB each).
-   These render as proper photographs in TabPhotos, the lightbox, and as
-   custom material textures when applied to the 3D building. */
-function unsplash(id, opts) {
-  var w = (opts && opts.w) || 1200;
-  var q = (opts && opts.q) || 85;
-  return "https://images.unsplash.com/photo-" + id + "?w=" + w + "&q=" + q + "&auto=format&fit=crop";
+/* Demo photos: real Unsplash images, downloaded into /public/photos/
+   so they load same-origin (no CORS dance). When applied as a material
+   on the 3D building they go straight through THREE.TextureLoader
+   without the WebGLRenderer choking on cross-origin pixels. */
+function unsplash(id) {
+  return "/photos/" + id + ".jpg";
 }
 
 var DEMO_PHOTOS_PARIS = [
