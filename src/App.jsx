@@ -3833,14 +3833,127 @@ function RptProp({ r, upd, updD, T2 }) {
 }
 
 /* ---- Modal ---- */
+/* ---- AutoComplete: simple inline dropdown (light, no external dep) ---- */
+function AutoComplete({ value, onChange, onPick, getLabel, options, placeholder, max }) {
+  var [open, setOpen] = useState(false);
+  max = max || 8;
+  var v = (value || "").toString().trim().toLowerCase();
+  var matches = !v ? [] : (options || []).filter(function(o){
+    return getLabel(o).toLowerCase().indexOf(v) === 0;
+  }).slice(0, max);
+  return (
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={function(e){ onChange(e.target.value); setOpen(true); }}
+        onFocus={function(){ setOpen(true); }}
+        onBlur={function(){ setTimeout(function(){ setOpen(false); }, 180); }}
+        placeholder={placeholder}
+        style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+          border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+          fontSize:13,padding:"9px 12px",outline:"none"}}/>
+      {open && matches.length > 0 && (
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,
+          background:"#0F1C2E",border:"1px solid #00C2FF",borderRadius:7,marginTop:3,
+          maxHeight:220,overflowY:"auto",
+          boxShadow:"0 6px 22px rgba(0,0,0,0.55)"}}>
+          {matches.map(function(o, i) {
+            return (
+              <button key={i} type="button"
+                onMouseDown={function(e){ e.preventDefault(); onPick(o); setOpen(false); }}
+                style={{display:"block",width:"100%",padding:"7px 12px",
+                  background:"transparent",border:"none",textAlign:"left",
+                  color:"#E8EDF5",fontSize:12,cursor:"pointer",outline:"none",
+                  borderBottom: i < matches.length - 1 ? "1px solid #1C3050" : "none"}}
+                onMouseEnter={function(e){ e.currentTarget.style.background = "rgba(0,194,255,0.13)"; }}
+                onMouseLeave={function(e){ e.currentTarget.style.background = "transparent"; }}>
+                {getLabel(o)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Modal({ onClose, onCreate }) {
-  var [step, setStep]   = useState(0);
-  var [addr, setAddr]   = useState("");
-  var [city, setCity]   = useState("");
-  var [cli,  setCli]    = useState("");
-  var [photos, setPhotos] = useState([]);
+  var [step, setStep]       = useState(0);
+  /* Identification fields */
+  var [civilite, setCivilite] = useState("M.");
+  var [nom, setNom]         = useState("");
+  var [prenom, setPrenom]   = useState("");
+  /* Address fields */
+  var [rue, setRue]         = useState("");
+  var [num, setNum]         = useState("");
+  var [cp, setCp]           = useState("");
+  var [city, setCity]       = useState("");
+  /* Photos */
+  var [photos, setPhotos]   = useState([]);
   var fRef = useRef();
-  var ok = step === 0 ? addr.trim().length > 3 : true;
+  /* Belgian postal codes loaded async */
+  var [bePostal, setBePostal] = useState([]);
+  var [geoStatus, setGeoStatus] = useState("");
+  /* Civilités configurables (from localStorage) */
+  var civilites = useMemo(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  }, []);
+
+  useEffect(function() {
+    loadBePostalCodes().then(function(j){ setBePostal(j); });
+  }, []);
+
+  /* "Civilité personne" => prénom required. Société/SCI/ASBL => nom only. */
+  var isPerson = ["M.","Mme","Mlle","Monsieur","Madame","Mademoiselle"].indexOf(civilite) !== -1;
+
+  /* Validation */
+  var step0Ok = nom.trim().length > 1
+    && (!isPerson || prenom.trim().length > 1)
+    && rue.trim().length > 2
+    && num.trim().length > 0
+    && /^\d{4}$/.test(cp.trim())
+    && city.trim().length > 1;
+  var stepOk = step === 0 ? step0Ok : true;
+
+  function geoLocate() {
+    if (!navigator.geolocation) {
+      setGeoStatus("Géolocalisation non supportée par ce navigateur");
+      return;
+    }
+    setGeoStatus("Localisation en cours…");
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        setGeoStatus("Lecture de l'adresse…");
+        reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(function(d){
+          if (!d || !d.address) {
+            setGeoStatus("Adresse introuvable - saisissez manuellement");
+            return;
+          }
+          var a = d.address;
+          if (a.road) setRue(a.road);
+          if (a.house_number) setNum(a.house_number);
+          if (a.postcode) setCp(a.postcode);
+          var v = a.city || a.town || a.village || a.municipality || a.suburb;
+          if (v) setCity(v);
+          setGeoStatus("✓ Adresse localisée");
+        }).catch(function(){ setGeoStatus("Erreur de géolocalisation"); });
+      },
+      function(err) {
+        setGeoStatus(err.code === 1 ? "Permission refusée" :
+                     err.code === 2 ? "Position indisponible" :
+                     err.code === 3 ? "Délai dépassé" : "Erreur " + err.code);
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  }
+
+  function pickPostalByCp(item) {
+    setCp(item[0]);
+    setCity(item[1]);
+  }
+  function pickPostalByCity(item) {
+    setCity(item[1]);
+    setCp(item[0]);
+  }
+
   function onFiles(fileList) {
     var arr = Array.prototype.slice.call(fileList);
     var next = arr.map(function(f) {
@@ -3855,13 +3968,25 @@ function Modal({ onClose, onCreate }) {
       return prev.filter(function(_, j){ return j !== i; });
     });
   }
+
+  /* Composed values for the project record */
+  var fullClient = isPerson ? (civilite + " " + prenom.trim() + " " + nom.trim()).trim()
+                            : (civilite + " " + nom.trim()).trim();
+  var fullAddr   = (num.trim() + " " + rue.trim()).trim();
+
+  var labelStyle = {fontSize:11,color:"#607898",marginBottom:4};
+  var inputStyle = {width:"100%",boxSizing:"border-box",background:"#08111E",
+    border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+    fontSize:13,padding:"9px 12px",outline:"none"};
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
       <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
-        padding:28,width:480,maxWidth:"90vw",boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
-        <div style={{display:"flex",gap:5,marginBottom:24}}>
-          {["Adresse","Photos","Lancement"].map(function(s, i) {
+        padding:24,width:560,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+        <div style={{display:"flex",gap:5,marginBottom:22}}>
+          {["Identification","Photos","Lancement"].map(function(s, i) {
             return (
               <div key={i} style={{flex:1,display:"flex",flexDirection:"column",
                 alignItems:"center",gap:4}}>
@@ -3877,26 +4002,102 @@ function Modal({ onClose, onCreate }) {
             );
           })}
         </div>
+
         {step === 0 && (
           <div>
-            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:14}}>Adresse du projet</div>
-            {[["Adresse complète",addr,setAddr,"12 Rue de la Liberte"],
-              ["Ville et code postal",city,setCity,"Marseille, 13001"],
-              ["Nom du client",cli,setCli,"M. Dupont"],
-            ].map(function(row) {
-              return (
-                <div key={row[0]} style={{marginBottom:11}}>
-                  <div style={{fontSize:11,color:"#607898",marginBottom:4}}>{row[0]}</div>
-                  <input value={row[1]} onChange={function(e){row[2](e.target.value);}}
-                    placeholder={row[3]}
-                    style={{width:"100%",boxSizing:"border-box",background:"#08111E",
-                      border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
-                      fontSize:13,padding:"9px 12px",outline:"none"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Identification du chantier</div>
+              <button type="button" onClick={geoLocate}
+                title="Localiser automatiquement via le GPS"
+                style={{background:"#152135",border:"1px solid #00C2FF",
+                  color:"#00C2FF",borderRadius:7,padding:"5px 11px",fontSize:11,
+                  fontWeight:700,cursor:"pointer",outline:"none"}}>
+                📍 Géolocaliser
+              </button>
+            </div>
+            {geoStatus && (
+              <div style={{fontSize:10,color:"#00C2FF",marginBottom:10,fontStyle:"italic"}}>
+                {geoStatus}
+              </div>
+            )}
+
+            {/* Address */}
+            <div style={{display:"grid",gridTemplateColumns:"3fr 1fr",gap:8,marginBottom:9}}>
+              <div>
+                <div style={labelStyle}>Adresse (rue) *</div>
+                <input value={rue} onChange={function(e){setRue(e.target.value);}}
+                  placeholder="Boulevard Haussmann"
+                  style={inputStyle}/>
+              </div>
+              <div>
+                <div style={labelStyle}>N° *</div>
+                <input value={num} onChange={function(e){setNum(e.target.value);}}
+                  placeholder="15"
+                  style={inputStyle}/>
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginBottom:9}}>
+              <div>
+                <div style={labelStyle}>Code postal *</div>
+                <AutoComplete
+                  value={cp}
+                  onChange={setCp}
+                  onPick={pickPostalByCp}
+                  getLabel={function(o){ return o[0]; }}
+                  options={bePostal}
+                  placeholder="1000"
+                  max={10}/>
+              </div>
+              <div>
+                <div style={labelStyle}>Ville *</div>
+                <AutoComplete
+                  value={city}
+                  onChange={setCity}
+                  onPick={pickPostalByCity}
+                  getLabel={function(o){ return o[1]; }}
+                  options={bePostal}
+                  placeholder="Bruxelles"
+                  max={10}/>
+              </div>
+            </div>
+
+            <div style={{height:1,background:"#1C3050",margin:"14px 0 12px"}}/>
+
+            {/* Client identity */}
+            <div style={{display:"grid",
+              gridTemplateColumns: isPerson ? "1fr 1.5fr 1.5fr" : "1fr 3fr",
+              gap:8}}>
+              <div>
+                <div style={labelStyle}>Civilité *</div>
+                <select value={civilite} onChange={function(e){setCivilite(e.target.value);}}
+                  style={Object.assign({}, inputStyle, {cursor:"pointer"})}>
+                  {civilites.map(function(c){ return <option key={c} value={c}>{c}</option>; })}
+                </select>
+              </div>
+              <div>
+                <div style={labelStyle}>{isPerson ? "Nom *" : "Raison sociale *"}</div>
+                <input value={nom} onChange={function(e){setNom(e.target.value);}}
+                  placeholder={isPerson ? "Bernard" : "SCI Haussmann"}
+                  style={inputStyle}/>
+              </div>
+              {isPerson && (
+                <div>
+                  <div style={labelStyle}>Prénom *</div>
+                  <input value={prenom} onChange={function(e){setPrenom(e.target.value);}}
+                    placeholder="Laurent"
+                    style={inputStyle}/>
                 </div>
-              );
-            })}
+              )}
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",marginTop:11,lineHeight:1.5}}>
+              Tous les champs marqués * sont obligatoires.
+              <br/>Les civilités sont configurables dans <span style={{color:"#607898",fontWeight:700}}>Paramètres</span>.
+            </div>
           </div>
         )}
+
         {step === 1 && (
           <div>
             <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:5}}>Photos</div>
@@ -3906,7 +4107,7 @@ function Modal({ onClose, onCreate }) {
                 background:"rgba(0,194,255,0.04)"}}>
               <div style={{fontSize:32,marginBottom:7}}>{photos.length > 0 ? "=" : "+"}</div>
               <div style={{color:"#E8EDF5",fontSize:13,fontWeight:600}}>
-                {photos.length > 0 ? photos.length+" photo(s) selectionnee(s)" : "Glisser vos photos ici ou cliquer"}
+                {photos.length > 0 ? photos.length+" photo(s) sélectionnée(s)" : "Glisser vos photos ici ou cliquer"}
               </div>
               <div style={{color:"#607898",fontSize:11,marginTop:3}}>JPG, PNG, WEBP</div>
               <input ref={fRef} type="file" multiple accept="image/*" style={{display:"none"}}
@@ -3934,34 +4135,48 @@ function Modal({ onClose, onCreate }) {
             )}
           </div>
         )}
+
         {step === 2 && (
           <div>
-            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:5}}>Lancer l analyse</div>
+            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:8}}>Récapitulatif</div>
             <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,
               padding:"13px 16px",marginBottom:14}}>
-              {[["Adresse",addr||"--"],["Ville",city||"--"],
-                ["Client",cli||"--"],["Photos",photos.length+" fichier(s)"]
+              {[["Client",fullClient||"--"],
+                ["Adresse",fullAddr||"--"],
+                ["Code postal / Ville", (cp||"--") + " " + (city||"--")],
+                ["Photos",photos.length+" fichier(s)"]
               ].map(function(pair) {
                 return (
                   <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
                     padding:"5px 0",borderBottom:"1px solid #1C3050"}}>
                     <span style={{fontSize:12,color:"#607898"}}>{pair[0]}</span>
-                    <span style={{fontSize:12,color:"#E8EDF5",fontWeight:600}}>{pair[1]}</span>
+                    <span style={{fontSize:12,color:"#E8EDF5",fontWeight:600,
+                      maxWidth:"60%",textAlign:"right",overflow:"hidden",textOverflow:"ellipsis"}}>{pair[1]}</span>
                   </div>
                 );
               })}
             </div>
           </div>
         )}
+
         <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:18}}>
           <Btn sm={true} onClick={onClose}>Annuler</Btn>
-          {step > 0 && <Btn sm={true} onClick={function(){setStep(function(s){return s-1;});}}>Precedent</Btn>}
+          {step > 0 && <Btn sm={true} onClick={function(){setStep(function(s){return s-1;});}}>Précédent</Btn>}
           <Btn sm={true} primary={true}
             onClick={function(){
+              if (!stepOk) return;
               if (step < 2) setStep(function(s){return s+1;});
-              else { onCreate({addr:addr,city:city,client:cli,photos:photos}); onClose(); }
+              else {
+                onCreate({
+                  addr:fullAddr, city:(cp+" "+city).trim(),
+                  client:fullClient, photos:photos,
+                  civilite:civilite, nom:nom, prenom:prenom,
+                  cp:cp, rue:rue, num:num,
+                });
+                onClose();
+              }
             }}
-            style={{opacity:ok ? 1 : 0.5, cursor:ok ? "pointer" : "not-allowed"}}>
+            style={{opacity:stepOk ? 1 : 0.4, cursor:stepOk ? "pointer" : "not-allowed"}}>
             {step < 2 ? "Suivant" : "Lancer"}
           </Btn>
         </div>
@@ -4055,6 +4270,8 @@ function Settings({ projects, reports }) {
         </Btn>
       </div>
 
+      <CivilitesEditor/>
+
       <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
         padding:"16px 18px",marginBottom:14,opacity:0.6}}>
         <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:6}}>Apparence</div>
@@ -4066,10 +4283,95 @@ function Settings({ projects, reports }) {
   );
 }
 
+function CivilitesEditor() {
+  var [list, setList] = useState(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  });
+  var [draft, setDraft] = useState("");
+  useEffect(function(){ saveStored(STORE_KEY_CIVILITES, list); }, [list]);
+  function add() {
+    var v = draft.trim();
+    if (!v || list.indexOf(v) !== -1) return;
+    setList(list.concat([v]));
+    setDraft("");
+  }
+  function remove(c) {
+    setList(list.filter(function(x){ return x !== c; }));
+  }
+  function reset() {
+    if (!window.confirm("Restaurer la liste par defaut?")) return;
+    setList(DEFAULT_CIVILITES.slice());
+  }
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+      padding:"16px 18px",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>Civilités</div>
+        <button type="button" onClick={reset}
+          style={{background:"transparent",border:"1px solid #1C3050",
+            color:"#607898",borderRadius:5,padding:"4px 10px",fontSize:10,
+            cursor:"pointer",outline:"none"}}>Réinitialiser</button>
+      </div>
+      <div style={{fontSize:11,color:"#607898",marginBottom:10}}>
+        Apparaissent dans le menu déroulant de l'étape Identification.
+        M./Mme/Mlle... = personne (prénom requis). Société/SCI/ASBL = entité (nom seul).
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {list.map(function(c) {
+          return (
+            <div key={c} style={{display:"inline-flex",alignItems:"center",gap:6,
+              background:"#152135",border:"1px solid #1C3050",borderRadius:14,
+              padding:"4px 4px 4px 11px",fontSize:11,color:"#E8EDF5"}}>
+              {c}
+              <button type="button" onClick={function(){remove(c);}}
+                style={{background:"rgba(255,71,87,0.2)",border:"none",
+                  color:"#FF4757",borderRadius:"50%",width:16,height:16,
+                  fontSize:10,fontWeight:900,cursor:"pointer",outline:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={draft} onChange={function(e){setDraft(e.target.value);}}
+          onKeyDown={function(e){ if (e.key === "Enter") add(); }}
+          placeholder="Ajouter une civilité (ex: Maître)"
+          style={{flex:1,boxSizing:"border-box",background:"#08111E",
+            border:"1px solid #1C3050",borderRadius:6,color:"#E8EDF5",
+            fontSize:12,padding:"7px 10px",outline:"none"}}/>
+        <Btn sm={true} primary={true} onClick={add}>+ Ajouter</Btn>
+      </div>
+    </div>
+  );
+}
+
 /* ---- localStorage persistence ---- */
-var STORE_KEY_PROJECTS = "mesurepro.projects.v1";
-var STORE_KEY_REPORTS  = "mesurepro.reports.v1";
-var STORE_KEY_PROFILE  = "mesurepro.profile.v1";
+var STORE_KEY_PROJECTS  = "mesurepro.projects.v1";
+var STORE_KEY_REPORTS   = "mesurepro.reports.v1";
+var STORE_KEY_PROFILE   = "mesurepro.profile.v1";
+var STORE_KEY_CIVILITES = "mesurepro.civilites.v1";
+
+var DEFAULT_CIVILITES = ["M.", "Mme", "Mlle", "Monsieur", "Madame", "Société", "SCI", "ASBL"];
+
+/* Cached Belgian postal codes data, loaded once on first need */
+var BE_POSTAL_CACHE = null;
+function loadBePostalCodes() {
+  if (BE_POSTAL_CACHE) return Promise.resolve(BE_POSTAL_CACHE);
+  return fetch("/data/be-postal-codes.json")
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(j){ BE_POSTAL_CACHE = j; return j; })
+    .catch(function(){ BE_POSTAL_CACHE = []; return []; });
+}
+
+/* Reverse-geocode a lat/lng into address pieces using Nominatim (free
+   OpenStreetMap geocoder). Polite User-Agent header is recommended in
+   production but the dev server doesn't strictly need it. */
+function reverseGeocode(lat, lng) {
+  var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=fr&lat=" + lat + "&lon=" + lng;
+  return fetch(url, { headers: { "Accept-Language": "fr" } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
+}
 
 function loadStored(key, fallback) {
   try {
