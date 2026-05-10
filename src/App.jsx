@@ -2878,30 +2878,34 @@ function TabMeas({ project, onUpdate }) {
         );
       })()}
 
-      {/* BLE Laser bar — Connecter Leica DISTO / Bosch GLM */}
+      {/* BLE Laser bar — Connecter Leica DISTO / Bosch GLM (optionnel) */}
       <div style={{background:"#0F1C2E", border:"1px solid " + (bleConn ? "#00E5A0" : "#1C3050"),
         borderRadius:10, padding:"10px 14px", marginBottom:18,
         display:"flex", alignItems:"center", gap:12}}>
-        <div style={{fontSize:18}}>{bleConn ? "🟢" : "📡"}</div>
+        <div style={{fontSize:18, opacity: bleConn ? 1 : 0.5}}>{bleConn ? "🟢" : "📡"}</div>
         <div style={{flex:1, minWidth:0}}>
-          <div style={{fontSize:11, color:"#E8EDF5", fontWeight:700}}>
-            {bleConn ? bleConn.driver.label + " — connecté" : "Laser mètre Bluetooth"}
+          <div style={{fontSize:11, color: bleConn ? "#E8EDF5" : "#8DAFC8", fontWeight:700}}>
+            {bleConn
+              ? bleConn.driver.label + " — connecté"
+              : "Laser mètre Bluetooth (optionnel)"}
           </div>
           <div style={{fontSize:10, color:"#607898", marginTop:2,
             whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
             {bleStatus
               ? bleStatus
-              : (activeMeasField
-                ? "Champ actif : " + activeMeasField + " — tirez le laser"
-                : "Cliquez dans un champ puis tirez le laser pour remplir auto")}
+              : (bleConn
+                ? (activeMeasField
+                    ? "Champ actif : " + activeMeasField + " — tirez le laser"
+                    : "Cliquez dans un champ avant de tirer")
+                : "Saisie clavier OK — connectez un laser pour remplir auto")}
           </div>
         </div>
         <button type="button" onClick={connectMeasLaser}
-          style={{background: bleConn ? "#00E5A0" : "#152135",
-            border:"1px solid #00E5A0",
-            color: bleConn ? "#000" : "#00E5A0",
+          style={{background: bleConn ? "#00E5A0" : "transparent",
+            border:"1px solid " + (bleConn ? "#00E5A0" : "#2E4A6A"),
+            color: bleConn ? "#000" : "#8DAFC8",
             borderRadius:7, padding:"6px 14px", fontSize:11,
-            fontWeight:800, cursor:"pointer", outline:"none", flexShrink:0}}>
+            fontWeight: bleConn ? 800 : 600, cursor:"pointer", outline:"none", flexShrink:0}}>
           {bleConn ? "Déconnecter" : "Connecter"}
         </button>
       </div>
@@ -4519,13 +4523,13 @@ function Modal({ onClose, onCreate }) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
               <button type="button" onClick={connectLaser}
-                title={bleConn ? "Déconnecter le laser" : "Connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM)"}
-                style={{background: bleConn ? "#00E5A0" : "#152135",
-                  border:"1px solid #00E5A0",
-                  color: bleConn ? "#000" : "#00E5A0",
-                  borderRadius:7, padding:"5px 11px", fontSize:11,
-                  fontWeight:700, cursor:"pointer", outline:"none"}}>
-                {bleConn ? "🟢 " + bleConn.driver.label + " — déconnecter" : "📡 Connecter laser"}
+                title={bleConn ? "Déconnecter le laser" : "Optionnel — connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM). La saisie clavier marche très bien aussi."}
+                style={{background: bleConn ? "#00E5A0" : "transparent",
+                  border:"1px solid " + (bleConn ? "#00E5A0" : "#2E4A6A"),
+                  color: bleConn ? "#000" : "#607898",
+                  borderRadius:7, padding:"4px 10px", fontSize:10,
+                  fontWeight:600, cursor:"pointer", outline:"none"}}>
+                {bleConn ? "🟢 " + bleConn.driver.label + " — déconnecter" : "📡 Laser BLE (optionnel)"}
               </button>
             </div>
             {bleStatus && (
@@ -4639,6 +4643,7 @@ function Modal({ onClose, onCreate }) {
             <div style={{fontSize:9,color:"#2E4A6A",marginTop:10,lineHeight:1.5}}>
               Au moins une façade complète (longueur + hauteur) requise.
               <br/>Les totaux (périmètre, surface murs, emprise au sol) sont calculés automatiquement à l'étape Lancement.
+              <br/>Le laser Bluetooth est <span style={{fontWeight:700}}>optionnel</span> — la saisie au clavier suffit.
             </div>
           </div>
         )}
