@@ -2427,7 +2427,7 @@ function Sidebar({ view, setView }) {
           var active = view === item.id || (view === "project" && item.id === "dash");
           return (
             <button type="button" key={item.id} onClick={() => setView(item.id)}
-              title={item.tip} style={{
+              title={item.tip} className="sidebar-item" style={{
               display:"flex",alignItems:"center",gap:12,
               width:"100%",padding:"12px 16px",
               background:active ? "rgba(0,194,255,0.13)" : "transparent",
@@ -2438,7 +2438,7 @@ function Sidebar({ view, setView }) {
               cursor:"pointer",textAlign:"left",outline:"none",
             }}>
               <span style={{fontSize:14,fontFamily:"monospace",fontWeight:700}}>{item.icon}</span>
-              {item.lbl}
+              <span className="sidebar-label">{item.lbl}</span>
             </button>
           );
         })}
