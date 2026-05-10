@@ -115,6 +115,115 @@ var DEMO_PHOTOS_LYON = [
   )},
 ];
 
+/* Demo: a real Haussmannian apartment building (5 stories, mansard roof) */
+var DEMO_PHOTOS_HAUSSMANN = [
+  { name:"facade-rue-haussmann.jpg", size:198400, url: svgPhoto(
+    '<defs><linearGradient id="hssk" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0" stop-color="#A8C0D2"/><stop offset="1" stop-color="#D4DEE6"/></linearGradient></defs>'
+    + '<rect width="400" height="60" fill="url(#hssk)"/>'
+    + '<rect y="60" width="400" height="240" fill="#D4CFC0"/>'
+    /* RDC: arches commerce */
+    + '<rect y="245" width="400" height="55" fill="#C8C0A8"/>'
+    + '<g fill="#2a3340" opacity="0.85">'
+    +   '<rect x="12"  y="252" width="60" height="48"/>'
+    +   '<rect x="84"  y="252" width="60" height="48"/>'
+    +   '<rect x="156" y="252" width="60" height="48"/>'
+    +   '<rect x="228" y="252" width="60" height="48"/>'
+    +   '<rect x="300" y="252" width="48" height="48"/>'
+    +   '<rect x="358" y="252" width="32" height="48"/>'
+    + '</g>'
+    /* Etage noble (1er): grandes fenetres + balcon */
+    + '<rect y="180" width="400" height="65" fill="#E2DCC9"/>'
+    + '<g fill="#7BBCE8" opacity="0.85" stroke="#2a4060" stroke-width="0.5">'
+    +   '<rect x="20"  y="190" width="48" height="48"/>'
+    +   '<rect x="84"  y="190" width="48" height="48"/>'
+    +   '<rect x="148" y="190" width="48" height="48"/>'
+    +   '<rect x="212" y="190" width="48" height="48"/>'
+    +   '<rect x="276" y="190" width="48" height="48"/>'
+    +   '<rect x="340" y="190" width="48" height="48"/>'
+    + '</g>'
+    + '<rect x="14" y="237" width="378" height="6" fill="#3a3a3a"/>'
+    /* Etages 2 + 3 */
+    + '<rect y="120" width="400" height="60" fill="#D4CFC0"/>'
+    + '<rect y="60"  width="400" height="60" fill="#D4CFC0"/>'
+    + '<g fill="#7BBCE8" opacity="0.82" stroke="#2a4060" stroke-width="0.5">'
+    +   '<rect x="22"  y="130" width="42" height="42"/><rect x="86"  y="130" width="42" height="42"/>'
+    +   '<rect x="150" y="130" width="42" height="42"/><rect x="214" y="130" width="42" height="42"/>'
+    +   '<rect x="278" y="130" width="42" height="42"/><rect x="342" y="130" width="42" height="42"/>'
+    +   '<rect x="22"  y="70"  width="42" height="42"/><rect x="86"  y="70"  width="42" height="42"/>'
+    +   '<rect x="150" y="70"  width="42" height="42"/><rect x="214" y="70"  width="42" height="42"/>'
+    +   '<rect x="278" y="70"  width="42" height="42"/><rect x="342" y="70"  width="42" height="42"/>'
+    + '</g>'
+    /* Cornices entre etages */
+    + '<g fill="#9a8e6f" opacity="0.6">'
+    +   '<rect y="56"  width="400" height="4"/>'
+    +   '<rect y="116" width="400" height="4"/>'
+    +   '<rect y="176" width="400" height="4"/>'
+    + '</g>'
+    /* Mansardes (toiture ardoise) */
+    + '<rect y="0" width="400" height="60" fill="#3a4452"/>'
+    + '<g fill="#7BBCE8" opacity="0.85" stroke="#1a1a1a" stroke-width="0.6">'
+    +   '<rect x="40"  y="20" width="36" height="30"/>'
+    +   '<rect x="124" y="20" width="36" height="30"/>'
+    +   '<rect x="208" y="20" width="36" height="30"/>'
+    +   '<rect x="292" y="20" width="36" height="30"/>'
+    + '</g>'
+  )},
+  { name:"detail-balcon-1er-etage.jpg", size:142800, url: svgPhoto(
+    '<rect width="400" height="80" fill="#A8C0D2"/>'
+    + '<rect y="80" width="400" height="220" fill="#E2DCC9"/>'
+    + '<g fill="#7BBCE8" opacity="0.88" stroke="#2a4060" stroke-width="1">'
+    +   '<rect x="40"  y="100" width="100" height="160"/>'
+    +   '<rect x="160" y="100" width="100" height="160"/>'
+    +   '<rect x="280" y="100" width="100" height="160"/>'
+    + '</g>'
+    + '<g stroke="#fff" stroke-width="1" opacity="0.4">'
+    +   '<line x1="90"  y1="100" x2="90"  y2="260"/><line x1="40"  y1="180" x2="140" y2="180"/>'
+    +   '<line x1="210" y1="100" x2="210" y2="260"/><line x1="160" y1="180" x2="260" y2="180"/>'
+    +   '<line x1="330" y1="100" x2="330" y2="260"/><line x1="280" y1="180" x2="380" y2="180"/>'
+    + '</g>'
+    /* balcon ferronnerie */
+    + '<rect y="265" width="400" height="3" fill="#1a1a1a"/>'
+    + '<rect y="270" width="400" height="20" fill="#2a2a2a"/>'
+    + '<g stroke="#0f0f0f" stroke-width="1" opacity="0.9">'
+    + Array.from({length:30}).map(function(_,i){
+        var x = 12 + i*13;
+        return '<line x1="'+x+'" y1="270" x2="'+x+'" y2="290"/>';
+      }).join("")
+    + '</g>'
+    + '<rect y="288" width="400" height="6" fill="#1a1a1a"/>'
+  )},
+  { name:"toiture-mansardee-aerien.jpg", size:172300, url: svgPhoto(
+    '<rect width="400" height="300" fill="#9AC5DD"/>'
+    /* corp principal */
+    + '<polygon points="20,200 380,200 360,260 40,260" fill="#3a4452"/>'
+    /* 4 pans mansarde */
+    + '<polygon points="20,200 380,200 340,80 60,80" fill="#4a5568"/>'
+    + '<polygon points="20,200 60,80 60,80 20,200" fill="#3a4452"/>'
+    + '<polygon points="380,200 340,80 340,80 380,200" fill="#3a4452"/>'
+    /* lucarnes */
+    + '<g fill="#7BBCE8" stroke="#1a1a1a" stroke-width="0.7" opacity="0.85">'
+    +   '<rect x="80"  y="125" width="40" height="35"/>'
+    +   '<rect x="180" y="125" width="40" height="35"/>'
+    +   '<rect x="280" y="125" width="40" height="35"/>'
+    + '</g>'
+    /* arrete faitiere + diagonales */
+    + '<g stroke="#1a1a1a" stroke-width="1.5" opacity="0.7">'
+    +   '<line x1="60" y1="80" x2="340" y2="80"/>'
+    +   '<line x1="60" y1="80" x2="20" y2="200"/>'
+    +   '<line x1="340" y1="80" x2="380" y2="200"/>'
+    +   '<line x1="200" y1="80" x2="200" y2="200"/>'
+    + '</g>'
+    /* cheminees */
+    + '<g fill="#1a1a1a">'
+    +   '<rect x="120" y="60" width="14" height="32"/><rect x="118" y="56" width="18" height="6"/>'
+    +   '<rect x="266" y="60" width="14" height="32"/><rect x="264" y="56" width="18" height="6"/>'
+    + '</g>'
+    /* shadow */
+    + '<rect y="265" width="400" height="35" fill="rgba(0,0,0,0.25)"/>'
+  )},
+];
+
 const PROJS = [
   { id:1, addr:"142 Rue de la Paix", city:"Paris 75001", status:"done",
     date:"2 mai 2026", area:284, floors:2, roof:"Pignon", shape:"L",
@@ -146,6 +255,19 @@ const PROJS = [
   { id:4, addr:"7 Impasse des Tilleuls", city:"Nantes 44000", status:"draft",
     date:"7 mai 2026", area:0, floors:0, roof:"--", shape:"F",
     meas:{...EMPTY_MEAS}, rooms:[] },
+  /* Demo: full Haussmannian apartment building */
+  { id:5, addr:"15 Boulevard Haussmann", city:"Paris 75009", status:"done",
+    date:"3 mai 2026", area:780, floors:5, roof:"Mansart", shape:"M",
+    client:"SCI Haussmann Patrimoine",
+    meas:{ walls:"1240", roof:"360", perim:"112", h:"18.5", foot:"640", win:"42", doors:"4" },
+    rooms:[
+      {n:"Mur Sud (rue)",        a:"347", l:"32 m", h:"18.5 m", t:"w"},
+      {n:"Mur Nord (cour)",      a:"347", l:"32 m", h:"18.5 m", t:"w"},
+      {n:"Mur Est (mitoyen)",    a:"260", l:"20 m", h:"18.5 m", t:"w"},
+      {n:"Mur Ouest (mitoyen)",  a:"260", l:"20 m", h:"18.5 m", t:"w"},
+      {n:"Toiture mansardee",    a:"360", l:"---",  h:"---",    t:"r"},
+    ],
+    photos: DEMO_PHOTOS_HAUSSMANN },
 ];
 
 const MATS = [
@@ -713,7 +835,8 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
   /* Wall fill: pattern preferred over flat color */
   var matColor = (mat && mat.col) || matCol || "#BFB09A";
   var matFill  = (mat && mat.fill) || matColor;
-  var matFillDark = (mat && mat.fill) || sh(matColor, -22);
+  /* Note: side walls darken via an overlay (see render below) since SVG
+     patterns can't be color-shaded inline like a flat hex. */
 
   /* Auto-rotation tick: only runs while auto=true. Cancels cleanly on toggle. */
   useEffect(function() {
@@ -761,20 +884,20 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
   }
 
   /* Building dimensions derived from project measurements when available */
-  var fl = Math.max(1, Math.min(5, parseInt(floors) || 2));
+  var fl = Math.max(1, Math.min(8, parseInt(floors) || 2));
   var m  = meas || {};
   var realH = parseFloat(m.h) || (3.5 * fl);
   var realFoot = parseFloat(m.foot) || 142;
   var ratio = 1.6;
   var realW = Math.sqrt(realFoot * ratio);
   var realD = Math.sqrt(realFoot / ratio);
-  var unit = 8;
-  var bw = Math.max(80, Math.min(180, realW * unit));
-  var bd = Math.max(45, Math.min(90,  realD * unit));
-  var bh = Math.max(50, Math.min(140, realH * unit * 1.6));
+  /* Auto-fit unit so the building fills the SVG without overflow regardless of size */
+  var unit = Math.min(9, 180 / realW, 90 / realD, 160 / (realH * 1.6));
+  unit = Math.max(4, unit);
+  var bw = realW * unit;
+  var bd = realD * unit;
+  var bh = realH * unit * 1.6;
 
-  var wc = matFill;            /* front face */
-  var wcSide = matFillDark;    /* left face: pattern same, color shaded */
   var rc  = "#2E1E10";
   var rad = (angle * Math.PI) / 180;
 
@@ -842,10 +965,32 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
     return L;
   }
 
-  var frontFeats = faceFeatures(P[0], P[1], P[4], P[5], true);
-  var leftFeats  = faceFeatures(P[3], P[0], P[7], P[4], false);
-  var frontFL    = floorLines(P[0], P[1], P[4], P[5]);
-  var leftFL     = floorLines(P[3], P[0], P[7], P[4]);
+  /* 4 walls of the building (CCW seen from outside).
+     The "south" wall is the conventional front (door), the others rotate around. */
+  var WALLS = [
+    { id:"south", lbl:"Sud",   bl:P[0], br:P[1], tl:P[4], tr:P[5], hasDoor:true,  width:realW },
+    { id:"east",  lbl:"Est",   bl:P[1], br:P[2], tl:P[5], tr:P[6], hasDoor:false, width:realD },
+    { id:"north", lbl:"Nord",  bl:P[2], br:P[3], tl:P[6], tr:P[7], hasDoor:false, width:realW },
+    { id:"west",  lbl:"Ouest", bl:P[3], br:P[0], tl:P[7], tr:P[4], hasDoor:false, width:realD },
+  ];
+  /* Back-face culling: a wall is front-facing when its 2D winding (cross
+     product of the bottom and left edges) is positive. The two opposite
+     walls flip together as the user rotates. */
+  function wallVisible(w) {
+    var dx1 = w.br.x - w.bl.x, dy1 = w.br.y - w.bl.y;
+    var dx2 = w.tl.x - w.bl.x, dy2 = w.tl.y - w.bl.y;
+    return (dx1 * dy2 - dy1 * dx2) > 0;
+  }
+  /* Depth = average screen-y of the wall corners. Smaller y = farther in
+     iso projection (top of canvas). We render back-to-front. */
+  function wallDepth(w) {
+    return (w.bl.y + w.br.y + w.tl.y + w.tr.y) / 4;
+  }
+  var visibleWalls = WALLS.filter(wallVisible).sort(function(a, b){ return wallDepth(a) - wallDepth(b); });
+
+  /* Roof slope visibility — same back-face culling as walls */
+  var roofVisFront = wallVisible({ bl:P[4], br:P[5], tl:rid,  tr:rid2 });
+  var roofVisBack  = wallVisible({ bl:P[6], br:P[7], tl:rid2, tr:rid  });
 
   /* Chimney on left roof slope (offset toward back) */
   var cx = -bw*0.18, cy = bd*0.05, cw = 6, cd = 6, ch = 22;
@@ -883,64 +1028,79 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
           {/* shadow */}
           <ellipse cx="165" cy="232" rx={Math.min(140, bw*0.85)} ry={Math.min(20, bd*0.27)} fill="rgba(0,0,0,0.28)"/>
 
-          {/* left face */}
-          <polygon points={pp([P[0],P[3],P[7],P[4]])} fill={wcSide} stroke="#0A0E1A" strokeWidth="1"/>
-          {/* darken overlay on left face when using a pattern (no shaded variant otherwise) */}
-          {(mat && mat.fill) && (
-            <polygon points={pp([P[0],P[3],P[7],P[4]])} fill="rgba(0,0,0,0.22)" stroke="none"/>
+          {/* Render every visible wall, back-to-front, with its windows + door + floor lines */}
+          {visibleWalls.map(function(w, i) {
+            var feats = faceFeatures(w.bl, w.br, w.tl, w.tr, w.hasDoor);
+            var fLines = floorLines(w.bl, w.br, w.tl, w.tr);
+            /* Side walls (east/west) get a slight darkening overlay so they
+               read as "shaded" relative to the front wall. */
+            var isSide = (w.id === "east" || w.id === "west");
+            return (
+              <g key={w.id}>
+                <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
+                  fill={matFill} stroke="#0A0E1A" strokeWidth="1"/>
+                {isSide && (
+                  <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
+                    fill="rgba(0,0,0,0.22)" stroke="none"/>
+                )}
+                {fLines.map(function(l) {
+                  return <line key={w.id+l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
+                    stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
+                })}
+                {feats.map(function(f) {
+                  if (f.type === "door") {
+                    var hx = f.points[1].x - 1.5;
+                    var hy = (f.points[1].y + f.points[2].y) / 2;
+                    return (
+                      <g key={w.id+f.key}>
+                        <polygon points={pp(f.points)}
+                          fill="#6B4226" stroke="#3a2614" strokeWidth="0.7"/>
+                        <circle cx={hx} cy={hy} r="0.9" fill="#DAA520"/>
+                      </g>
+                    );
+                  }
+                  return <polygon key={w.id+f.key} points={pp(f.points)}
+                    fill={isSide ? "rgba(100,178,228,0.78)" : "rgba(100,178,228,0.92)"}
+                    stroke="#3a6080" strokeWidth="0.6"/>;
+                })}
+              </g>
+            );
+          })}
+
+          {/* Roof slopes — render only those facing the camera */}
+          {roofVisFront && (
+            <polygon points={pp([P[5],P[4],rid,rid2])} fill={sh(rc,14)} stroke="#100804" strokeWidth="1"/>
           )}
-          {/* front face */}
-          <polygon points={pp([P[0],P[1],P[5],P[4]])} fill={wc}         stroke="#0A0E1A" strokeWidth="1"/>
-
-          {/* roof slopes */}
-          <polygon points={pp([P[4],P[7],rid2,rid])}  fill={sh(rc,-6)}  stroke="#100804" strokeWidth="1"/>
-          <polygon points={pp([P[5],P[4],rid,rid2])}  fill={sh(rc,14)}  stroke="#100804" strokeWidth="1"/>
-
-          {/* gable triangle (front) */}
-          <polygon points={pp([P[4],P[5],{x:(P[4].x+P[5].x)/2,y:rid.y}])}
-            fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
-          {(mat && mat.fill) && (
-            <polygon points={pp([P[4],P[5],{x:(P[4].x+P[5].x)/2,y:rid.y}])}
-              fill="rgba(0,0,0,0.10)" stroke="none"/>
+          {roofVisBack && (
+            <polygon points={pp([P[7],P[6],rid2,rid])} fill={sh(rc,-6)} stroke="#100804" strokeWidth="1"/>
           )}
 
-          {/* floor lines */}
-          {frontFL.map(function(l) {
-            return <line key={l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-              stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
-          })}
-          {leftFL.map(function(l) {
-            return <line key={"L"+l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-              stroke="rgba(0,0,0,0.35)" strokeWidth="0.6" strokeDasharray="2,2"/>;
-          })}
+          {/* Gable triangles on east/west sides — under the ridge */}
+          {wallVisible({bl:P[5], br:P[6], tl:rid2, tr:rid2}) && (
+            <g>
+              <polygon points={pp([P[5],P[6],rid2])}
+                fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
+              <polygon points={pp([P[5],P[6],rid2])}
+                fill="rgba(0,0,0,0.10)" stroke="none"/>
+            </g>
+          )}
+          {wallVisible({bl:P[7], br:P[4], tl:rid, tr:rid}) && (
+            <g>
+              <polygon points={pp([P[7],P[4],rid])}
+                fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
+              <polygon points={pp([P[7],P[4],rid])}
+                fill="rgba(0,0,0,0.10)" stroke="none"/>
+            </g>
+          )}
 
-          {/* features front face */}
-          {frontFeats.map(function(f) {
-            if (f.type === "door") {
-              return <polygon key={f.key} points={pp(f.points)}
-                fill="#6B4226" stroke="#3a2614" strokeWidth="0.7"/>;
-            }
-            return <polygon key={f.key} points={pp(f.points)}
-              fill="rgba(100,178,228,0.92)" stroke="#3a6080" strokeWidth="0.6"/>;
-          })}
-          {/* features left face */}
-          {leftFeats.map(function(f) {
-            return <polygon key={"L"+f.key} points={pp(f.points)}
-              fill="rgba(100,178,228,0.78)" stroke="#3a6080" strokeWidth="0.6"/>;
-          })}
-
-          {/* chimney */}
-          <polygon points={pp([Cm[0],Cm[3],Cm[7],Cm[4]])} fill={sh(rc,-15)} stroke="#100804" strokeWidth="0.5"/>
-          <polygon points={pp([Cm[0],Cm[1],Cm[5],Cm[4]])} fill={sh(rc,-5)}  stroke="#100804" strokeWidth="0.5"/>
-          <polygon points={pp([Cm[4],Cm[5],Cm[6],Cm[7]])} fill={sh(rc,8)}   stroke="#100804" strokeWidth="0.5"/>
-
-          {/* door handle dot */}
-          {(function(){
-            var d = frontFeats[frontFeats.length-1];
-            if (!d || d.type !== "door") return null;
-            var hx = d.points[1].x - 1.5, hy = (d.points[1].y + d.points[2].y)/2;
-            return <circle cx={hx} cy={hy} r="0.9" fill="#DAA520"/>;
-          })()}
+          {/* chimney — only render if its base is on a visible roof slope */}
+          {(roofVisFront || roofVisBack) && (
+            <g>
+              <polygon points={pp([Cm[0],Cm[3],Cm[7],Cm[4]])} fill={sh(rc,-15)} stroke="#100804" strokeWidth="0.5"/>
+              <polygon points={pp([Cm[0],Cm[1],Cm[5],Cm[4]])} fill={sh(rc,-5)}  stroke="#100804" strokeWidth="0.5"/>
+              <polygon points={pp([Cm[4],Cm[5],Cm[6],Cm[7]])} fill={sh(rc,8)}   stroke="#100804" strokeWidth="0.5"/>
+            </g>
+          )}
 
           {showAnno && (() => {
             /* Try to read facade lengths from project.rooms first.
