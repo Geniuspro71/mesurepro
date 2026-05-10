@@ -2308,10 +2308,17 @@ var PTABS = [
   {id:"devis", lbl:"Devis"},
 ];
 
-function ProjectDetail({ project, onBack, onUpdate, initialTab }) {
+function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
   var [tab, setTab]   = useState(initialTab || "model");
   var [mat, setMat]   = useState(null);
   var [toast, setToast] = useState("");
+  var [editOpen, setEditOpen] = useState(false);
+
+  function handleDelete() {
+    var label = (project.addr || "ce projet") + (project.city ? " (" + project.city + ")" : "");
+    if (!window.confirm("Supprimer définitivement « " + label + " » ?\n\nCette action est irréversible.")) return;
+    onDelete && onDelete();
+  }
   return (
     <div>
       {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
@@ -2332,8 +2339,11 @@ function ProjectDetail({ project, onBack, onUpdate, initialTab }) {
             setToast("Projet marque comme termine");
           }}>Terminer</Btn>
         )}
+        <Btn sm={true} onClick={function(){setEditOpen(true);}}>Modifier</Btn>
         <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF telecharge");}}>PDF</Btn>
         <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel telecharge");}}>Excel</Btn>
+        <Btn sm={true} onClick={handleDelete}
+          style={{background:"#3a0f12",border:"1px solid #FF4757",color:"#FF4757"}}>Supprimer</Btn>
       </div>
       <div data-noprint="1" style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
         borderBottom:"1px solid #1C3050",
@@ -2359,6 +2369,99 @@ function ProjectDetail({ project, onBack, onUpdate, initialTab }) {
         {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
         {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
+      </div>
+      {editOpen && (
+        <EditProjectModal
+          project={project}
+          onClose={function(){setEditOpen(false);}}
+          onSave={function(patch){
+            onUpdate(patch);
+            setEditOpen(false);
+            setToast("Projet mis à jour");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Mini-modal d'édition d'un projet existant. Édite les champs primaires
+   stockés tels quels au niveau projet : adresse, ville, client, statut.
+   N'essaie PAS de re-décomposer civilité/nom/prénom — ces champs sont
+   composés à la création (Modal step 1) et stockés sous forme aplatie. */
+function EditProjectModal({ project, onClose, onSave }) {
+  var [addr,   setAddr]   = useState(project.addr   || "");
+  var [city,   setCity]   = useState(project.city   || "");
+  var [client, setClient] = useState(project.client || "");
+  var [status, setStatus] = useState(project.status || "draft");
+
+  var labelStyle = { fontSize:11, color:"#607898", marginBottom:4 };
+  var inputStyle = {
+    width:"100%", boxSizing:"border-box", background:"#08111E",
+    border:"1px solid #1C3050", borderRadius:7, color:"#E8EDF5",
+    fontSize:13, padding:"9px 12px", outline:"none",
+  };
+
+  function save() {
+    if (addr.trim().length < 2) return;
+    onSave({
+      addr:   addr.trim(),
+      city:   city.trim(),
+      client: client.trim(),
+      status: status,
+    });
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
+        padding:24,width:520,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:16}}>
+          Modifier le projet
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Adresse complète *</div>
+          <input value={addr} onChange={function(e){setAddr(e.target.value);}}
+            placeholder="15 Boulevard Haussmann" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Code postal + Ville</div>
+          <input value={city} onChange={function(e){setCity(e.target.value);}}
+            placeholder="1000 Bruxelles" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Client</div>
+          <input value={client} onChange={function(e){setClient(e.target.value);}}
+            placeholder="M. Bernard Laurent" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Statut</div>
+          <select value={status} onChange={function(e){setStatus(e.target.value);}}
+            style={Object.assign({}, inputStyle, {cursor:"pointer"})}>
+            <option value="processing">En traitement</option>
+            <option value="draft">Brouillon</option>
+            <option value="done">Terminé</option>
+          </select>
+        </div>
+
+        <div style={{fontSize:9,color:"#2E4A6A",marginTop:8,lineHeight:1.5}}>
+          Pour modifier les façades / mesures détaillées, utilisez l'onglet <span style={{fontWeight:700}}>Mesures</span>.
+        </div>
+
+        <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:18}}>
+          <Btn sm={true} onClick={onClose}>Annuler</Btn>
+          <Btn sm={true} primary={true} onClick={save}
+            style={{opacity: addr.trim().length < 2 ? 0.4 : 1,
+              cursor: addr.trim().length < 2 ? "not-allowed" : "pointer"}}>
+            Enregistrer
+          </Btn>
+        </div>
       </div>
     </div>
   );
@@ -5208,6 +5311,17 @@ export default function App() {
     });
   }
 
+  function deleteProject(id) {
+    setProjects(function(ps){ return ps.filter(function(p){ return p.id !== id; }); });
+    /* Si on était en train de regarder le projet supprimé, on rebascule
+       sur le Dashboard. Le if est défensif : on garde la nav même si openId
+       a déjà été nettoyé entre-temps. */
+    if (openId === id) {
+      setOpenId(null);
+      setView("dash");
+    }
+  }
+
   function addProject(info) {
     var meas = info.meas ? Object.assign({}, EMPTY_MEAS, info.meas) : Object.assign({}, EMPTY_MEAS);
     var area = parseFloat(meas.walls) || 0;
@@ -5259,6 +5373,7 @@ export default function App() {
             project={openP}
             onBack={function(){nav("dash");}}
             onUpdate={function(patch){updateProject(openP.id,patch);}}
+            onDelete={function(){deleteProject(openP.id);}}
             initialTab={openTab}
           />
         )}
