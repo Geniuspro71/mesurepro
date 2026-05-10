@@ -5,14 +5,6 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 
-const C = {
-  bg:"#08111E", surf:"#0F1C2E", card:"#152135", border:"#1C3050",
-  acc:"#00C2FF", accL:"rgba(0,194,255,0.13)",
-  grn:"#00E5A0", grnL:"rgba(0,229,160,0.11)",
-  org:"#FF8C42", red:"#FF4757",
-  txt:"#E8EDF5", mut:"#607898", dim:"#2E4A6A",
-};
-
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
 /* Demo photos: real Unsplash images, downloaded into /public/photos/
