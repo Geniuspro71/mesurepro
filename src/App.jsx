@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 
 const C = {
@@ -884,146 +884,442 @@ function House({ shape, mat, matCol, small, photos }) {
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
 /* ---- Building3D: walls + roof + foundation as Three.js meshes ---- */
-/* ---- Canvas 2D pattern drawers (mirror of MatDefs SVG patterns)
-   Each function paints a tileable W x H tile that will be wrapped on
-   a Three.js material as a CanvasTexture. */
+/* ---- Canvas 2D pattern drawers (procedural texture maps)
+   Designed for high-res tiles (1024 px). Each function paints a
+   tileable albedo. The matching draw*Bump function paints a greyscale
+   bump map encoding relief depth (white = peak, black = valley/joint).
+   meshStandardMaterial uses both: map (color) + bumpMap (depth). */
+
+/* Tiny seedable PRNG for deterministic noise */
+function seededRand(seed) {
+  var s = seed | 0;
+  return function() {
+    s = (s * 1664525 + 1013904223) | 0;
+    return ((s >>> 0) / 4294967296);
+  };
+}
+
+/* --- BRICK --- */
 function drawBrickTex(ctx, W, H) {
-  var brickW = W / 5, brickH = H / 16, mortar = 1.5;
-  ctx.fillStyle = "#c4ad88"; ctx.fillRect(0, 0, W, H);
-  var colors = ["#a0381f","#b14528","#933020","#a8401f","#b34a2c"];
-  for (var row = 0; row < 16; row++) {
-    var off = (row % 2) ? brickW * 0.5 : 0;
-    for (var col = -1; col <= 5; col++) {
-      var x = col * brickW + off + mortar;
-      var y = row * brickH + mortar;
-      var w = brickW - mortar * 2;
-      var h = brickH - mortar * 2;
-      ctx.fillStyle = colors[(row * 7 + Math.abs(col)) % colors.length];
-      ctx.fillRect(x, y, w, h);
-      ctx.fillStyle = "rgba(208,95,62,0.5)"; ctx.fillRect(x, y, w, h * 0.18);
-      ctx.fillStyle = "rgba(58,18,8,0.5)";   ctx.fillRect(x, y + h * 0.82, w, h * 0.18);
-    }
-  }
-}
-function drawWoodTex(ctx, W, H) {
-  var planeH = H / 14;
-  ctx.fillStyle = "#C68642"; ctx.fillRect(0, 0, W, H);
-  for (var i = 0; i < 14; i++) {
-    var y = i * planeH;
-    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
-    grad.addColorStop(0,    "#dba463");
-    grad.addColorStop(0.55, "#C68642");
-    grad.addColorStop(1,    "#8a5828");
-    ctx.fillStyle = grad; ctx.fillRect(0, y, W, planeH);
-    ctx.fillStyle = "rgba(58,38,16,0.85)"; ctx.fillRect(0, y + planeH - 2, W, 2);
-    ctx.fillStyle = "rgba(168,108,52,0.45)";
-    ctx.fillRect(0, y + planeH * 0.3, W, 0.5);
-    ctx.fillRect(0, y + planeH * 0.7, W, 0.5);
-  }
-  /* Knots */
-  ctx.fillStyle = "rgba(138,88,40,0.55)";
-  ctx.beginPath(); ctx.ellipse(W * 0.2, H * 0.35, 6, 2.5, 0, 0, Math.PI*2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(W * 0.7, H * 0.62, 7, 2.8, 0, 0, Math.PI*2); ctx.fill();
-}
-function drawStoneTex(ctx, W, H) {
-  ctx.fillStyle = "#9E8E7E"; ctx.fillRect(0, 0, W, H);
-  var stones = [
-    {x:0,    y:0,    w:0.45, h:0.28, c:"#aa9886"},
-    {x:0.45, y:0,    w:0.55, h:0.28, c:"#92816e"},
-    {x:0,    y:0.28, w:0.32, h:0.32, c:"#98876f"},
-    {x:0.32, y:0.28, w:0.40, h:0.32, c:"#a89683"},
-    {x:0.72, y:0.28, w:0.28, h:0.32, c:"#8d7c6a"},
-    {x:0,    y:0.60, w:0.30, h:0.40, c:"#a89683"},
-    {x:0.30, y:0.60, w:0.42, h:0.40, c:"#92816e"},
-    {x:0.72, y:0.60, w:0.28, h:0.40, c:"#aa9886"},
-  ];
-  ctx.strokeStyle = "#5e564b"; ctx.lineWidth = 1.4;
-  stones.forEach(function(s){
-    ctx.fillStyle = s.c;
-    ctx.fillRect(s.x*W, s.y*H, s.w*W, s.h*H);
-    ctx.strokeRect(s.x*W, s.y*H, s.w*W, s.h*H);
-  });
-  /* Texture noise */
-  ctx.fillStyle = "rgba(94,86,75,0.5)";
-  for (var i = 0; i < 60; i++) {
-    var rx = Math.random() * W, ry = Math.random() * H;
+  var brickW = W / 6, brickH = H / 18, mortar = 2.2;
+  /* Mortar background with subtle variation */
+  ctx.fillStyle = "#b8a37e"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(42);
+  /* Mortar speckle */
+  for (var i = 0; i < 800; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    ctx.fillStyle = "rgba(" + (160 + Math.floor(rng()*40)) + "," + (140 + Math.floor(rng()*30)) + "," + (110 + Math.floor(rng()*30)) + ",0.6)";
     ctx.fillRect(rx, ry, 1.5, 1.5);
   }
+  var palette = [
+    {r:160,g: 56,b: 31},  /* dark red */
+    {r:177,g: 69,b: 40},  /* mid red */
+    {r:147,g: 48,b: 32},  /* very dark */
+    {r:168,g: 64,b: 31},  /* warm */
+    {r:179,g: 74,b: 44},  /* lighter warm */
+    {r:140,g: 50,b: 35},  /* aubergine */
+    {r:185,g: 88,b: 60},  /* salmon-y aged */
+  ];
+  for (var row = 0; row < 18; row++) {
+    var off = (row % 2) ? brickW * 0.5 : 0;
+    for (var col = -1; col <= 6; col++) {
+      var bx = col * brickW + off + mortar;
+      var by = row * brickH + mortar;
+      var bw = brickW - mortar * 2;
+      var bh = brickH - mortar * 2;
+      if (bx + bw < 0 || bx > W) continue;
+      var p = palette[Math.floor(rng() * palette.length)];
+      /* Per-brick subtle hue + value variation */
+      var dR = (rng() - 0.5) * 24, dG = (rng() - 0.5) * 18, dB = (rng() - 0.5) * 14;
+      var br = Math.max(0, Math.min(255, p.r + dR));
+      var bg = Math.max(0, Math.min(255, p.g + dG));
+      var bb = Math.max(0, Math.min(255, p.b + dB));
+      var grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+      grad.addColorStop(0,    "rgb("+Math.min(255,br+22)+","+Math.min(255,bg+18)+","+Math.min(255,bb+15)+")");
+      grad.addColorStop(0.5,  "rgb("+br+","+bg+","+bb+")");
+      grad.addColorStop(1,    "rgb("+Math.max(0,br-30)+","+Math.max(0,bg-22)+","+Math.max(0,bb-18)+")");
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, by, bw, bh);
+      /* Texture noise inside the brick (microvariations) */
+      for (var s = 0; s < 14; s++) {
+        var nx = bx + rng() * bw, ny = by + rng() * bh;
+        ctx.fillStyle = "rgba(0,0,0," + (0.04 + rng() * 0.10) + ")";
+        ctx.fillRect(nx, ny, 1, 1);
+      }
+      /* Edge cast shadow inside mortar joint (left + bottom) */
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(bx, by + bh - 1.5, bw, 1.5);
+      ctx.fillRect(bx, by, 1.2, bh);
+      /* Edge highlight (top + right edge of brick) */
+      ctx.fillStyle = "rgba(255,210,180,0.40)";
+      ctx.fillRect(bx, by, bw, 1);
+      ctx.fillRect(bx + bw - 0.8, by, 0.8, bh);
+      /* Random stains on a few bricks (efflorescence / weathering) */
+      if (rng() < 0.12) {
+        ctx.fillStyle = "rgba(255,255,255,0.20)";
+        ctx.beginPath();
+        ctx.ellipse(bx + bw * (0.3 + rng() * 0.4), by + bh * (0.3 + rng() * 0.4),
+                    bw * 0.25, bh * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (rng() < 0.06) {
+        ctx.fillStyle = "rgba(70,90,40,0.32)"; /* moss tint */
+        ctx.beginPath();
+        ctx.ellipse(bx + bw * 0.2, by + bh * 0.85, bw * 0.35, bh * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
 }
+function drawBrickBump(ctx, W, H) {
+  /* Black mortar joints, white bricks (with slight slope highlight) */
+  var brickW = W / 6, brickH = H / 18, mortar = 2.2;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  for (var row = 0; row < 18; row++) {
+    var off = (row % 2) ? brickW * 0.5 : 0;
+    for (var col = -1; col <= 6; col++) {
+      var bx = col * brickW + off + mortar;
+      var by = row * brickH + mortar;
+      var bw = brickW - mortar * 2;
+      var bh = brickH - mortar * 2;
+      if (bx + bw < 0 || bx > W) continue;
+      var grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+      grad.addColorStop(0,   "#fff");
+      grad.addColorStop(0.7, "#cccccc");
+      grad.addColorStop(1,   "#888");
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, by, bw, bh);
+    }
+  }
+}
+
+/* --- WOOD (horizontal lap siding) --- */
+function drawWoodTex(ctx, W, H) {
+  var planks = 14;
+  var planeH = H / planks;
+  var rng = seededRand(7);
+  ctx.fillStyle = "#8a5828"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < planks; i++) {
+    var y = i * planeH;
+    /* Per-plank base hue/value variation */
+    var dR = (rng() - 0.5) * 22, dG = (rng() - 0.5) * 16, dB = (rng() - 0.5) * 12;
+    var br = Math.max(0, Math.min(255, 198 + dR));
+    var bg = Math.max(0, Math.min(255, 134 + dG));
+    var bb = Math.max(0, Math.min(255,  66 + dB));
+    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
+    grad.addColorStop(0,    "rgb("+Math.min(255,br+34)+","+Math.min(255,bg+24)+","+Math.min(255,bb+18)+")");
+    grad.addColorStop(0.5,  "rgb("+br+","+bg+","+bb+")");
+    grad.addColorStop(0.95, "rgb("+Math.max(0,br-46)+","+Math.max(0,bg-32)+","+Math.max(0,bb-22)+")");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, planeH);
+    /* Wood grain — long horizontal streaks */
+    for (var g = 0; g < 28; g++) {
+      var gy = y + rng() * planeH;
+      ctx.strokeStyle = "rgba(58,38,18," + (0.10 + rng() * 0.15) + ")";
+      ctx.lineWidth = 0.5 + rng();
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(W*0.3, gy + (rng()-0.5)*1.5, W*0.7, gy + (rng()-0.5)*1.5, W, gy + (rng()-0.5)*1.5);
+      ctx.stroke();
+    }
+    /* Cast shadow at the bottom of each plank (siding overlap) */
+    ctx.fillStyle = "rgba(30,18,8,0.85)"; ctx.fillRect(0, y + planeH - 3, W, 3);
+    ctx.fillStyle = "rgba(80,50,24,0.5)"; ctx.fillRect(0, y + planeH - 5, W, 2);
+    /* Knots (random positions per plank) */
+    if (rng() < 0.4) {
+      var kx = rng() * W, ky = y + planeH * (0.3 + rng() * 0.4);
+      ctx.fillStyle = "rgba(58,30,12,0.65)";
+      ctx.beginPath(); ctx.ellipse(kx, ky, 7 + rng()*5, 3 + rng()*2, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(110,68,30,0.55)";
+      ctx.beginPath(); ctx.ellipse(kx, ky, 4 + rng()*3, 2, 0, 0, Math.PI*2); ctx.fill();
+    }
+    /* Vertical butt joint occasionally */
+    if (rng() < 0.5) {
+      var jx = rng() * W;
+      ctx.strokeStyle = "rgba(20,12,4,0.7)"; ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(jx, y + 1); ctx.lineTo(jx, y + planeH - 3); ctx.stroke();
+    }
+  }
+}
+function drawWoodBump(ctx, W, H) {
+  var planks = 14, planeH = H / planks;
+  ctx.fillStyle = "#cccccc"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < planks; i++) {
+    var y = i * planeH;
+    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
+    grad.addColorStop(0,    "#dddddd");
+    grad.addColorStop(0.85, "#aaaaaa");
+    grad.addColorStop(1,    "#000000");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, planeH);
+  }
+}
+
+/* --- STONE (rubble masonry) --- */
+function drawStoneTex(ctx, W, H) {
+  ctx.fillStyle = "#5e564b"; ctx.fillRect(0, 0, W, H); /* mortar */
+  var rng = seededRand(99);
+  /* Lay out irregular stones by rows of varying heights */
+  var y = 0;
+  while (y < H) {
+    var rowH = H * (0.10 + rng() * 0.10);
+    var x = 0;
+    while (x < W) {
+      var stoneW = W * (0.08 + rng() * 0.18);
+      var stoneH = rowH * (0.85 + rng() * 0.15);
+      var sx = x + 2, sy = y + 2;
+      var sw = Math.min(stoneW - 4, W - sx - 2);
+      var sh = stoneH - 4;
+      if (sw < 4 || sh < 4) { x += stoneW; continue; }
+      /* Pick a stone shade family */
+      var shade = 110 + Math.floor(rng() * 60); /* 110-170 grey */
+      var warm  = Math.floor(rng() * 25);
+      var br = Math.min(255, shade + warm + 8);
+      var bg = Math.min(255, shade + warm * 0.6);
+      var bb = Math.min(255, shade);
+      /* Polygonal stone (slightly irregular) */
+      ctx.beginPath();
+      ctx.moveTo(sx + rng()*3,        sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + sh - rng()*3);
+      ctx.lineTo(sx + rng()*3,        sy + sh - rng()*3);
+      ctx.closePath();
+      var grad = ctx.createRadialGradient(sx + sw/2, sy + sh/2, 1, sx + sw/2, sy + sh/2, Math.max(sw, sh));
+      grad.addColorStop(0,    "rgb("+Math.min(255,br+20)+","+Math.min(255,bg+18)+","+Math.min(255,bb+15)+")");
+      grad.addColorStop(0.7,  "rgb("+br+","+bg+","+bb+")");
+      grad.addColorStop(1,    "rgb("+Math.max(0,br-40)+","+Math.max(0,bg-32)+","+Math.max(0,bb-25)+")");
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(35,30,22,0.8)";
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+      /* Speckle texture inside */
+      for (var n = 0; n < 18; n++) {
+        var nx = sx + rng() * sw, ny = sy + rng() * sh;
+        ctx.fillStyle = "rgba(0,0,0," + (0.06 + rng() * 0.18) + ")";
+        ctx.fillRect(nx, ny, 1, 1);
+      }
+      /* Random small crack */
+      if (rng() < 0.25) {
+        ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(sx + rng()*sw, sy + rng()*sh);
+        ctx.lineTo(sx + rng()*sw, sy + rng()*sh);
+        ctx.stroke();
+      }
+      x += stoneW;
+    }
+    y += rowH;
+  }
+}
+function drawStoneBump(ctx, W, H) {
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(99);
+  var y = 0;
+  while (y < H) {
+    var rowH = H * (0.10 + rng() * 0.10);
+    var x = 0;
+    while (x < W) {
+      var stoneW = W * (0.08 + rng() * 0.18);
+      var stoneH = rowH * (0.85 + rng() * 0.15);
+      var sx = x + 2, sy = y + 2;
+      var sw = Math.min(stoneW - 4, W - sx - 2);
+      var sh = stoneH - 4;
+      if (sw < 4 || sh < 4) { x += stoneW; continue; }
+      ctx.beginPath();
+      ctx.moveTo(sx + rng()*3,        sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + sh - rng()*3);
+      ctx.lineTo(sx + rng()*3,        sy + sh - rng()*3);
+      ctx.closePath();
+      var rad = ctx.createRadialGradient(sx + sw/2, sy + sh/2, 1, sx + sw/2, sy + sh/2, Math.max(sw, sh));
+      rad.addColorStop(0,   "#fff");
+      rad.addColorStop(0.6, "#cccccc");
+      rad.addColorStop(1,   "#666");
+      ctx.fillStyle = rad;
+      ctx.fill();
+      x += stoneW;
+    }
+    y += rowH;
+  }
+}
+
+/* --- SLATE (overlapping shingles) --- */
 function drawSlateTex(ctx, W, H) {
-  ctx.fillStyle = "#4A5568"; ctx.fillRect(0, 0, W, H);
-  var rowH = H / 6, tileW = W / 8;
-  for (var row = 0; row < 6; row++) {
+  ctx.fillStyle = "#2c333d"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(31);
+  var rows = 8;
+  var rowH = H / rows;
+  var tileW = W / 11;
+  for (var row = 0; row < rows; row++) {
     var off = (row % 2) ? tileW * 0.5 : 0;
     var y = row * rowH;
-    for (var col = -1; col <= 8; col++) {
+    for (var col = -1; col <= 11; col++) {
       var x = col * tileW + off;
+      /* Per-tile hue variation */
+      var v = 65 + Math.floor(rng() * 35); /* 65-100 grey */
+      var b1 = "rgb(" + (v+15) + "," + (v+22) + "," + (v+30) + ")";
+      var b2 = "rgb(" + v + "," + (v+5) + "," + (v+15) + ")";
+      var b3 = "rgb(" + Math.max(0,v-30) + "," + Math.max(0,v-25) + "," + Math.max(0,v-15) + ")";
       var grad = ctx.createLinearGradient(0, y, 0, y + rowH);
-      grad.addColorStop(0,    "#5a677c");
-      grad.addColorStop(0.5,  "#475164");
-      grad.addColorStop(1,    "#2c333d");
+      grad.addColorStop(0,    b1);
+      grad.addColorStop(0.55, b2);
+      grad.addColorStop(1,    b3);
       ctx.fillStyle = grad;
       ctx.fillRect(x, y, tileW, rowH);
-      ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 0.6;
-      ctx.strokeRect(x, y, tileW, rowH);
+      /* Subtle vertical edge lines between adjacent shingles */
+      ctx.strokeStyle = "rgba(0,0,0,0.55)";
+      ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(x + tileW, y); ctx.lineTo(x + tileW, y + rowH); ctx.stroke();
+      /* Texture noise on the slate */
+      for (var n = 0; n < 8; n++) {
+        ctx.fillStyle = "rgba(0,0,0," + (0.06 + rng() * 0.10) + ")";
+        ctx.fillRect(x + rng() * tileW, y + rng() * rowH, 1, 1);
+      }
     }
-    /* Hard cast shadow at the bottom of each row */
-    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, y + rowH - 2.5, W, 2.5);
+    /* Hard cast shadow at the bottom of each row (where the shingles overlap) */
+    var shGrad = ctx.createLinearGradient(0, y + rowH - 5, 0, y + rowH);
+    shGrad.addColorStop(0, "rgba(0,0,0,0)");
+    shGrad.addColorStop(1, "rgba(0,0,0,0.85)");
+    ctx.fillStyle = shGrad;
+    ctx.fillRect(0, y + rowH - 5, W, 5);
   }
 }
+function drawSlateBump(ctx, W, H) {
+  var rows = 8, rowH = H / rows;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  for (var row = 0; row < rows; row++) {
+    var y = row * rowH;
+    var grad = ctx.createLinearGradient(0, y, 0, y + rowH);
+    grad.addColorStop(0,   "#cccccc");
+    grad.addColorStop(0.7, "#777");
+    grad.addColorStop(1,   "#000");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, rowH);
+  }
+}
+
+/* --- WHITE STUCCO --- */
 function drawWhiteTex(ctx, W, H) {
   ctx.fillStyle = "#E8E4DC"; ctx.fillRect(0, 0, W, H);
-  for (var i = 0; i < 220; i++) {
-    var rx = Math.random() * W, ry = Math.random() * H;
-    ctx.fillStyle = "rgba(" + (170 + Math.floor(Math.random()*30)) + ","
-      + (164 + Math.floor(Math.random()*30)) + ","
-      + (150 + Math.floor(Math.random()*30)) + ",0.55)";
+  var rng = seededRand(5);
+  /* Subtle large-scale vignette / patches */
+  for (var i = 0; i < 12; i++) {
+    var px = rng() * W, py = rng() * H;
+    var r = 60 + rng() * 80;
+    var grad = ctx.createRadialGradient(px, py, 1, px, py, r);
+    grad.addColorStop(0, "rgba(232,228,220," + (0.3 + rng() * 0.3) + ")");
+    grad.addColorStop(1, "rgba(220,214,200,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.fill();
+  }
+  /* Granular finish */
+  for (var i2 = 0; i2 < 1400; i2++) {
+    var rx = rng() * W, ry = rng() * H;
+    var v = 160 + Math.floor(rng() * 50);
+    ctx.fillStyle = "rgba(" + v + "," + (v - 6) + "," + (v - 18) + "," + (0.35 + rng() * 0.25) + ")";
     ctx.fillRect(rx, ry, 1.4, 1.4);
   }
+  /* A few darker stains (weathering) */
+  for (var i3 = 0; i3 < 5; i3++) {
+    ctx.fillStyle = "rgba(170,160,140,0.18)";
+    ctx.beginPath();
+    ctx.ellipse(rng() * W, rng() * H, 30 + rng() * 25, 8 + rng() * 12, rng() * Math.PI, 0, Math.PI*2);
+    ctx.fill();
+  }
 }
+function drawWhiteBump(ctx, W, H) {
+  var rng = seededRand(5);
+  ctx.fillStyle = "#888"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < 5000; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    ctx.fillStyle = "rgb(" + Math.floor(140 + rng() * 100) + "," + Math.floor(140 + rng() * 100) + "," + Math.floor(140 + rng() * 100) + ")";
+    ctx.fillRect(rx, ry, 1.2, 1.2);
+  }
+}
+
+/* --- GREY CONCRETE --- */
 function drawGreyTex(ctx, W, H) {
   ctx.fillStyle = "#7A8899"; ctx.fillRect(0, 0, W, H);
-  for (var i = 0; i < 180; i++) {
-    var rx = Math.random() * W, ry = Math.random() * H;
+  var rng = seededRand(17);
+  /* Larger aggregate dots */
+  for (var i = 0; i < 200; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    var r = 0.8 + rng() * 1.6;
     ctx.fillStyle = "rgba(94,108,122,0.7)";
-    ctx.fillRect(rx, ry, 1.6, 1.6);
+    ctx.beginPath(); ctx.arc(rx, ry, r, 0, Math.PI*2); ctx.fill();
   }
-  ctx.strokeStyle = "rgba(58,68,82,0.6)"; ctx.lineWidth = 1.5;
+  /* Fine speckle */
+  for (var i2 = 0; i2 < 1500; i2++) {
+    ctx.fillStyle = "rgba(58,68,82," + (0.2 + rng() * 0.4) + ")";
+    ctx.fillRect(rng() * W, rng() * H, 0.7, 0.7);
+  }
+  /* Control joints */
+  ctx.strokeStyle = "rgba(40,48,58,0.8)"; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+  /* Edge highlight inside the joints */
+  ctx.strokeStyle = "rgba(180,190,205,0.35)"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(0, H/2 + 1.5); ctx.lineTo(W, H/2 + 1.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2 + 1.5, 0); ctx.lineTo(W/2 + 1.5, H); ctx.stroke();
+  /* Water stains */
+  for (var s = 0; s < 4; s++) {
+    ctx.fillStyle = "rgba(50,60,72,0.15)";
+    ctx.beginPath();
+    ctx.ellipse(rng() * W, rng() * H, 25 + rng() * 30, 10 + rng() * 15, rng() * Math.PI, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+function drawGreyBump(ctx, W, H) {
+  ctx.fillStyle = "#aaa"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
 }
 
 var TEX_DRAWERS = {
-  brick: drawBrickTex,
-  wood:  drawWoodTex,
-  stone: drawStoneTex,
-  slate: drawSlateTex,
-  white: drawWhiteTex,
-  grey:  drawGreyTex,
+  brick: { color: drawBrickTex, bump: drawBrickBump },
+  wood:  { color: drawWoodTex,  bump: drawWoodBump  },
+  stone: { color: drawStoneTex, bump: drawStoneBump },
+  slate: { color: drawSlateTex, bump: drawSlateBump },
+  white: { color: drawWhiteTex, bump: drawWhiteBump },
+  grey:  { color: drawGreyTex,  bump: drawGreyBump  },
 };
 
-/* Build a Three.js CanvasTexture from a procedural pattern, or load a
-   photo URL via TextureLoader for custom photo-based materials. */
+/* Helper: draw a pattern into a freshly-allocated canvas */
+function makeCanvas(W, H, drawer) {
+  var c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  drawer(c.getContext("2d"), W, H);
+  return c;
+}
+
+var TEX_RES = 1024;
+
+/* Build albedo + bump CanvasTextures for a given material, or load a
+   photo URL via TextureLoader. Returns {map, bumpMap} for use directly
+   as <meshStandardMaterial map={...} bumpMap={...} /> props. */
 function useMatTexture(matId, photoUrl, repeat) {
   return useMemo(function() {
-    var tex;
+    var map, bumpMap = null;
     if (photoUrl) {
       var loader = new THREE.TextureLoader();
-      tex = loader.load(photoUrl);
+      map = loader.load(photoUrl);
     } else {
-      var drawer = TEX_DRAWERS[matId] || drawWhiteTex;
-      var canvas = document.createElement("canvas");
-      canvas.width = 512; canvas.height = 512;
-      var ctx = canvas.getContext("2d");
-      drawer(ctx, 512, 512);
-      tex = new THREE.CanvasTexture(canvas);
-      tex.needsUpdate = true;
+      var drawers = TEX_DRAWERS[matId] || TEX_DRAWERS.white;
+      map = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.color));
+      bumpMap = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.bump));
     }
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    if (repeat) tex.repeat.set(repeat[0], repeat[1]);
-    /* Slight color correction for sRGB-aware materials */
-    if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
+    [map, bumpMap].forEach(function(t) {
+      if (!t) return;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      if (repeat) t.repeat.set(repeat[0], repeat[1]);
+      t.anisotropy = 8;
+      t.needsUpdate = true;
+    });
+    if (THREE.SRGBColorSpace) map.colorSpace = THREE.SRGBColorSpace;
+    /* bumpMap stays in linear (default) — encoding depth, not color */
+    return { map: map, bumpMap: bumpMap };
   }, [matId, photoUrl, repeat && repeat[0], repeat && repeat[1]]);
 }
 
@@ -1224,12 +1520,12 @@ function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
           +X, -X, +Y, -Y, +Z, -Z = east, west, top, bottom, south, north) */}
       <mesh castShadow receiveShadow position={[0, realH/2, 0]}>
         <boxGeometry args={[realW, realH, realD]} />
-        <meshStandardMaterial attach="material-0" map={sideTex} color="#fff" roughness={0.88} metalness={0.04}/>
-        <meshStandardMaterial attach="material-1" map={sideTex} color="#fff" roughness={0.88} metalness={0.04}/>
+        <meshStandardMaterial attach="material-0" map={sideTex.map} bumpMap={sideTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-1" map={sideTex.map} bumpMap={sideTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
         <meshStandardMaterial attach="material-2" color={matColor} roughness={1}/>
         <meshStandardMaterial attach="material-3" color="#5a564a" roughness={1}/>
-        <meshStandardMaterial attach="material-4" map={wallTex} color="#fff" roughness={0.88} metalness={0.04}/>
-        <meshStandardMaterial attach="material-5" map={wallTex} color="#fff" roughness={0.88} metalness={0.04}/>
+        <meshStandardMaterial attach="material-4" map={wallTex.map} bumpMap={wallTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-5" map={wallTex.map} bumpMap={wallTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
       </mesh>
 
       {/* Windows + door on each of the 4 facades */}
@@ -1281,29 +1577,29 @@ function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
       {isFlat && (
         <mesh castShadow receiveShadow position={[0, realH + 0.15, 0]}>
           <boxGeometry args={[realW + 0.6, 0.3, realD + 0.6]} />
-          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
         </mesh>
       )}
       {!isFlat && !isMansart && !is4pans && (
         <mesh castShadow receiveShadow position={[0, realH, -realD/2 - 0.3]}>
           <extrudeGeometry args={[gableShape, {depth: realD + 0.6, bevelEnabled: false}]} />
-          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
         </mesh>
       )}
       {is4pans && hippedGeom && (
         <mesh castShadow receiveShadow position={[0, realH, 0]} geometry={hippedGeom}>
-          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} side={THREE.DoubleSide}/>
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} side={THREE.DoubleSide}/>
         </mesh>
       )}
       {isMansart && mansardLowerShape && mansardUpperShape && (
         <group position={[0, realH, 0]}>
           <mesh castShadow receiveShadow position={[0, 0, -realD/2 - 0.3]}>
             <extrudeGeometry args={[mansardLowerShape, {depth: realD + 0.6, bevelEnabled: false}]} />
-            <meshStandardMaterial map={roofTex} color="#fff" roughness={0.85} />
+            <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
           </mesh>
           <mesh castShadow receiveShadow position={[0, roofH * 0.55, -realD/2 + 0.5]}>
             <extrudeGeometry args={[mansardUpperShape, {depth: realD - 0.4, bevelEnabled: false}]} />
-            <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
+            <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
           </mesh>
         </group>
       )}
@@ -1368,6 +1664,21 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
           <Building3D
             realW={realW} realD={realD} realH={realH}
             fl={fl} mat={mat} roofType={roof}
+          />
+
+          {/* HDR environment for realistic reflections on glass + metal,
+              and ambient lighting that follows real sky tones */}
+          <Environment preset="park" background={false}/>
+
+          {/* Soft contact shadow under the building (separate from the
+              directional shadow map, kicks in close to the ground) */}
+          <ContactShadows
+            position={[0, 0.001, 0]}
+            opacity={0.55}
+            scale={Math.max(realW, realD) * 4}
+            blur={2.4}
+            far={realH * 1.2}
+            resolution={1024}
           />
 
           {/* Ground plane */}
