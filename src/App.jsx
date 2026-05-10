@@ -4820,6 +4820,125 @@ function connectBleLaser(onMeasurement, onStatus) {
   });
 }
 
+/* ----------------------------------------------------------------------
+   Google Solar API integration — Building Insights (Free Tier)
+   Géocode l'adresse → appelle Solar API findClosest → parse roofSegmentStats
+   pour récupérer surfaces / pentes / azimuts / hauteurs. Optimisé pour
+   ne consommer que 2 calls (1 Geocoding + 1 Solar).
+
+   Variables d'env Vite (.env à la racine du projet) :
+     VITE_GOOGLE_API_KEY=AIza...
+   La clé doit avoir Solar API + Geocoding API activées sur Google Cloud
+   Console, et idéalement être restreinte aux référents HTTP du domaine
+   pour éviter l'usage abusif.
+
+   Free tier Solar API (Building Insights) : ~1000 calls/jour, sans coût,
+   suffisant pour des milliers de projets. */
+function getGoogleApiKey() {
+  try {
+    return (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_API_KEY) || "";
+  } catch (e) { return ""; }
+}
+
+function fetchSolarBuilding(address) {
+  var apiKey = getGoogleApiKey();
+  if (!apiKey) {
+    return Promise.reject(new Error("Clé API Google manquante. Créez un fichier .env à la racine avec VITE_GOOGLE_API_KEY=AIza... puis redémarrez Vite."));
+  }
+  if (!address || address.trim().length < 5) {
+    return Promise.reject(new Error("Adresse trop courte. Saisissez une adresse complète (numéro + rue + ville)."));
+  }
+  /* 1. Geocode — 1 free call */
+  var geoUrl = "https://maps.googleapis.com/maps/api/geocode/json"
+    + "?address=" + encodeURIComponent(address.trim())
+    + "&key=" + apiKey;
+  return fetch(geoUrl).then(function(r){ return r.json(); }).then(function(geo){
+    if (geo.status === "REQUEST_DENIED") {
+      throw new Error("Geocoding API refusée : " + (geo.error_message || "vérifiez la clé + activation API"));
+    }
+    if (!geo.results || geo.results.length === 0) {
+      throw new Error("Adresse introuvable. Essayez une formulation plus complète (numéro + rue + code postal + ville).");
+    }
+    var loc = geo.results[0].geometry.location;          /* {lat, lng} */
+    var formatted = geo.results[0].formatted_address;
+    /* 2. Solar API — 1 free call (Building Insights) */
+    var solarUrl = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
+      + "?location.latitude=" + loc.lat
+      + "&location.longitude=" + loc.lng
+      + "&requiredQuality=LOW"                            /* LOW = couverture max */
+      + "&key=" + apiKey;
+    return fetch(solarUrl).then(function(r){ return r.json(); }).then(function(solar){
+      if (solar.error) {
+        var msg = solar.error.message || "Bâtiment non couvert par Solar API à cette adresse.";
+        if (msg.indexOf("not enabled") !== -1) {
+          throw new Error("Solar API non activée sur Google Cloud Console. Activez-la pour ce projet.");
+        }
+        throw new Error(msg);
+      }
+      return parseSolarBuilding(solar, loc, formatted);
+    });
+  });
+}
+
+function parseSolarBuilding(solar, loc, formatted) {
+  var sp = solar.solarPotential || {};
+  var segments = sp.roofSegmentStats || [];
+  /* Surface totale toiture (somme des pans) */
+  var roofArea = 0;
+  segments.forEach(function(s){ roofArea += (s.stats && s.stats.areaMeters2) || 0; });
+  /* Emprise au sol (projection horizontale) */
+  var footprint = (sp.wholeRoofStats && sp.wholeRoofStats.groundAreaMeters2) || 0;
+  if (!footprint) {
+    segments.forEach(function(s){ footprint += (s.stats && s.stats.groundAreaMeters2) || 0; });
+  }
+  /* Hauteur max — max des planeHeightAtCenterMeters */
+  var maxHeight = 0;
+  segments.forEach(function(s){
+    if (s.planeHeightAtCenterMeters && s.planeHeightAtCenterMeters > maxHeight) {
+      maxHeight = s.planeHeightAtCenterMeters;
+    }
+  });
+  /* BoundingBox → dimensions Est-Ouest / Nord-Sud en mètres
+     Conversion deg → m : 1° lat ≈ 111000 m, 1° lng ≈ 111000 × cos(lat) */
+  var W = 0, D = 0;
+  if (solar.boundingBox && solar.boundingBox.ne && solar.boundingBox.sw) {
+    var ne = solar.boundingBox.ne, sw = solar.boundingBox.sw;
+    var avgLat = ((ne.latitude + sw.latitude) / 2) * Math.PI / 180;
+    D = Math.abs((ne.latitude  - sw.latitude)  * 111000);
+    W = Math.abs((ne.longitude - sw.longitude) * 111000 * Math.cos(avgLat));
+  }
+  /* Surface façades = périmètre × hauteur − 10% (estimation ouvertures) */
+  var perimeter = (W > 0 && D > 0) ? 2 * (W + D) : 0;
+  var wallArea = perimeter * maxHeight * 0.9;
+  /* Détail par pan */
+  var segmentsParsed = segments.map(function(s, i){
+    return {
+      idx: i,
+      pitchDeg:    s.pitchDegrees || 0,
+      azimuthDeg:  s.azimuthDegrees || 0,
+      areaM2:      (s.stats && s.stats.areaMeters2) || 0,
+      groundM2:    (s.stats && s.stats.groundAreaMeters2) || 0,
+      heightM:     s.planeHeightAtCenterMeters || 0,
+    };
+  });
+  return {
+    formatted: formatted,
+    location: loc,
+    summary: {
+      roofAreaTotalM2:   roofArea,
+      footprintM2:       footprint,
+      maxHeightM:        maxHeight,
+      perimeterM:        perimeter,
+      wallAreaEstimM2:   wallArea,
+      widthEW:           W,
+      depthNS:           D,
+      segmentCount:      segments.length,
+    },
+    segments: segmentsParsed,
+    raw: solar,
+  };
+}
+
 function Modal({ onClose, onCreate }) {
   var [step, setStep]       = useState(0);
   /* Identification fields */
@@ -4840,6 +4959,10 @@ function Modal({ onClose, onCreate }) {
     ouest: { l:"", h:"", win:"", doors:"" },
   });
   var [activeFacade, setActiveFacade] = useState("sud");
+  /* Google Solar API auto-fill — état + résultat */
+  var [solarBusy,   setSolarBusy]   = useState(false);
+  var [solarMsg,    setSolarMsg]    = useState("");
+  var [solarData,   setSolarData]   = useState(null);
   var [activeField, setActiveField] = useState("sud:l");   /* "sud:l" | "est:h" ... — champ qui recevra la prochaine mesure laser */
   var [bleStatus, setBleStatus] = useState("");
   var [bleConn, setBleConn] = useState(null);   /* { device, driver, disconnect } | null */
@@ -4874,6 +4997,39 @@ function Modal({ onClose, onCreate }) {
     return parseFloat(f.l) > 0 && parseFloat(f.h) > 0;
   });
   var stepOk = step === 0 ? step0Ok : step === 1 ? step1Ok : true;
+
+  /* Solar API auto-fill : compose une adresse depuis l'étape 1, appelle
+     l'API, puis pré-remplit les 4 façades + récupère la hauteur. */
+  function runSolarAutoFill() {
+    var fullAddr = (num + " " + rue + ", " + cp + " " + city).trim();
+    if (!fullAddr || fullAddr.length < 8) {
+      setSolarMsg("⚠️ Remplissez d'abord l'étape 1 (rue + n° + CP + ville).");
+      return;
+    }
+    setSolarBusy(true);
+    setSolarMsg("📡 Géocodage + Solar API…");
+    fetchSolarBuilding(fullAddr).then(function(data){
+      setSolarData(data);
+      var s = data.summary;
+      var W = s.widthEW || 0, D = s.depthNS || 0, h = s.maxHeightM || 0;
+      var hs = h > 0 ? h.toFixed(1) : "";
+      var Ws = W > 0 ? W.toFixed(1) : "";
+      var Ds = D > 0 ? D.toFixed(1) : "";
+      /* Pré-remplit Sud + Nord avec largeur EW, Est + Ouest avec profondeur NS */
+      setFacades({
+        sud:   { l: Ws, h: hs, win:"", doors:"" },
+        est:   { l: Ds, h: hs, win:"", doors:"" },
+        nord:  { l: Ws, h: hs, win:"", doors:"" },
+        ouest: { l: Ds, h: hs, win:"", doors:"" },
+      });
+      setSolarMsg("✓ " + data.formatted + " — " + s.segmentCount + " pans, " +
+        s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
+      setSolarBusy(false);
+    }).catch(function(err){
+      setSolarMsg("⚠️ " + (err.message || "Erreur Solar API"));
+      setSolarBusy(false);
+    });
+  }
 
   function setFacadeField(side, field, val) {
     setFacades(function(prev){
@@ -5246,6 +5402,80 @@ function Modal({ onClose, onCreate }) {
             {bleStatus && (
               <div style={{fontSize:10,color:"#FFB35E",marginBottom:10,fontStyle:"italic"}}>
                 {bleStatus}
+              </div>
+            )}
+
+            {/* 🛰️ Saisie automatique Google Solar API (Building Insights) */}
+            <div style={{background:"#08111E",border:"1px solid #1C3050",
+              borderRadius:9, padding:"10px 12px", marginBottom:12,
+              display:"flex",alignItems:"center",gap:10}}>
+              <div style={{fontSize:14}}>🛰️</div>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:11, color:"#E8EDF5", fontWeight:700}}>
+                  Saisie auto via Google Solar API <span style={{color:"#607898",fontWeight:400}}>(optionnel)</span>
+                </div>
+                <div style={{fontSize:9, color:"#607898", marginTop:2,
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                  {solarMsg
+                    ? solarMsg
+                    : "Pré-remplit largeur/profondeur/hauteur depuis Building Insights (free tier ~1000/jour). Step 1 doit être complétée."}
+                </div>
+              </div>
+              <button type="button" onClick={runSolarAutoFill}
+                disabled={solarBusy}
+                title={getGoogleApiKey()
+                  ? "Récupère les dimensions du bâtiment depuis Google Solar API"
+                  : "Clé API absente — créez .env avec VITE_GOOGLE_API_KEY puis relancez Vite"}
+                style={{background: solarBusy ? "#152135" : "transparent",
+                  border:"1px solid " + (solarBusy ? "#2E4A6A" : "#3a78b5"),
+                  color: solarBusy ? "#607898" : "#3a78b5",
+                  borderRadius:7, padding:"6px 12px", fontSize:10,
+                  fontWeight:700, cursor: solarBusy ? "wait" : "pointer",
+                  outline:"none", flexShrink:0,
+                  opacity: solarBusy ? 0.6 : 1}}>
+                {solarBusy ? "…" : "Récupérer"}
+              </button>
+            </div>
+
+            {/* Récap Solar (si données reçues) — segments + dimensions */}
+            {solarData && solarData.summary && (
+              <div style={{background:"#152135",border:"1px solid #1C3050",
+                borderRadius:9, padding:"8px 12px", marginBottom:12, fontSize:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                  {[
+                    ["Toit",       solarData.summary.roofAreaTotalM2.toFixed(1)+" m²"],
+                    ["Emprise",    solarData.summary.footprintM2.toFixed(1)+" m²"],
+                    ["Hauteur",    solarData.summary.maxHeightM.toFixed(1)+" m"],
+                    ["Pans",       String(solarData.summary.segmentCount)],
+                  ].map(function(p){
+                    return (
+                      <div key={p[0]}>
+                        <div style={{color:"#607898",fontSize:8,textTransform:"uppercase"}}>{p[0]}</div>
+                        <div style={{color:"#3a78b5",fontFamily:"monospace",fontWeight:700}}>{p[1]}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {solarData.segments.length > 0 && (
+                  <details style={{marginTop:8,fontSize:9,color:"#607898"}}>
+                    <summary style={{cursor:"pointer"}}>Détail des {solarData.segments.length} pans</summary>
+                    <div style={{marginTop:6,fontFamily:"monospace",lineHeight:1.5}}>
+                      {solarData.segments.slice(0,8).map(function(s){
+                        return (
+                          <div key={s.idx} style={{display:"grid",gridTemplateColumns:"30px 1fr 1fr 1fr",gap:6,color:"#8DAFC8"}}>
+                            <span>#{s.idx+1}</span>
+                            <span>{s.areaM2.toFixed(1)} m²</span>
+                            <span>{s.pitchDeg.toFixed(0)}° pente</span>
+                            <span>{s.azimuthDeg.toFixed(0)}° azimut</span>
+                          </div>
+                        );
+                      })}
+                      {solarData.segments.length > 8 && (
+                        <div style={{color:"#2E4A6A",fontStyle:"italic"}}>… et {solarData.segments.length - 8} autres pans</div>
+                      )}
+                    </div>
+                  </details>
+                )}
               </div>
             )}
 
@@ -5832,6 +6062,16 @@ function HelpPage() {
         "Préférences fines : TVA (%), devise, civilité par défaut, ratio de profondeur (cas 1 façade), décimales d'affichage. Bouton « Réinitialiser » pour revenir aux défauts.",
         "Civilités : liste éditable (M., Mme, Société, SCI, ASBL…) — utilisée dans le Modal de création.",
         "Stockage : tout est local (localStorage du navigateur). Bouton « Réinitialiser (restaurer la démo) » pour repartir des 5 projets d'exemple.",
+      ]
+    },
+    {
+      id:"solar", icon:"🛰️", title:"Saisie auto via Google Solar API",
+      body: [
+        "Sur le Modal de création, étape 2 « Remplir », un encart 🛰️ apparaît au-dessus des onglets façade. Cliquez « Récupérer » : l'app appelle l'API Google Solar (Building Insights) avec votre adresse de l'étape 1 et pré-remplit largeur, profondeur, hauteur des 4 façades.",
+        "L'API fournit aussi le détail des pans de toiture (surface en m², pente en degrés, azimut). Ces données sont visibles dans le récap dépliable.",
+        "Compte tenu du Free Tier Google : ~1000 appels/jour, suffisant pour des milliers de projets. L'app n'effectue que 2 calls par récupération (Geocoding + Solar).",
+        "Setup : créez un projet sur Google Cloud Console, activez Solar API + Geocoding API, créez une clé API. Copiez `.env.example` en `.env` à la racine du projet, mettez votre clé dans `VITE_GOOGLE_API_KEY=AIza...`, redémarrez Vite (`npm run dev`).",
+        "Si « Bâtiment non couvert » : Solar API ne couvre pas encore tous les pays / régions. Couverture en expansion (Belgique partielle en 2026). Saisie clavier comme fallback.",
       ]
     },
     {
