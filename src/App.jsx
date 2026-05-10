@@ -5113,6 +5113,9 @@ export default function App() {
       facades: info.facades || null,
     };
     setProjects(function(ps){ return ps.concat([np]); });
+    /* Bascule auto sur la fiche du nouveau projet (sinon le user retombe
+       sur Dashboard et doit re-cliquer pour ouvrir son projet). */
+    openProject(np);
     /* Auto-promote processing -> draft after 3s (no real CV pipeline yet) */
     setTimeout(function() {
       setProjects(function(ps) {
