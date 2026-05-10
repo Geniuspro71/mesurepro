@@ -1,6 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import * as THREE from "three";
 
 const C = {
   bg:"#08111E", surf:"#0F1C2E", card:"#152135", border:"#1C3050",
@@ -880,64 +883,171 @@ function House({ shape, mat, matCol, small, photos }) {
 }
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
-function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
-  var [angle, setAngle] = useState(30);
-  var [auto, setAuto]   = useState(false);
-  var [showAnno, setShowAnno] = useState(true);
-  var dragRef = useRef(null);
+/* ---- Building3D: walls + roof + foundation as Three.js meshes ---- */
+function Building3D({ realW, realD, realH, fl, mat, roofType }) {
+  var matColor = (mat && mat.col) || "#BFB09A";
+  var roofColor = "#5a3825";
 
-  /* Wall fill: pattern preferred over flat color */
-  var matColor = (mat && mat.col) || matCol || "#BFB09A";
-  var matFill  = (mat && mat.fill) || matColor;
-  /* Note: side walls darken via an overlay (see render below) since SVG
-     patterns can't be color-shaded inline like a flat hex. */
+  var rt = (roofType || "").toLowerCase();
+  var isFlat    = rt.indexOf("terras") !== -1;
+  var isMansart = rt.indexOf("mans") !== -1;
+  var is4pans   = rt.indexOf("4 pans") !== -1 || rt.indexOf("4pans") !== -1;
+  var roofH = isFlat ? 0.3 : (isMansart ? realH * 0.45 : Math.min(realW, realD) * 0.5);
 
-  /* Auto-rotation tick: only runs while auto=true. Cancels cleanly on toggle. */
-  useEffect(function() {
-    if (!auto) return;
-    var t = setInterval(function() {
-      setAngle(function(a){ return a + 0.5; });
-    }, 30);
-    return function(){ clearInterval(t); };
-  }, [auto]);
+  /* Gable (Pignon) extruded triangle, ridge runs along Z */
+  var gableShape = useMemo(function() {
+    var s = new THREE.Shape();
+    s.moveTo(-realW/2 - 0.3, 0);
+    s.lineTo(realW/2 + 0.3, 0);
+    s.lineTo(0, roofH);
+    s.lineTo(-realW/2 - 0.3, 0);
+    return s;
+  }, [realW, roofH]);
 
-  /* Pointer drag (mouse + touch) for free rotation. Listeners on window so the
-     drag survives if the cursor leaves the SVG. */
-  useEffect(function() {
-    function getX(e) {
-      if (e.touches && e.touches[0]) return e.touches[0].clientX;
-      return e.clientX;
-    }
-    function onMove(e) {
-      if (!dragRef.current) return;
-      var dx = getX(e) - dragRef.current.startX;
-      setAngle(dragRef.current.startAngle + dx * 0.7);
-      if (e.cancelable) e.preventDefault();
-    }
-    function onUp() { dragRef.current = null; document.body.style.cursor = ""; }
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onMove, {passive:false});
-    window.addEventListener("touchend", onUp);
-    window.addEventListener("touchcancel", onUp);
-    return function() {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onUp);
-      window.removeEventListener("touchcancel", onUp);
-    };
-  }, []);
+  /* 4-pans hipped roof: BufferGeometry with 4 sloped faces meeting at a ridge */
+  var hippedGeom = useMemo(function() {
+    if (!is4pans) return null;
+    var hw = realW/2 + 0.3, hd = realD/2 + 0.3, h = roofH;
+    var rw = realW * 0.15, rd = 0; /* ridge halfwidth + halfdepth (line, not point) */
+    /* 4 base corners + 2 ridge endpoints */
+    var v = [
+      [-hw, 0, -hd], [ hw, 0, -hd], [ hw, 0,  hd], [-hw, 0,  hd],
+      [-rw, h,  0], [ rw, h,  0],
+    ];
+    var f = [
+      [0,1,5],[0,5,4],   /* north slope */
+      [1,2,5],            /* east slope */
+      [2,3,4],[2,4,5],    /* south slope */
+      [3,0,4],            /* west slope */
+    ];
+    var positions = new Float32Array(f.length * 3 * 3);
+    var k = 0;
+    f.forEach(function(face){
+      face.forEach(function(idx){
+        positions[k++] = v[idx][0]; positions[k++] = v[idx][1]; positions[k++] = v[idx][2];
+      });
+    });
+    var g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    g.computeVertexNormals();
+    return g;
+  }, [realW, realD, roofH, is4pans]);
 
-  function startDrag(e) {
-    setAuto(false);
-    var x = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
-    dragRef.current = { startX: x, startAngle: angle };
-    document.body.style.cursor = "grabbing";
-    if (e.cancelable) e.preventDefault();
-  }
+  /* Mansard double-pitch */
+  var mansardLowerShape = useMemo(function() {
+    if (!isMansart) return null;
+    var s = new THREE.Shape();
+    var hw = realW/2 + 0.3, h2 = roofH * 0.55;
+    s.moveTo(-hw, 0);
+    s.lineTo( hw, 0);
+    s.lineTo( hw - 0.5, h2);
+    s.lineTo(-hw + 0.5, h2);
+    s.lineTo(-hw, 0);
+    return s;
+  }, [realW, roofH, isMansart]);
+  var mansardUpperShape = useMemo(function() {
+    if (!isMansart) return null;
+    var s = new THREE.Shape();
+    var hw = realW/2 + 0.3 - 0.5, top = roofH;
+    s.moveTo(-hw, 0);
+    s.lineTo( hw, 0);
+    s.lineTo( hw * 0.3, top - roofH * 0.55);
+    s.lineTo(-hw * 0.3, top - roofH * 0.55);
+    s.lineTo(-hw, 0);
+    return s;
+  }, [realW, roofH, isMansart]);
 
-  /* Building dimensions derived from project measurements when available */
+  return (
+    <group>
+      {/* Walls */}
+      <mesh castShadow receiveShadow position={[0, realH/2, 0]}>
+        <boxGeometry args={[realW, realH, realD]} />
+        <meshStandardMaterial color={matColor} roughness={0.85} metalness={0.04} />
+      </mesh>
+
+      {/* Inter-floor lines as thin dark bands */}
+      {(function(){
+        var bands = [];
+        for (var i = 1; i < fl; i++) {
+          var y = (realH / fl) * i;
+          bands.push(
+            <mesh key={"fl-s-"+i} position={[0, y, realD/2 + 0.005]}>
+              <boxGeometry args={[realW + 0.04, 0.05, 0.01]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-n-"+i} position={[0, y, -realD/2 - 0.005]}>
+              <boxGeometry args={[realW + 0.04, 0.05, 0.01]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-e-"+i} position={[realW/2 + 0.005, y, 0]}>
+              <boxGeometry args={[0.01, 0.05, realD + 0.04]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-w-"+i} position={[-realW/2 - 0.005, y, 0]}>
+              <boxGeometry args={[0.01, 0.05, realD + 0.04]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>
+          );
+        }
+        return bands;
+      })()}
+
+      {/* Foundation strip (concrete grey at base) */}
+      <mesh receiveShadow position={[0, 0.18, 0]}>
+        <boxGeometry args={[realW + 0.08, 0.36, realD + 0.08]} />
+        <meshStandardMaterial color="#5a564a" roughness={0.95} />
+      </mesh>
+
+      {/* Roof */}
+      {isFlat && (
+        <mesh castShadow receiveShadow position={[0, realH + 0.15, 0]}>
+          <boxGeometry args={[realW + 0.6, 0.3, realD + 0.6]} />
+          <meshStandardMaterial color="#3a3a3a" roughness={0.9} />
+        </mesh>
+      )}
+      {!isFlat && !isMansart && !is4pans && (
+        <mesh castShadow receiveShadow position={[0, realH, -realD/2 - 0.3]}>
+          <extrudeGeometry args={[gableShape, {depth: realD + 0.6, bevelEnabled: false}]} />
+          <meshStandardMaterial color={roofColor} roughness={0.9} />
+        </mesh>
+      )}
+      {is4pans && hippedGeom && (
+        <mesh castShadow receiveShadow position={[0, realH, 0]} geometry={hippedGeom}>
+          <meshStandardMaterial color={roofColor} roughness={0.9} side={THREE.DoubleSide}/>
+        </mesh>
+      )}
+      {isMansart && mansardLowerShape && mansardUpperShape && (
+        <group position={[0, realH, 0]}>
+          <mesh castShadow receiveShadow position={[0, 0, -realD/2 - 0.3]}>
+            <extrudeGeometry args={[mansardLowerShape, {depth: realD + 0.6, bevelEnabled: false}]} />
+            <meshStandardMaterial color="#3a4452" roughness={0.85} />
+          </mesh>
+          <mesh castShadow receiveShadow position={[0, roofH * 0.55, -realD/2 + 0.5]}>
+            <extrudeGeometry args={[mansardUpperShape, {depth: realD - 0.4, bevelEnabled: false}]} />
+            <meshStandardMaterial color={roofColor} roughness={0.9} />
+          </mesh>
+        </group>
+      )}
+
+      {/* Ridge cap line (small dark band at the gable apex) */}
+      {!isFlat && !is4pans && (
+        <mesh position={[0, realH + roofH + 0.02, 0]}>
+          <boxGeometry args={[0.15, 0.08, realD + 0.7]} />
+          <meshStandardMaterial color="#1a0f08" roughness={1}/>
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/* ---- IsoModel: WebGL 3D scene via React Three Fiber ----
+   Replaces the previous SVG iso projection. Real shadows, lights,
+   orbit controls, autorotate. Texture overlays (patterns from MatDefs)
+   and architectural details (windows, door, gutters, sills) come in a
+   follow-up commit — this commit lays the scene infrastructure. */
+function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
+  var [auto, setAuto] = useState(false);
+
   var fl = Math.max(1, Math.min(8, parseInt(floors) || 2));
   var m  = meas || {};
   var realH = parseFloat(m.h) || (3.5 * fl);
@@ -945,498 +1055,90 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
   var ratio = 1.6;
   var realW = Math.sqrt(realFoot * ratio);
   var realD = Math.sqrt(realFoot / ratio);
-  /* Auto-fit unit so the building fills the SVG without overflow regardless of size */
-  var unit = Math.min(9, 180 / realW, 90 / realD, 160 / (realH * 1.6));
-  unit = Math.max(4, unit);
-  var bw = realW * unit;
-  var bd = realD * unit;
-  var bh = realH * unit * 1.6;
 
-  var rc  = "#2E1E10";
-  var rad = (angle * Math.PI) / 180;
-
-  function proj(x, y, z) {
-    return {
-      x: 160 + (x * Math.cos(rad) - y * Math.sin(rad)) * 0.85,
-      y: 175 - (x * Math.sin(rad) + y * Math.cos(rad)) * 0.36 - z * 0.68,
-    };
-  }
-
-  var P = [
-    proj(-bw/2,-bd/2,0), proj(bw/2,-bd/2,0), proj(bw/2,bd/2,0), proj(-bw/2,bd/2,0),
-    proj(-bw/2,-bd/2,bh),proj(bw/2,-bd/2,bh),proj(bw/2,bd/2,bh),proj(-bw/2,bd/2,bh),
-  ];
-  function pp(pts){ return pts.map(function(p){ return p.x+","+p.y; }).join(" "); }
-  var rid  = proj(0,-bd/2-2,bh+30);
-  var rid2 = proj(0, bd/2+2,bh+30);
-  function bi(bl,br,tl,tr,u,v2) {
-    var bx=bl.x+(br.x-bl.x)*u, by=bl.y+(br.y-bl.y)*u;
-    var tx=tl.x+(tr.x-tl.x)*u, ty=tl.y+(tr.y-tl.y)*u;
-    return {x:bx+(tx-bx)*v2, y:by+(ty-by)*v2};
-  }
-
-  /* Generate windows + door for one face */
-  function faceFeatures(BL, BR, TL, TR, hasDoor) {
-    var feats = [];
-    var cols = fl <= 2 ? 4 : 5;
-    var winW = Math.min(0.18, 0.7/cols);
-    var pad  = (1 - winW * cols) / (cols + 1);
-    for (var f = 0; f < fl; f++) {
-      var fy0 = (f + 0.18) / fl;
-      var fy1 = (f + 0.78) / fl;
-      for (var c = 0; c < cols; c++) {
-        if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
-        var x0 = pad + c * (winW + pad);
-        var x1 = x0 + winW;
-        feats.push({type:"win", key:"f"+f+"c"+c, points:[
-          bi(BL,BR,TL,TR,x0,fy0), bi(BL,BR,TL,TR,x1,fy0),
-          bi(BL,BR,TL,TR,x1,fy1), bi(BL,BR,TL,TR,x0,fy1),
-        ]});
-      }
-    }
-    if (hasDoor) {
-      var dCol = Math.floor(cols/2);
-      var dx0 = pad + dCol * (winW + pad);
-      var dx1 = dx0 + winW;
-      var dy0 = 0.02, dy1 = (0.85)/fl;
-      feats.push({type:"door", key:"door", points:[
-        bi(BL,BR,TL,TR,dx0,dy0), bi(BL,BR,TL,TR,dx1,dy0),
-        bi(BL,BR,TL,TR,dx1,dy1), bi(BL,BR,TL,TR,dx0,dy1),
-      ]});
-    }
-    return feats;
-  }
-
-  /* Floor-level horizontal lines */
-  function floorLines(BL, BR, TL, TR) {
-    var L = [];
-    for (var f = 1; f < fl; f++) {
-      var fy = f / fl;
-      var a = bi(BL,BR,TL,TR, 0, fy);
-      var b = bi(BL,BR,TL,TR, 1, fy);
-      L.push({key:"fl"+f, x1:a.x, y1:a.y, x2:b.x, y2:b.y});
-    }
-    return L;
-  }
-
-  /* 4 walls of the building (CCW seen from outside).
-     The "south" wall is the conventional front (door), the others rotate around. */
-  var WALLS = [
-    { id:"south", lbl:"Sud",   bl:P[0], br:P[1], tl:P[4], tr:P[5], hasDoor:true,  width:realW },
-    { id:"east",  lbl:"Est",   bl:P[1], br:P[2], tl:P[5], tr:P[6], hasDoor:false, width:realD },
-    { id:"north", lbl:"Nord",  bl:P[2], br:P[3], tl:P[6], tr:P[7], hasDoor:false, width:realW },
-    { id:"west",  lbl:"Ouest", bl:P[3], br:P[0], tl:P[7], tr:P[4], hasDoor:false, width:realD },
-  ];
-  /* Back-face culling: a wall is front-facing when its 2D winding (cross
-     product of the bottom and left edges) is positive. The two opposite
-     walls flip together as the user rotates. */
-  function wallVisible(w) {
-    var dx1 = w.br.x - w.bl.x, dy1 = w.br.y - w.bl.y;
-    var dx2 = w.tl.x - w.bl.x, dy2 = w.tl.y - w.bl.y;
-    return (dx1 * dy2 - dy1 * dx2) > 0;
-  }
-  /* Depth = average screen-y of the wall corners. Smaller y = farther in
-     iso projection (top of canvas). We render back-to-front. */
-  function wallDepth(w) {
-    return (w.bl.y + w.br.y + w.tl.y + w.tr.y) / 4;
-  }
-  var visibleWalls = WALLS.filter(wallVisible).sort(function(a, b){ return wallDepth(a) - wallDepth(b); });
-
-  /* Roof slope visibility — same back-face culling as walls */
-  var roofVisFront = wallVisible({ bl:P[4], br:P[5], tl:rid,  tr:rid2 });
-  var roofVisBack  = wallVisible({ bl:P[6], br:P[7], tl:rid2, tr:rid  });
-
-  /* Chimney on left roof slope (offset toward back) */
-  var cx = -bw*0.18, cy = bd*0.05, cw = 6, cd = 6, ch = 22;
-  var cb = bh + 14;
-  var Cm = [
-    proj(cx-cw/2,cy-cd/2,cb), proj(cx+cw/2,cy-cd/2,cb),
-    proj(cx+cw/2,cy+cd/2,cb), proj(cx-cw/2,cy+cd/2,cb),
-    proj(cx-cw/2,cy-cd/2,cb+ch), proj(cx+cw/2,cy-cd/2,cb+ch),
-    proj(cx+cw/2,cy+cd/2,cb+ch), proj(cx-cw/2,cy+cd/2,cb+ch),
-  ];
-
-  function rotate(delta) {
-    setAuto(false);
-    setAngle(function(a) { return a + delta; });
-  }
-
-  var btnStyle = {
-    background:"#152135", border:"1px solid #1C3050", color:"#E8EDF5",
-    borderRadius:8, width:36, height:36, fontSize:18, cursor:"pointer",
-    display:"flex", alignItems:"center", justifyContent:"center",
-    outline:"none", flexShrink:0, fontWeight:700, lineHeight:1,
-  };
+  /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
+  var camDist = Math.max(realW, realD, realH) * 1.7;
 
   return (
     <div style={{display:"flex", flexDirection:"column", height:"100%"}}>
-      {/* SVG — drag-to-rotate (mouse + touch) */}
-      <div
-        onMouseDown={startDrag}
-        onTouchStart={startDrag}
-        style={{flex:1, minHeight:220, cursor:"grab",
-          userSelect:"none", WebkitUserSelect:"none", touchAction:"none"}}>
-        <svg width="100%" height="100%" viewBox="0 0 320 280"
-          style={{display:"block", pointerEvents:"none"}}>
-          <MatDefs photos={photos}/>
-          <defs>
-            {/* Environment gradients */}
-            <linearGradient id="iso-sky" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#dde9f3"/>
-              <stop offset="55%"  stopColor="#f1f5f8"/>
-              <stop offset="100%" stopColor="#fafbfc"/>
-            </linearGradient>
-            <linearGradient id="iso-ground" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#dcd9cf"/>
-              <stop offset="100%" stopColor="#c8c4b6"/>
-            </linearGradient>
-            {/* Per-face top-light, bottom-shade gradient (sun simulation) */}
-            <linearGradient id="iso-face-light" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#fff" stopOpacity="0.18"/>
-              <stop offset="55%"  stopColor="#fff" stopOpacity="0.04"/>
-              <stop offset="100%" stopColor="#000" stopOpacity="0.16"/>
-            </linearGradient>
-            <linearGradient id="iso-face-shade" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#000" stopOpacity="0.08"/>
-              <stop offset="100%" stopColor="#000" stopOpacity="0.32"/>
-            </linearGradient>
-            {/* Window glass reflection */}
-            <linearGradient id="iso-glass" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%"   stopColor="#cfe2ee" stopOpacity="0.95"/>
-              <stop offset="50%"  stopColor="#7aaccc" stopOpacity="0.95"/>
-              <stop offset="100%" stopColor="#5588ad" stopOpacity="0.95"/>
-            </linearGradient>
-            <linearGradient id="iso-glass-side" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%"   stopColor="#9bb6c8" stopOpacity="0.92"/>
-              <stop offset="100%" stopColor="#456e8a" stopOpacity="0.92"/>
-            </linearGradient>
-            {/* Door wood gradient */}
-            <linearGradient id="iso-door-wood" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%"   stopColor="#8a5a30"/>
-              <stop offset="100%" stopColor="#4a2a14"/>
-            </linearGradient>
-            {/* Soft cast shadow */}
-            <radialGradient id="iso-shadow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%"   stopColor="#000" stopOpacity="0.42"/>
-              <stop offset="55%"  stopColor="#000" stopOpacity="0.18"/>
-              <stop offset="100%" stopColor="#000" stopOpacity="0"/>
-            </radialGradient>
-          </defs>
+      <div style={{flex:1, minHeight:240, position:"relative"}}>
+        <Canvas
+          shadows
+          dpr={[1, 2]}
+          camera={{position:[camDist*1.05, camDist*0.65, camDist*1.05], fov: 35}}
+          style={{width:"100%", height:"100%", display:"block"}}>
+          <color attach="background" args={["#dce3ec"]}/>
+          <fog attach="fog" args={["#dce3ec", camDist*1.7, camDist*4.5]}/>
 
-          {/* Sky background (top half) and ground (bottom half) */}
-          <rect x="0" y="0" width="320" height="160" fill="url(#iso-sky)"/>
-          <rect x="0" y="160" width="320" height="120" fill="url(#iso-ground)"/>
-          {/* Subtle horizon line + ground shadow band */}
-          <line x1="0" y1="160" x2="320" y2="160" stroke="#a8a594" strokeWidth="0.4" opacity="0.6"/>
+          <ambientLight intensity={0.45}/>
+          <hemisphereLight args={["#dce3ec", "#a8a594", 0.45]}/>
+          <directionalLight
+            position={[realW*1.4, realH*2.6, realD*1.5]}
+            intensity={1.15}
+            castShadow
+            shadow-mapSize={[2048, 2048]}
+            shadow-camera-near={0.5}
+            shadow-camera-far={camDist * 6}
+            shadow-camera-left={-realW*2}
+            shadow-camera-right={realW*2}
+            shadow-camera-top={realH*3}
+            shadow-camera-bottom={-realH/2}
+            shadow-bias={-0.0008}
+          />
 
-          {/* Soft layered cast shadow under building */}
-          <ellipse cx="165" cy="234" rx={Math.min(150, bw*0.95)} ry={Math.min(22, bd*0.30)}
-            fill="url(#iso-shadow)"/>
-          <ellipse cx="165" cy="234" rx={Math.min(120, bw*0.78)} ry={Math.min(15, bd*0.22)}
-            fill="rgba(0,0,0,0.22)"/>
+          <Building3D
+            realW={realW} realD={realD} realH={realH}
+            fl={fl} mat={mat} roofType={roof}
+          />
 
-          {/* Render every visible wall, back-to-front, with its windows + door + floor lines */}
-          {visibleWalls.map(function(w, i) {
-            var feats = faceFeatures(w.bl, w.br, w.tl, w.tr, w.hasDoor);
-            var fLines = floorLines(w.bl, w.br, w.tl, w.tr);
-            var isSide  = (w.id === "east" || w.id === "west");
-            var isBack  = (w.id === "north");
-            /* Sun direction (front+left lit, side+back darker) */
-            var faceShade = isBack ? 0.30 : (isSide ? 0.18 : 0);
-            /* Foundation strip: 9% of wall height at the bottom, darker concrete */
-            var foundH = 0.09;
-            var bl = w.bl, br = w.br, tl = w.tl, tr = w.tr;
-            var fbl = { x: bl.x + (tl.x-bl.x)*foundH, y: bl.y + (tl.y-bl.y)*foundH };
-            var fbr = { x: br.x + (tr.x-br.x)*foundH, y: br.y + (tr.y-br.y)*foundH };
-            /* Gutter line: thin band right at the wall top */
-            var gH = 0.04;
-            var gbl = { x: tl.x - (tl.x-bl.x)*gH, y: tl.y - (tl.y-bl.y)*gH };
-            var gbr = { x: tr.x - (tr.x-br.x)*gH, y: tr.y - (tr.y-br.y)*gH };
-            return (
-              <g key={w.id}>
-                {/* 1. Material fill (pattern or color) */}
-                <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
-                  fill={matFill} stroke="#0A0E1A" strokeWidth="1"/>
-                {/* 2. Top-light / bottom-shade gradient (sun simulation) */}
-                <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
-                  fill="url(#iso-face-light)" stroke="none"/>
-                {/* 3. Side / back darken overlay */}
-                {faceShade > 0 && (
-                  <polygon points={pp([w.bl, w.br, w.tr, w.tl])}
-                    fill={"rgba(0,0,0," + faceShade + ")"} stroke="none"/>
-                )}
-                {/* 4. Foundation strip (concrete-grey base) */}
-                <polygon points={pp([w.bl, w.br, fbr, fbl])}
-                  fill="rgba(70,68,62,0.55)" stroke="rgba(40,38,32,0.6)" strokeWidth="0.4"/>
-                {/* 5. Floor lines */}
-                {fLines.map(function(l) {
-                  return <line key={w.id+l.key} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2}
-                    stroke="rgba(0,0,0,0.32)" strokeWidth="0.5" strokeDasharray="2,2"/>;
-                })}
-                {/* 6. Windows + door */}
-                {feats.map(function(f) {
-                  if (f.type === "door") {
-                    var hx = f.points[1].x - 1.5;
-                    var hy = (f.points[1].y + f.points[2].y) / 2;
-                    var dlbl = f.points[0], dlbr = f.points[1];
-                    var dltl = f.points[3], dltr = f.points[2];
-                    return (
-                      <g key={w.id+f.key}>
-                        {/* Frame */}
-                        <polygon points={pp(f.points)}
-                          fill="url(#iso-door-wood)" stroke="#2a1808" strokeWidth="0.7"/>
-                        {/* Inner panel split */}
-                        <line
-                          x1={(dlbl.x+dltl.x)/2 + (dlbr.x-dlbl.x)*0.42}
-                          y1={(dlbl.y+dltl.y)/2 + (dlbr.y-dlbl.y)*0.42}
-                          x2={(dlbl.x+dltl.x)/2 + (dlbr.x-dlbl.x)*0.42}
-                          y2={(dltl.y+dltr.y)/2 + (dltr.y-dltl.y)*0.42}
-                          stroke="#1a0c04" strokeWidth="0.4" opacity="0.7"/>
-                        {/* Threshold */}
-                        <line x1={dlbl.x} y1={dlbl.y} x2={dlbr.x} y2={dlbr.y}
-                          stroke="#1a0c04" strokeWidth="1.3"/>
-                        {/* Brass handle */}
-                        <circle cx={hx} cy={hy} r="1.0" fill="#DAA520" stroke="#a87c0c" strokeWidth="0.3"/>
-                      </g>
-                    );
-                  }
-                  /* Window: frame + glass with reflection gradient + sill */
-                  var p0 = f.points[0], p1 = f.points[1], p2 = f.points[2], p3 = f.points[3];
-                  /* Inner glass area shrunk by ~12% inward */
-                  function inset(p, towards1, towards2, k) {
-                    return {
-                      x: p.x + (towards1.x - p.x)*k + (towards2.x - p.x)*0,
-                      y: p.y + (towards1.y - p.y)*k + (towards2.y - p.y)*0,
-                    };
-                  }
-                  var k = 0.12;
-                  var gp0 = { x: p0.x + (p1.x-p0.x)*k + (p3.x-p0.x)*k, y: p0.y + (p1.y-p0.y)*k + (p3.y-p0.y)*k };
-                  var gp1 = { x: p1.x + (p0.x-p1.x)*k + (p2.x-p1.x)*k, y: p1.y + (p0.y-p1.y)*k + (p2.y-p1.y)*k };
-                  var gp2 = { x: p2.x + (p3.x-p2.x)*k + (p1.x-p2.x)*k, y: p2.y + (p3.y-p2.y)*k + (p1.y-p2.y)*k };
-                  var gp3 = { x: p3.x + (p2.x-p3.x)*k + (p0.x-p3.x)*k, y: p3.y + (p2.y-p3.y)*k + (p0.y-p3.y)*k };
-                  /* Sill: extend bottom edge slightly downward + outward */
-                  var sillEx = 0.04;
-                  var sl = { x: p0.x - (p3.x-p0.x)*sillEx, y: p0.y - (p3.y-p0.y)*sillEx };
-                  var sr = { x: p1.x - (p2.x-p1.x)*sillEx, y: p1.y - (p2.y-p1.y)*sillEx };
-                  return (
-                    <g key={w.id+f.key}>
-                      {/* Outer frame */}
-                      <polygon points={pp(f.points)}
-                        fill="#fff" stroke="#222" strokeWidth="0.7"/>
-                      {/* Glass with reflection gradient */}
-                      <polygon points={pp([gp0, gp1, gp2, gp3])}
-                        fill={isSide ? "url(#iso-glass-side)" : "url(#iso-glass)"}
-                        stroke="#3a6080" strokeWidth="0.4"/>
-                      {/* Cross mullions */}
-                      <line x1={(gp0.x+gp1.x)/2} y1={(gp0.y+gp1.y)/2}
-                        x2={(gp3.x+gp2.x)/2} y2={(gp3.y+gp2.y)/2}
-                        stroke="#fff" strokeWidth="0.5" opacity="0.85"/>
-                      <line x1={(gp0.x+gp3.x)/2} y1={(gp0.y+gp3.y)/2}
-                        x2={(gp1.x+gp2.x)/2} y2={(gp1.y+gp2.y)/2}
-                        stroke="#fff" strokeWidth="0.5" opacity="0.85"/>
-                      {/* Sill */}
-                      <polygon points={pp([sl, sr, p1, p0])}
-                        fill="#d8d4c8" stroke="#4a4636" strokeWidth="0.3"/>
-                    </g>
-                  );
-                })}
-                {/* 7. Gutter line at top of wall */}
-                <polygon points={pp([gbl, gbr, tr, tl])}
-                  fill="#e8e3d4" stroke="#666359" strokeWidth="0.4"/>
-              </g>
-            );
-          })}
+          {/* Ground plane */}
+          <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
+            <circleGeometry args={[Math.max(realW, realD) * 4, 64]}/>
+            <meshStandardMaterial color="#a8a594" roughness={0.95}/>
+          </mesh>
 
-          {/* Roof slopes — render only those facing the camera */}
-          {roofVisFront && (
-            <g>
-              <polygon points={pp([P[5],P[4],rid,rid2])} fill={"url(#mat-slate)"} stroke="#100804" strokeWidth="1"/>
-              <polygon points={pp([P[5],P[4],rid,rid2])} fill="url(#iso-face-light)" stroke="none"/>
-            </g>
-          )}
-          {roofVisBack && (
-            <g>
-              <polygon points={pp([P[7],P[6],rid2,rid])} fill={"url(#mat-slate)"} stroke="#100804" strokeWidth="1"/>
-              <polygon points={pp([P[7],P[6],rid2,rid])} fill="rgba(0,0,0,0.20)" stroke="none"/>
-            </g>
-          )}
-
-          {/* Gable triangles on east/west sides — under the ridge */}
-          {wallVisible({bl:P[5], br:P[6], tl:rid2, tr:rid2}) && (
-            <g>
-              <polygon points={pp([P[5],P[6],rid2])}
-                fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
-              <polygon points={pp([P[5],P[6],rid2])}
-                fill="rgba(0,0,0,0.10)" stroke="none"/>
-            </g>
-          )}
-          {wallVisible({bl:P[7], br:P[4], tl:rid, tr:rid}) && (
-            <g>
-              <polygon points={pp([P[7],P[4],rid])}
-                fill={matFill} stroke="#0A0E1A" strokeWidth="0.8"/>
-              <polygon points={pp([P[7],P[4],rid])}
-                fill="rgba(0,0,0,0.10)" stroke="none"/>
-            </g>
-          )}
-
-          {/* chimney — only render if its base is on a visible roof slope */}
-          {(roofVisFront || roofVisBack) && (
-            <g>
-              <polygon points={pp([Cm[0],Cm[3],Cm[7],Cm[4]])} fill={sh(rc,-15)} stroke="#100804" strokeWidth="0.5"/>
-              <polygon points={pp([Cm[0],Cm[1],Cm[5],Cm[4]])} fill={sh(rc,-5)}  stroke="#100804" strokeWidth="0.5"/>
-              <polygon points={pp([Cm[4],Cm[5],Cm[6],Cm[7]])} fill={sh(rc,8)}   stroke="#100804" strokeWidth="0.5"/>
-            </g>
-          )}
-
-          {showAnno && (() => {
-            /* Try to read facade lengths from project.rooms first.
-               Fallback to derived realW / realD. */
-            function parseM(s) {
-              if (s == null) return null;
-              var v = parseFloat(String(s).replace(/[^\d.,-]/g,"").replace(",","."));
-              return isFinite(v) && v > 0 ? v : null;
-            }
-            function lookup(needle) {
-              var r = (rooms||[]).find(function(x){
-                if (!x || x.t === "r") return false;
-                var n = (x.n||"").toLowerCase();
-                return n.indexOf(needle) !== -1;
-              });
-              return r ? parseM(r.l) : null;
-            }
-            var Lfront = lookup("nord") || lookup("sud")  || lookup("front") || realW;
-            var Lleft  = lookup("est")  || lookup("ouest")|| lookup("late")  || realD;
-
-            var hLabel = m.h ? m.h + " m" : realH.toFixed(1) + " m";
-            var wallsLabel = m.walls ? m.walls + " m²" : null;
-            var roofLabel  = m.roof ? m.roof + " m²"  : null;
-            var topMid     = { x:(P[4].x+P[5].x+P[6].x+P[7].x)/4, y:(P[4].y+P[5].y+P[6].y+P[7].y)/4 };
-            var ridgeMid   = { x:(rid.x+rid2.x)/2, y:(rid.y+rid2.y)/2 };
-
-            /* Front-bottom edge: P[0]→P[1]. Compute outward normal so the
-               label + tick lines sit just below the edge regardless of angle. */
-            var fEdge = { x1:P[0].x, y1:P[0].y, x2:P[1].x, y2:P[1].y };
-            var fLen  = Math.sqrt((fEdge.x2-fEdge.x1)**2 + (fEdge.y2-fEdge.y1)**2) || 1;
-            var fNx = -(fEdge.y2-fEdge.y1)/fLen, fNy = (fEdge.x2-fEdge.x1)/fLen;
-            if (fNy < 0) { fNx = -fNx; fNy = -fNy; }
-            var fOff = 12;
-            var fM = { x:(fEdge.x1+fEdge.x2)/2 + fNx*fOff, y:(fEdge.y1+fEdge.y2)/2 + fNy*fOff };
-
-            /* Left-bottom edge: P[3]→P[0] */
-            var lEdge = { x1:P[3].x, y1:P[3].y, x2:P[0].x, y2:P[0].y };
-            var lLen  = Math.sqrt((lEdge.x2-lEdge.x1)**2 + (lEdge.y2-lEdge.y1)**2) || 1;
-            var lNx = -(lEdge.y2-lEdge.y1)/lLen, lNy = (lEdge.x2-lEdge.x1)/lLen;
-            if (lNy < 0) { lNx = -lNx; lNy = -lNy; }
-            var lOff = 12;
-            var lM = { x:(lEdge.x1+lEdge.x2)/2 + lNx*lOff, y:(lEdge.y1+lEdge.y2)/2 + lNy*lOff };
-
-            return (
-              <g>
-                {/* hauteur — cote verticale gauche */}
-                <line x1={P[0].x-22} y1={P[0].y} x2={P[0].x-22} y2={P[4].y}
-                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
-                <line x1={P[0].x-26} y1={P[0].y} x2={P[0].x-18} y2={P[0].y}
-                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
-                <line x1={P[0].x-26} y1={P[4].y} x2={P[0].x-18} y2={P[4].y}
-                  stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
-                <text x={P[0].x-44} y={(P[0].y+P[4].y)/2+4}
-                  fill="#00E5A0" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                  {hLabel}
-                </text>
-
-                {/* cote longueur facade frontale */}
-                <line x1={fEdge.x1+fNx*4} y1={fEdge.y1+fNy*4}
-                      x2={fEdge.x1+fNx*14} y2={fEdge.y1+fNy*14}
-                  stroke="#00C2FF" strokeWidth="0.8" opacity="0.9"/>
-                <line x1={fEdge.x2+fNx*4} y1={fEdge.y2+fNy*4}
-                      x2={fEdge.x2+fNx*14} y2={fEdge.y2+fNy*14}
-                  stroke="#00C2FF" strokeWidth="0.8" opacity="0.9"/>
-                <line x1={fEdge.x1+fNx*9} y1={fEdge.y1+fNy*9}
-                      x2={fEdge.x2+fNx*9} y2={fEdge.y2+fNy*9}
-                  stroke="#00C2FF" strokeWidth="0.7" opacity="0.85"/>
-                <text x={fM.x} y={fM.y+3} textAnchor="middle"
-                  fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold"
-                  paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2.2">
-                  {Lfront.toFixed(1)} m
-                </text>
-
-                {/* cote longueur facade laterale */}
-                <line x1={lEdge.x1+lNx*4} y1={lEdge.y1+lNy*4}
-                      x2={lEdge.x1+lNx*14} y2={lEdge.y1+lNy*14}
-                  stroke="#FF8C42" strokeWidth="0.8" opacity="0.9"/>
-                <line x1={lEdge.x2+lNx*4} y1={lEdge.y2+lNy*4}
-                      x2={lEdge.x2+lNx*14} y2={lEdge.y2+lNy*14}
-                  stroke="#FF8C42" strokeWidth="0.8" opacity="0.9"/>
-                <line x1={lEdge.x1+lNx*9} y1={lEdge.y1+lNy*9}
-                      x2={lEdge.x2+lNx*9} y2={lEdge.y2+lNy*9}
-                  stroke="#FF8C42" strokeWidth="0.7" opacity="0.85"/>
-                <text x={lM.x} y={lM.y+3} textAnchor="middle"
-                  fill="#FF8C42" fontSize="10" fontFamily="monospace" fontWeight="bold"
-                  paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2.2">
-                  {Lleft.toFixed(1)} m
-                </text>
-
-                {/* surface murs sur la facade frontale */}
-                {wallsLabel && (
-                  <text x={(P[0].x+P[1].x)/2-18} y={(P[0].y+P[5].y)/2+2}
-                    fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
-                    paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2">
-                    {wallsLabel}
-                  </text>
-                )}
-                {/* surface toit */}
-                {roofLabel && (
-                  <text x={ridgeMid.x-18} y={(topMid.y+ridgeMid.y)/2}
-                    fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
-                    paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2">
-                    {roofLabel}
-                  </text>
-                )}
-              </g>
-            );
-          })()}
-        </svg>
+          <OrbitControls
+            enablePan={false}
+            enableZoom={true}
+            minDistance={camDist * 0.7}
+            maxDistance={camDist * 3.5}
+            minPolarAngle={0.15}
+            maxPolarAngle={Math.PI/2 - 0.08}
+            target={[0, realH/2, 0]}
+            autoRotate={auto}
+            autoRotateSpeed={0.6}
+          />
+        </Canvas>
       </div>
 
-      {/* Controls */}
+      {/* Controls bar */}
       <div style={{
         display:"flex", alignItems:"center", gap:10, padding:"10px 16px",
         borderTop:"1px solid #1C3050", background:"#0A1422", flexShrink:0,
       }}>
-        <button type="button" onClick={function(){ rotate(-15); }} style={btnStyle} title="Tourner gauche">&#8592;</button>
-        <input
-          type="range" min={0} max={360}
-          value={Math.round(angle % 360 + 360) % 360}
-          onChange={function(e){ setAuto(false); setAngle(+e.target.value); }}
-          style={{flex:1, accentColor:"#00C2FF", cursor:"pointer", height:4}}
-        />
-        <button type="button" onClick={function(){ rotate(15); }} style={btnStyle} title="Tourner droite">&#8594;</button>
         <button type="button"
           onClick={function(){ setAuto(function(a){ return !a; }); }}
           title={auto ? "Pause rotation" : "Lecture rotation"}
           style={{
-            ...btnStyle, width:"auto", padding:"0 12px", fontSize:13, fontWeight:700,
             background: auto ? "#FF8C42" : "#152135",
-            color: auto ? "#000" : "#E8EDF5",
             border: auto ? "none" : "1px solid #1C3050",
+            color: auto ? "#000" : "#E8EDF5",
+            borderRadius:8, padding:"6px 14px", fontSize:13, fontWeight:700,
+            cursor:"pointer", outline:"none", flexShrink:0,
           }}>
-          {auto ? "⏸" : "▶"}
+          {auto ? "⏸ Pause" : "▶ Lecture"}
         </button>
-        <button type="button"
-          onClick={function(){ setShowAnno(function(s){ return !s; }); }}
-          title="Afficher/masquer les cotes"
-          style={{
-            ...btnStyle, width:"auto", padding:"0 12px", fontSize:11, fontWeight:700,
-            background: showAnno ? "#00E5A0" : "#152135",
-            color: showAnno ? "#000" : "#607898",
-            border: showAnno ? "none" : "1px solid #1C3050",
-          }}>
-          COTES
-        </button>
+        <div style={{flex:1, fontSize:11, color:"#607898", textAlign:"center"}}>
+          Glissez pour tourner — molette pour zoomer
+        </div>
+        <div style={{fontSize:10, color:"#2E4A6A", fontFamily:"monospace"}}>
+          {realW.toFixed(1)} × {realD.toFixed(1)} × {realH.toFixed(1)} m
+        </div>
       </div>
     </div>
   );
 }
+
 
 /* ---- Architectural elevation drawing (one facade, 2D, pro look) ----
    Inspired by CAD facade plans: white background, thin black strokes,
@@ -2390,7 +2092,7 @@ function TabModel({ project, mat, setMat, onUpdate }) {
       <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
         <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
           flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas} rooms={project.rooms}/>
+          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas} rooms={project.rooms} roof={project.roof}/>
         </div>
         <div style={{fontSize:11,color:"#607898",marginTop:8,textAlign:"center"}}>
           Glissez sur le modele pour le faire pivoter
