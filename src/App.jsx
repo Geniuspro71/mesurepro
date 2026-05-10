@@ -23,24 +23,26 @@ function unsplash(id) {
   return "/photos/" + id + ".jpg";
 }
 
+/* Demo photos: every entry is a *real* facade photo (visually inspected),
+   tagged with its orientation so TabPlans can pair it with the matching
+   architectural elevation drawing automatically. */
 var DEMO_PHOTOS_PARIS = [
-  { name:"facade-paris.jpg",       url: unsplash("1502134249126-9f3755a50d78") },
-  { name:"facade-brique.jpg",      url: unsplash("1551038247-3d9af20df552")    },
-  { name:"maison-cote-jardin.jpg", url: unsplash("1486325212027-8081e485255e") },
-  { name:"toiture-aerienne.jpg",   url: unsplash("1488646953014-85cb44e25828") },
+  { name:"Façade Sud (rue)",     facade:"sud",   url: unsplash("1572120360610-d971b9d7767c") },
+  { name:"Façade Nord (jardin)", facade:"nord",  url: unsplash("1568605114967-8130f3a36994") },
+  { name:"Façade Est",           facade:"est",   url: unsplash("1564013799919-ab600027ffc6") },
+  { name:"Façade Ouest",         facade:"ouest", url: unsplash("1494526585095-c41746248156") },
 ];
 
 var DEMO_PHOTOS_LYON = [
-  { name:"facade-victor-hugo.jpg", url: unsplash("1564013799919-ab600027ffc6") },
-  { name:"toiture-tuiles.jpg",     url: unsplash("1480714378408-67cf0d13bc1b") },
+  { name:"Façade Sud (entrée)",  facade:"sud",   url: unsplash("1605276374104-dee2a0ed3cd6") },
+  { name:"Vue 3/4 (jardin)",     facade:"vue",   url: unsplash("1580587771525-78b9dba3b914") },
 ];
 
 /* Demo: a real Haussmannian apartment building (5 stories, mansard roof) */
 var DEMO_PHOTOS_HAUSSMANN = [
-  { name:"facade-haussmann.jpg",        url: unsplash("1502134249126-9f3755a50d78") },
-  { name:"detail-balcon.jpg",           url: unsplash("1499856871958-5b9627545d1a") },
-  { name:"toiture-mansardee.jpg",       url: unsplash("1518780664697-55e3ad937233") },
-  { name:"vue-rue-haussmann.jpg",       url: unsplash("1571055107559-3e67626fa8be") },
+  { name:"Façade Sud (rue)",         facade:"sud",   url: unsplash("1551038247-3d9af20df552") },
+  { name:"Façade Nord (cour)",       facade:"nord",  url: unsplash("1571055107559-3e67626fa8be") },
+  { name:"Façade Est (mitoyen)",     facade:"est",   url: unsplash("1518780664697-55e3ad937233") },
 ];
 
 const PROJS = [
@@ -2362,6 +2364,8 @@ function TabPhotos({ project, onUpdate }) {
       {photos.length > 0 && (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
           {photos.map(function(p, i) {
+            var FACADE_COLORS = {sud:"#FF8C42",nord:"#00C2FF",est:"#00E5A0",ouest:"#A78BFA",vue:"#9aa3ad"};
+            var FACADE_LABELS = {sud:"SUD",nord:"NORD",est:"EST",ouest:"OUEST",vue:"VUE"};
             return (
               <div key={i} style={{position:"relative",aspectRatio:"4/3",
                 borderRadius:8,overflow:"hidden",border:"1px solid #1C3050",
@@ -2369,6 +2373,15 @@ function TabPhotos({ project, onUpdate }) {
                 onClick={function(){ setZoom(p); }}>
                 <img src={p.url} alt={p.name}
                   style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                {p.facade && (
+                  <div style={{position:"absolute",top:5,left:5,
+                    background:FACADE_COLORS[p.facade]||"#9aa3ad",color:"#000",
+                    fontSize:10,fontWeight:900,padding:"3px 8px",
+                    borderRadius:4,letterSpacing:"0.06em",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.4)"}}>
+                    {FACADE_LABELS[p.facade]||p.facade.toUpperCase()}
+                  </div>
+                )}
                 <button type="button"
                   onClick={function(e){ e.stopPropagation(); removeAt(i); }}
                   style={{position:"absolute",top:5,right:5,
@@ -2476,15 +2489,46 @@ function TabPlans({ project, setToast }) {
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
         {FACADES.map(function(f) {
+          /* Find a project photo tagged for this facade. The user can
+             override by uploading their own photo with facade=<id>. */
+          var matchingPhoto = (project.photos || []).find(function(p){
+            return p && p.facade === f.id;
+          });
           return (
             <div key={f.id}
-              onClick={function(){setZoom(f);}}
               style={{background:"#fff",border:"1px solid #d6d2c7",borderRadius:6,
-                cursor:"zoom-in",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",
-                overflow:"hidden"}}>
-              <div data-elevation-svg style={{aspectRatio:"4/3",background:"#fff"}}>
+                boxShadow:"0 1px 3px rgba(0,0,0,0.08)",
+                overflow:"hidden",display:"flex",flexDirection:"column"}}>
+              {/* Drawing */}
+              <div onClick={function(){setZoom(f);}}
+                data-elevation-svg
+                style={{aspectRatio:"4/3",background:"#fff",cursor:"zoom-in"}}>
                 <Elevation project={project} facadeId={f.id} label={f.label}/>
               </div>
+              {/* Photo of the actual facade (if available) */}
+              {matchingPhoto ? (
+                <div style={{borderTop:"1px solid #e0dcd0",
+                  display:"flex",alignItems:"stretch",background:"#f7f5f0"}}>
+                  <img src={matchingPhoto.url} alt={matchingPhoto.name}
+                    style={{width:120,height:90,objectFit:"cover",flexShrink:0,
+                      borderRight:"1px solid #e0dcd0"}}/>
+                  <div style={{flex:1,padding:"8px 12px",
+                    display:"flex",flexDirection:"column",justifyContent:"center"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#444",letterSpacing:"0.04em"}}>
+                      📷 {matchingPhoto.name}
+                    </div>
+                    <div style={{fontSize:10,color:"#888",marginTop:2}}>
+                      Photo terrain - facade {f.id}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{borderTop:"1px solid #e0dcd0",
+                  padding:"10px 14px",fontSize:10,color:"#aaa",
+                  background:"#fafaf6",fontStyle:"italic"}}>
+                  Aucune photo associee a cette facade
+                </div>
+              )}
             </div>
           );
         })}
@@ -2508,10 +2552,49 @@ function TabPlans({ project, setToast }) {
                   fontSize:12,cursor:"pointer",outline:"none"}}>Fermer</button>
             </div>
             <div style={{flex:1,padding:14,background:"#fff",minHeight:0,
-              display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <div style={{width:"100%",aspectRatio:"4/3",maxHeight:"75vh"}}>
-                <Elevation project={project} facadeId={zoom.id} label={zoom.label}/>
+              display:"flex",gap:14,alignItems:"stretch"}}>
+              {/* Plan d'elevation */}
+              <div style={{flex:1.2,minWidth:0,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <div style={{width:"100%",aspectRatio:"4/3",maxHeight:"75vh"}}>
+                  <Elevation project={project} facadeId={zoom.id} label={zoom.label}/>
+                </div>
               </div>
+              {/* Photo associee */}
+              {(function(){
+                var photo = (project.photos || []).find(function(p){
+                  return p && p.facade === zoom.id;
+                });
+                if (!photo) {
+                  return (
+                    <div style={{flex:0.8,minWidth:0,background:"#fafaf6",
+                      borderRadius:6,border:"1px dashed #d6d2c7",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      padding:14,textAlign:"center"}}>
+                      <div>
+                        <div style={{fontSize:34,marginBottom:6}}>📷</div>
+                        <div style={{fontSize:12,color:"#888",fontStyle:"italic"}}>
+                          Aucune photo<br/>pour cette facade
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{flex:0.8,minWidth:0,
+                    display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{flex:1,minHeight:0,
+                      borderRadius:4,overflow:"hidden",background:"#000"}}>
+                      <img src={photo.url} alt={photo.name}
+                        style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+                    </div>
+                    <div style={{padding:"6px 10px",background:"#f7f5f0",
+                      borderRadius:4,fontSize:11,color:"#444"}}>
+                      📷 {photo.name}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
