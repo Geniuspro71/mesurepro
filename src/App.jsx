@@ -3342,6 +3342,9 @@ function TabDesign({ project, mat, setMat }) {
 function TabDevis({ project, mat, setToast }) {
   var [margin, setMargin] = useState(15);
   var [done, setDone] = useState(false);
+  var prefs = getPrefs();
+  var tvaRate = prefs.tva / 100;
+  var cur = prefs.currency;
   var m = project.meas || {};
   var walls = parseFloat(m.walls) || 0;
   var roof  = parseFloat(m.roof)  || 0;
@@ -3359,9 +3362,9 @@ function TabDevis({ project, mat, setToast }) {
   var rc2 = Math.round(roof  * 68);
   var lb  = Math.round((wc2+rc2) * 0.28);
   var sub = wc2+rc2+lb;
-  var tva = Math.round(sub * 0.2);
+  var tva = Math.round(sub * tvaRate);
   var tot = sub + tva;
-  var sell= Math.round(sub * (1 + margin/100) * 1.2);
+  var sell= Math.round(sub * (1 + margin/100) * (1 + tvaRate));
   var f   = function(n){ return n.toLocaleString("fr-FR"); };
   return (
     <div style={{padding:"22px 24px"}}>
@@ -3374,8 +3377,8 @@ function TabDevis({ project, mat, setToast }) {
               Detail - {M.lbl}
             </div>
             {[
-              ["Revetement murs",walls+" m2 x "+M.price+" EUR/m2",wc2],
-              ["Toiture",roof+" m2 x 68 EUR/m2",rc2],
+              ["Revetement murs",walls+" m² × "+M.price+" "+cur+"/m²",wc2],
+              ["Toiture",roof+" m² × 68 "+cur+"/m²",rc2],
               ["Main oeuvre (28%)","Pose et finitions",lb],
             ].map(function(row) {
               return (
@@ -3386,7 +3389,7 @@ function TabDevis({ project, mat, setToast }) {
                     <div style={{fontSize:10,color:"#607898",marginTop:2}}>{row[1]}</div>
                   </div>
                   <span style={{fontSize:13,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>
-                    {f(row[2])} EUR
+                    {f(row[2])} {cur}
                   </span>
                 </div>
               );
@@ -3394,18 +3397,18 @@ function TabDevis({ project, mat, setToast }) {
             <div style={{display:"flex",justifyContent:"space-between",padding:"8px 16px",
               borderBottom:"1px solid #1C3050"}}>
               <span style={{color:"#607898",fontSize:12}}>Sous-total HT</span>
-              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(sub)} EUR</span>
+              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(sub)} {cur}</span>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",padding:"8px 16px",
               borderBottom:"1px solid #1C3050"}}>
-              <span style={{color:"#607898",fontSize:12}}>TVA 20%</span>
-              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(tva)} EUR</span>
+              <span style={{color:"#607898",fontSize:12}}>TVA {prefs.tva}%</span>
+              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(tva)} {cur}</span>
             </div>
             <div style={{display:"flex",justifyContent:"space-between",padding:"12px 16px",
               background:"rgba(0,194,255,0.13)"}}>
               <span style={{fontSize:14,fontWeight:700,color:"#E8EDF5"}}>TOTAL TTC</span>
               <span style={{fontSize:18,fontWeight:900,color:"#00C2FF",fontFamily:"monospace"}}>
-                {f(tot)} EUR
+                {f(tot)} {cur}
               </span>
             </div>
           </div>
@@ -3421,7 +3424,7 @@ function TabDevis({ project, mat, setToast }) {
               marginTop:12,paddingTop:10,borderTop:"1px solid #1C3050"}}>
               <span style={{fontSize:12,color:"#607898"}}>Prix de vente TTC</span>
               <span style={{fontSize:17,fontWeight:900,color:"#00E5A0",fontFamily:"monospace"}}>
-                {f(sell)} EUR
+                {f(sell)} {cur}
               </span>
             </div>
           </div>
@@ -3433,7 +3436,7 @@ function TabDevis({ project, mat, setToast }) {
               letterSpacing:"0.08em",marginBottom:12}}>Recapitulatif</div>
             <div style={{fontSize:16,fontWeight:900,color:"#E8EDF5",marginBottom:2}}>{project.addr}</div>
             <div style={{fontSize:12,color:"#607898",marginBottom:14}}>{project.city}</div>
-            {[["Murs",walls+" m2"],["Toit",roof+" m2"],["Materiau",M.lbl],["Prix mat.",M.price+" EUR/m2"]].map(function(pair) {
+            {[["Murs",walls+" m²"],["Toit",roof+" m²"],["Materiau",M.lbl],["Prix mat.",M.price+" "+cur+"/m²"]].map(function(pair) {
               return (
                 <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
                   padding:"6px 0",borderBottom:"1px solid #1C3050"}}>
@@ -4325,7 +4328,8 @@ function connectBleLaser(onMeasurement, onStatus) {
 function Modal({ onClose, onCreate }) {
   var [step, setStep]       = useState(0);
   /* Identification fields */
-  var [civilite, setCivilite] = useState("M.");
+  var prefs = getPrefs();
+  var [civilite, setCivilite] = useState(prefs.defaultCivilite || "M.");
   var [nom, setNom]         = useState("");
   var [prenom, setPrenom]   = useState("");
   /* Address fields */
@@ -4401,9 +4405,11 @@ function Modal({ onClose, onCreate }) {
     var D = (lEst > 0 && lOuest > 0) ? (lEst + lOuest) / 2
           : (lEst > 0) ? lEst
           : (lOuest > 0) ? lOuest : 0;
-    /* Si une seule paire est remplie, on infère l'autre dimension. */
-    if (W > 0 && D === 0) D = W * 0.6;
-    if (D > 0 && W === 0) W = D * 0.6;
+    /* Si une seule paire est remplie, on infère l'autre dimension via le
+       ratio configurable (Paramètres → Préférences, défaut 0.6). */
+    var dr = (getPrefs().depthRatio) || 0.6;
+    if (W > 0 && D === 0) D = W * dr;
+    if (D > 0 && W === 0) W = D * dr;
 
     var foot  = W * D;
     var perim = 2 * (W + D);
@@ -5048,6 +5054,8 @@ function Settings({ projects, reports }) {
         </Btn>
       </div>
 
+      <PreferencesEditor onSaved={function(){ setToast("Préférences enregistrées"); }}/>
+
       <CivilitesEditor/>
 
       <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
@@ -5056,6 +5064,113 @@ function Settings({ projects, reports }) {
         <div style={{fontSize:11,color:"#607898"}}>
           Theme clair - prevu dans une prochaine version (refonte CSS variables requise)
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* Préférences fines : TVA, devise, ratio profondeur, civilité par défaut.
+   Branchées dans TabDevis (TVA + devise), Modal computeMeasFromFacades
+   (depthRatio), Modal Identification (defaultCivilite). Persistées dans
+   localStorage sous STORE_KEY_PREFS. */
+function PreferencesEditor({ onSaved }) {
+  var [prefs, setPrefs] = useState(function(){ return getPrefs(); });
+  var civilites = useMemo(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  }, []);
+
+  function save(next) {
+    var merged = Object.assign({}, prefs, next);
+    setPrefs(merged);
+    saveStored(STORE_KEY_PREFS, merged);
+    onSaved && onSaved();
+  }
+  function resetPrefs() {
+    if (!window.confirm("Restaurer les préférences par défaut ?")) return;
+    setPrefs(DEFAULT_PREFS);
+    saveStored(STORE_KEY_PREFS, DEFAULT_PREFS);
+    onSaved && onSaved();
+  }
+
+  var fieldStyle = {
+    background:"#08111E", border:"1px solid #1C3050",
+    borderRadius:6, color:"#E8EDF5", fontSize:13,
+    padding:"7px 10px", outline:"none",
+  };
+  var rowStyle = {display:"flex",alignItems:"center",gap:12,marginBottom:11};
+  var labelStyle = {width:160,fontSize:11,color:"#607898",flexShrink:0};
+
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+      padding:"16px 18px",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>Préférences</div>
+        <button type="button" onClick={resetPrefs}
+          style={{background:"transparent",border:"1px solid #2E4A6A",
+            color:"#607898",borderRadius:5,padding:"3px 9px",fontSize:10,
+            cursor:"pointer",outline:"none"}}>
+          Réinitialiser
+        </button>
+      </div>
+
+      {/* TVA */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>TVA (%)</div>
+        <input type="number" min="0" max="100" step="0.5"
+          value={prefs.tva}
+          onChange={function(e){ save({ tva: parseFloat(e.target.value) || 0 }); }}
+          style={Object.assign({}, fieldStyle, {width:90,fontFamily:"monospace",textAlign:"right"})}/>
+        <span style={{fontSize:10,color:"#2E4A6A"}}>BE 21 % · FR 20 % · LU 17 %</span>
+      </div>
+
+      {/* Devise */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Devise</div>
+        <input type="text" maxLength="4"
+          value={prefs.currency}
+          onChange={function(e){ save({ currency: e.target.value.slice(0,4) }); }}
+          style={Object.assign({}, fieldStyle, {width:90,fontFamily:"monospace",textAlign:"center"})}/>
+        <span style={{fontSize:10,color:"#2E4A6A"}}>€ · CHF · USD · GBP · …</span>
+      </div>
+
+      {/* Civilité par défaut */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Civilité par défaut</div>
+        <select value={prefs.defaultCivilite}
+          onChange={function(e){ save({ defaultCivilite: e.target.value }); }}
+          style={Object.assign({}, fieldStyle, {flex:1,cursor:"pointer"})}>
+          {civilites.map(function(c){ return <option key={c} value={c}>{c}</option>; })}
+        </select>
+      </div>
+
+      {/* Ratio profondeur */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Ratio profondeur (1 façade)</div>
+        <input type="range" min="0.4" max="0.9" step="0.05"
+          value={prefs.depthRatio}
+          onChange={function(e){ save({ depthRatio: parseFloat(e.target.value) }); }}
+          style={{flex:1,accentColor:"#00C2FF",cursor:"pointer"}}/>
+        <span style={{width:48,fontSize:12,fontFamily:"monospace",color:"#E8EDF5",textAlign:"right"}}>
+          {prefs.depthRatio.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Décimales mesures */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Décimales (m, m²)</div>
+        <input type="range" min="0" max="3" step="1"
+          value={prefs.decimals}
+          onChange={function(e){ save({ decimals: parseInt(e.target.value, 10) }); }}
+          style={{flex:1,accentColor:"#00E5A0",cursor:"pointer"}}/>
+        <span style={{width:48,fontSize:12,fontFamily:"monospace",color:"#E8EDF5",textAlign:"right"}}>
+          {prefs.decimals}
+        </span>
+      </div>
+
+      <div style={{fontSize:10,color:"#2E4A6A",marginTop:6,lineHeight:1.5}}>
+        Sauvegarde automatique à chaque modification.<br/>
+        TVA + devise s'appliquent immédiatement à l'onglet <span style={{fontWeight:700}}>Devis</span> de chaque projet.<br/>
+        Le ratio profondeur n'affecte que les nouveaux projets créés avec une seule paire de façades remplie.
       </div>
     </div>
   );
@@ -5128,8 +5243,24 @@ var STORE_KEY_PROJECTS  = "mesurepro.projects.v1";
 var STORE_KEY_REPORTS   = "mesurepro.reports.v1";
 var STORE_KEY_PROFILE   = "mesurepro.profile.v1";
 var STORE_KEY_CIVILITES = "mesurepro.civilites.v1";
+var STORE_KEY_PREFS     = "mesurepro.prefs.v1";
 
 var DEFAULT_CIVILITES = ["M.", "Mme", "Mlle", "Monsieur", "Madame", "Société", "SCI", "ASBL"];
+
+/* Préférences utilisateur — branchées dans toute l'app via getPrefs().
+   Modifiables depuis Paramètres → Préférences. Tout est rétro-compatible :
+   un projet sans pref enregistré utilise les valeurs par défaut ci-dessous. */
+var DEFAULT_PREFS = {
+  tva: 21,                /* TVA % — 21 BE par défaut, 20 FR, configurable */
+  currency: "€",           /* Devise affichée dans les calculs */
+  depthRatio: 0.6,         /* Ratio profondeur/façade pour inférer la dim manquante */
+  defaultCivilite: "M.",   /* Civilité pré-cochée en création de projet */
+  decimals: 1,             /* Décimales affichées sur les mesures (m, m²) */
+};
+
+function getPrefs() {
+  return Object.assign({}, DEFAULT_PREFS, loadStored(STORE_KEY_PREFS, {}));
+}
 
 /* Cached Belgian postal codes data, loaded once on first need */
 var BE_POSTAL_CACHE = null;
