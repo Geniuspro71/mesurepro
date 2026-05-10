@@ -1499,8 +1499,28 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
   var realH = parseFloat(m.h) || (3.5 * fl);
   var realFoot = parseFloat(m.foot) || 80;   /* fallback neutre, pas la maison démo Haussmann */
   var ratio = 1.6;
-  var realW = Math.sqrt(realFoot * ratio);
-  var realD = Math.sqrt(realFoot / ratio);
+  /* Priorité : longueurs RÉELLES des façades stockées dans rooms[] (saisie
+     utilisateur côté Modal "Remplir" ou tab Mesures). Fallback : reconstruction
+     d'un rectangle ratio-1.6 à partir de la seule emprise (cas projets démo
+     ou projets sans rooms détaillés). Sans ça, IsoModel afficherait toujours
+     la même boîte ~12.9×8.1 m pour toute emprise de 104 m². */
+  function _getRoomLen(needle) {
+    var r = (rooms || []).find(function(x){
+      if (!x || x.t === "r") return false;
+      return (x.n || "").toLowerCase().indexOf(needle) !== -1;
+    });
+    if (!r) return null;
+    var v = parseFloat(String(r.l || "").replace(/[^\d.,-]/g,"").replace(",","."));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+  var lSud   = _getRoomLen("sud");
+  var lNord  = _getRoomLen("nord");
+  var lEst   = _getRoomLen("est");
+  var lOuest = _getRoomLen("ouest");
+  var roomW = (lSud != null && lNord != null) ? (lSud + lNord) / 2 : (lSud || lNord);
+  var roomD = (lEst != null && lOuest != null) ? (lEst + lOuest) / 2 : (lEst || lOuest);
+  var realW = roomW != null ? roomW : Math.sqrt(realFoot * ratio);
+  var realD = roomD != null ? roomD : Math.sqrt(realFoot / ratio);
 
   /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
   var camDist = Math.max(realW, realD, realH) * 1.7;
