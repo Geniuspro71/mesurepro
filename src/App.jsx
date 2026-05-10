@@ -2083,6 +2083,192 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
         );
       })()}
 
+      {/* ===========================================================
+          DÉTAILS ARCHITECTE PRO — gouttière, descente EP, cheminée,
+          velux, cotes fenêtres/portes, labels (faîtage, égout, sablière),
+          repère de coupe A-A. Ajoutés après le bâtiment principal pour
+          rester additif (n'altère pas l'existant). */}
+
+      {/* Gouttière (cuivre / zinc) à l'égout — bandeau horizontal +
+          chéneau cylindrique au-dessus. */}
+      {!isFlat && (function(){
+        var gy = by;                        /* niveau égout */
+        var gut = (
+          <g>
+            <rect x={bx-6} y={gy-3} width={bw+12} height={3} fill="#a08850" stroke="#222" strokeWidth="0.4"/>
+            <ellipse cx={bx-3} cy={gy-2} rx={4} ry={2.2} fill="#c2a76a" stroke="#222" strokeWidth="0.4"/>
+            <ellipse cx={bx+bw+3} cy={gy-2} rx={4} ry={2.2} fill="#c2a76a" stroke="#222" strokeWidth="0.4"/>
+            <text x={bx+bw+18} y={gy+1} fill="#a08850" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">gouttière zinc Ø100</text>
+          </g>
+        );
+        return gut;
+      })()}
+
+      {/* Descente d'eau pluviale (EP) — tuyau vertical à droite, depuis
+          l'égout jusqu'à 30 cm du sol, avec coude au sol + flèche pente. */}
+      {!isFlat && (function(){
+        var dxp = bx + bw + 3;              /* x descente */
+        var dy0 = by;                       /* haut */
+        var dy1 = GROUND_Y - 14;            /* coude bas */
+        return (
+          <g>
+            <line x1={dxp} y1={dy0} x2={dxp} y2={dy1} stroke="#a08850" strokeWidth="2.6"/>
+            <line x1={dxp} y1={dy0} x2={dxp} y2={dy1} stroke="#222" strokeWidth="0.4"/>
+            {/* Coude */}
+            <path d={"M "+dxp+" "+dy1+" Q "+dxp+" "+(dy1+8)+" "+(dxp+8)+" "+(dy1+8)}
+              fill="none" stroke="#a08850" strokeWidth="2.6"/>
+            <path d={"M "+dxp+" "+dy1+" Q "+dxp+" "+(dy1+8)+" "+(dxp+8)+" "+(dy1+8)}
+              fill="none" stroke="#222" strokeWidth="0.4"/>
+            {/* Flèche pente 2% */}
+            <line x1={dxp+12} y1={dy0+10} x2={dxp+12} y2={dy0+30} stroke="#3a78b5" strokeWidth="0.6"/>
+            <polygon points={(dxp+12)+","+(dy0+30)+" "+(dxp+9)+","+(dy0+26)+" "+(dxp+15)+","+(dy0+26)} fill="#3a78b5"/>
+            <text x={dxp+16} y={dy0+22} fill="#3a78b5" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">↓ 2 %</text>
+            <text x={dxp+16} y={dy1-2} fill="#a08850" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">descente EP Ø80</text>
+          </g>
+        );
+      })()}
+
+      {/* Cheminée — sortie de toit avec souche maçonnée et mitron.
+          Placée à 35 % de la largeur du bâtiment pour la façade Sud/Nord,
+          ou cachée (vue de profil) pour Est/Ouest sur un toit pignon. */}
+      {!isFlat && !(isPignon && (facadeId === "est" || facadeId === "ouest")) && (function(){
+        /* Position cheminée : 35 % depuis la gauche, sortie ~70 % de la pente */
+        var chX = bx + bw * 0.35;
+        var roofMidY = (by + roofTopY) / 2;
+        /* Décale légèrement à 60 % de la hauteur du toit pour réalisme */
+        var chBaseY = isMansart ? by - roofH * 0.55 + 4 : roofMidY + 6;
+        var chTopY  = chBaseY - 22;
+        var chW = 14;
+        return (
+          <g>
+            {/* Souche brique */}
+            <rect x={chX} y={chTopY} width={chW} height={chBaseY - chTopY}
+              fill="#bb6841" stroke="#222" strokeWidth="0.6"/>
+            {/* Joints horizontaux */}
+            {[0.25, 0.5, 0.75].map(function(t, i){
+              var jy = chTopY + (chBaseY - chTopY) * t;
+              return <line key={"chj"+i} x1={chX} y1={jy} x2={chX+chW} y2={jy} stroke="#3a2614" strokeWidth="0.3"/>;
+            })}
+            {/* Mitron (couronne supérieure plus large) */}
+            <rect x={chX-2} y={chTopY-3} width={chW+4} height={3.5} fill="#5a3825" stroke="#222" strokeWidth="0.5"/>
+            {/* Légende */}
+            <line x1={chX+chW+2} y1={chTopY+2} x2={chX+chW+30} y2={chTopY-12}
+              stroke="#222" strokeWidth="0.35" opacity="0.7"/>
+            <text x={chX+chW+32} y={chTopY-10} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">
+              cheminée maçonnée + mitron
+            </text>
+          </g>
+        );
+      })()}
+
+      {/* Velux / fenêtre de toit — uniquement sur façades Sud / Nord
+          quand toit en pente (pas plat, pas de profil pignon). */}
+      {!isFlat && (facadeId === "sud" || facadeId === "nord") && !isPignon && (function(){
+        var vX = bx + bw * 0.65;
+        var vY = (by + roofTopY) / 2 + 4;
+        var vW = 18, vH = 12;
+        return (
+          <g>
+            {/* Cadre velux légèrement incliné parallélogramme */}
+            <polygon points={vX+","+vY+" "+(vX+vW)+","+vY+" "+(vX+vW-3)+","+(vY+vH)+" "+(vX-3)+","+(vY+vH)}
+              fill="#5588ad" stroke="#222" strokeWidth="0.7"/>
+            <polygon points={(vX+1)+","+(vY+1)+" "+(vX+vW-1)+","+(vY+1)+" "+(vX+vW-3)+","+(vY+vH-1)+" "+(vX-2)+","+(vY+vH-1)}
+              fill="none" stroke="#fff" strokeWidth="0.4" opacity="0.6"/>
+            <text x={vX+vW+4} y={vY+vH-1} fill="#222" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">velux</text>
+          </g>
+        );
+      })()}
+
+      {/* Cotes des fenêtres — petite annotation L × H en cm sous chaque
+          fenêtre. Affiché uniquement si la façade est large et qu'il y a
+          peu de fenêtres (sinon devient illisible). */}
+      {bw > 320 && cols <= 5 && (function(){
+        var els = [];
+        var winWcm = Math.round((winW / scale) * 100);
+        var winHcm = Math.round((winH / scale) * 100);
+        for (var f = 0; f < fl; f++) {
+          for (var c = 0; c < cols; c++) {
+            if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+            if (c !== Math.floor(cols/2)) continue;       /* on cote uniquement la fenêtre médiane par étage */
+            var fy = by + bh - (bh/fl)*(f+1);
+            var winY = fy + (bh/fl - winH)/2;
+            var x = bx + pad + c * (winW + pad);
+            els.push(
+              <g key={"wcote"+f+"-"+c}>
+                <text x={x+winW/2} y={winY-3} textAnchor="middle"
+                  fill="#3a78b5" fontSize="7.5" fontStyle="italic"
+                  fontFamily="Helvetica, Arial, sans-serif">
+                  {winWcm}×{winHcm}
+                </text>
+              </g>
+            );
+          }
+        }
+        return els;
+      })()}
+
+      {/* Cote de la porte — affichée à droite du jambage. */}
+      {hasDoor && bw > 280 && (function(){
+        var dCol = Math.floor(cols/2);
+        var x = bx + pad + dCol * (winW + pad);
+        var dW = winW * 1.1, dH = (bh/fl) * 0.78;
+        var dx = x + (winW - dW)/2;
+        var dy = GROUND_Y - dH;
+        var dWcm = Math.round((dW / scale) * 100);
+        var dHcm = Math.round((dH / scale) * 100);
+        return (
+          <g>
+            <text x={dx+dW+3} y={dy+dH/2}
+              fill="#3a78b5" fontSize="7.5" fontStyle="italic"
+              fontFamily="Helvetica, Arial, sans-serif"
+              transform={"rotate(-90,"+(dx+dW+3)+","+(dy+dH/2)+")"}>
+              porte {dWcm}×{dHcm}
+            </text>
+          </g>
+        );
+      })()}
+
+      {/* Architectural labels — Faîtage, Égout (avec leader lines) */}
+      {!isFlat && (function(){
+        var ridgeY = roofTopY;
+        var egoutY = by;
+        return (
+          <g>
+            {/* Faîtage label leader */}
+            <line x1={bx + bw + 14} y1={ridgeY} x2={bx + bw + 38} y2={ridgeY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx + bw + 40} y={ridgeY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">faîtage</text>
+            {/* Égout */}
+            <line x1={bx + bw + 14} y1={egoutY} x2={bx + bw + 38} y2={egoutY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx + bw + 40} y={egoutY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">égout</text>
+            {/* Sablière (un peu en-dessous de l'égout) */}
+            <line x1={bx - 14} y1={egoutY} x2={bx - 38} y2={egoutY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx - 40} y={egoutY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic" textAnchor="end">sablière</text>
+          </g>
+        );
+      })()}
+
+      {/* Repère de coupe A-A — petite flèche en haut à gauche pour
+          indiquer le plan de coupe vertical. */}
+      <g>
+        <circle cx={50} cy={GROUND_Y - 60} r="9" fill="#fff" stroke="#222" strokeWidth="0.7"/>
+        <text x={50} y={GROUND_Y - 56} textAnchor="middle" fill="#222" fontSize="10"
+          fontWeight="700" fontFamily="Helvetica, Arial, sans-serif">A</text>
+        <line x1={50} y1={GROUND_Y - 51} x2={50} y2={GROUND_Y + 14}
+          stroke="#222" strokeWidth="0.5" strokeDasharray="3,2"/>
+        <polygon points={"50,"+(GROUND_Y - 49)+" 47,"+(GROUND_Y - 43)+" 53,"+(GROUND_Y - 43)} fill="#222"/>
+      </g>
+
       {/* Caption */}
       <text x={VB_W/2} y={VB_H - 12} textAnchor="middle"
         fill="#222" fontSize="17" fontStyle="italic"
