@@ -884,9 +884,270 @@ function House({ shape, mat, matCol, small, photos }) {
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
 /* ---- Building3D: walls + roof + foundation as Three.js meshes ---- */
-function Building3D({ realW, realD, realH, fl, mat, roofType }) {
+/* ---- Canvas 2D pattern drawers (mirror of MatDefs SVG patterns)
+   Each function paints a tileable W x H tile that will be wrapped on
+   a Three.js material as a CanvasTexture. */
+function drawBrickTex(ctx, W, H) {
+  var brickW = W / 5, brickH = H / 16, mortar = 1.5;
+  ctx.fillStyle = "#c4ad88"; ctx.fillRect(0, 0, W, H);
+  var colors = ["#a0381f","#b14528","#933020","#a8401f","#b34a2c"];
+  for (var row = 0; row < 16; row++) {
+    var off = (row % 2) ? brickW * 0.5 : 0;
+    for (var col = -1; col <= 5; col++) {
+      var x = col * brickW + off + mortar;
+      var y = row * brickH + mortar;
+      var w = brickW - mortar * 2;
+      var h = brickH - mortar * 2;
+      ctx.fillStyle = colors[(row * 7 + Math.abs(col)) % colors.length];
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = "rgba(208,95,62,0.5)"; ctx.fillRect(x, y, w, h * 0.18);
+      ctx.fillStyle = "rgba(58,18,8,0.5)";   ctx.fillRect(x, y + h * 0.82, w, h * 0.18);
+    }
+  }
+}
+function drawWoodTex(ctx, W, H) {
+  var planeH = H / 14;
+  ctx.fillStyle = "#C68642"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < 14; i++) {
+    var y = i * planeH;
+    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
+    grad.addColorStop(0,    "#dba463");
+    grad.addColorStop(0.55, "#C68642");
+    grad.addColorStop(1,    "#8a5828");
+    ctx.fillStyle = grad; ctx.fillRect(0, y, W, planeH);
+    ctx.fillStyle = "rgba(58,38,16,0.85)"; ctx.fillRect(0, y + planeH - 2, W, 2);
+    ctx.fillStyle = "rgba(168,108,52,0.45)";
+    ctx.fillRect(0, y + planeH * 0.3, W, 0.5);
+    ctx.fillRect(0, y + planeH * 0.7, W, 0.5);
+  }
+  /* Knots */
+  ctx.fillStyle = "rgba(138,88,40,0.55)";
+  ctx.beginPath(); ctx.ellipse(W * 0.2, H * 0.35, 6, 2.5, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(W * 0.7, H * 0.62, 7, 2.8, 0, 0, Math.PI*2); ctx.fill();
+}
+function drawStoneTex(ctx, W, H) {
+  ctx.fillStyle = "#9E8E7E"; ctx.fillRect(0, 0, W, H);
+  var stones = [
+    {x:0,    y:0,    w:0.45, h:0.28, c:"#aa9886"},
+    {x:0.45, y:0,    w:0.55, h:0.28, c:"#92816e"},
+    {x:0,    y:0.28, w:0.32, h:0.32, c:"#98876f"},
+    {x:0.32, y:0.28, w:0.40, h:0.32, c:"#a89683"},
+    {x:0.72, y:0.28, w:0.28, h:0.32, c:"#8d7c6a"},
+    {x:0,    y:0.60, w:0.30, h:0.40, c:"#a89683"},
+    {x:0.30, y:0.60, w:0.42, h:0.40, c:"#92816e"},
+    {x:0.72, y:0.60, w:0.28, h:0.40, c:"#aa9886"},
+  ];
+  ctx.strokeStyle = "#5e564b"; ctx.lineWidth = 1.4;
+  stones.forEach(function(s){
+    ctx.fillStyle = s.c;
+    ctx.fillRect(s.x*W, s.y*H, s.w*W, s.h*H);
+    ctx.strokeRect(s.x*W, s.y*H, s.w*W, s.h*H);
+  });
+  /* Texture noise */
+  ctx.fillStyle = "rgba(94,86,75,0.5)";
+  for (var i = 0; i < 60; i++) {
+    var rx = Math.random() * W, ry = Math.random() * H;
+    ctx.fillRect(rx, ry, 1.5, 1.5);
+  }
+}
+function drawSlateTex(ctx, W, H) {
+  ctx.fillStyle = "#4A5568"; ctx.fillRect(0, 0, W, H);
+  var rowH = H / 6, tileW = W / 8;
+  for (var row = 0; row < 6; row++) {
+    var off = (row % 2) ? tileW * 0.5 : 0;
+    var y = row * rowH;
+    for (var col = -1; col <= 8; col++) {
+      var x = col * tileW + off;
+      var grad = ctx.createLinearGradient(0, y, 0, y + rowH);
+      grad.addColorStop(0,    "#5a677c");
+      grad.addColorStop(0.5,  "#475164");
+      grad.addColorStop(1,    "#2c333d");
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, tileW, rowH);
+      ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 0.6;
+      ctx.strokeRect(x, y, tileW, rowH);
+    }
+    /* Hard cast shadow at the bottom of each row */
+    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, y + rowH - 2.5, W, 2.5);
+  }
+}
+function drawWhiteTex(ctx, W, H) {
+  ctx.fillStyle = "#E8E4DC"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < 220; i++) {
+    var rx = Math.random() * W, ry = Math.random() * H;
+    ctx.fillStyle = "rgba(" + (170 + Math.floor(Math.random()*30)) + ","
+      + (164 + Math.floor(Math.random()*30)) + ","
+      + (150 + Math.floor(Math.random()*30)) + ",0.55)";
+    ctx.fillRect(rx, ry, 1.4, 1.4);
+  }
+}
+function drawGreyTex(ctx, W, H) {
+  ctx.fillStyle = "#7A8899"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < 180; i++) {
+    var rx = Math.random() * W, ry = Math.random() * H;
+    ctx.fillStyle = "rgba(94,108,122,0.7)";
+    ctx.fillRect(rx, ry, 1.6, 1.6);
+  }
+  ctx.strokeStyle = "rgba(58,68,82,0.6)"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+}
+
+var TEX_DRAWERS = {
+  brick: drawBrickTex,
+  wood:  drawWoodTex,
+  stone: drawStoneTex,
+  slate: drawSlateTex,
+  white: drawWhiteTex,
+  grey:  drawGreyTex,
+};
+
+/* Build a Three.js CanvasTexture from a procedural pattern, or load a
+   photo URL via TextureLoader for custom photo-based materials. */
+function useMatTexture(matId, photoUrl, repeat) {
+  return useMemo(function() {
+    var tex;
+    if (photoUrl) {
+      var loader = new THREE.TextureLoader();
+      tex = loader.load(photoUrl);
+    } else {
+      var drawer = TEX_DRAWERS[matId] || drawWhiteTex;
+      var canvas = document.createElement("canvas");
+      canvas.width = 512; canvas.height = 512;
+      var ctx = canvas.getContext("2d");
+      drawer(ctx, 512, 512);
+      tex = new THREE.CanvasTexture(canvas);
+      tex.needsUpdate = true;
+    }
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    if (repeat) tex.repeat.set(repeat[0], repeat[1]);
+    /* Slight color correction for sRGB-aware materials */
+    if (THREE.SRGBColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, [matId, photoUrl, repeat && repeat[0], repeat && repeat[1]]);
+}
+
+/* ---- Window grid generator (face-local coords)
+   x: relative to wall center, y: from wall bottom */
+function windowsForFace(width, height, fl, hasDoor) {
+  var cols = fl <= 2 ? 4 : 5;
+  var winW = width * 0.13;
+  var winH = (height / fl) * 0.55;
+  var pad  = (width - winW * cols) / (cols + 1);
+  var positions = [];
+  for (var f = 0; f < fl; f++) {
+    var cy = (height / fl) * (f + 0.5);
+    for (var c = 0; c < cols; c++) {
+      if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+      var cx = pad + c * (winW + pad) + winW/2 - width/2;
+      positions.push({ x: cx, y: cy, w: winW, h: winH });
+    }
+  }
+  var doorRect = null;
+  if (hasDoor) {
+    var dCol = Math.floor(cols/2);
+    var dx = pad + dCol * (winW + pad) + winW/2 - width/2;
+    var dW = winW * 1.25;
+    var dH = (height / fl) * 0.85;
+    doorRect = { x: dx, y: dH/2 + 0.05, w: dW, h: dH };
+  }
+  return { positions: positions, doorRect: doorRect };
+}
+
+/* Render windows + door + sills on one facade. The parent <group>
+   transforms it to the right wall in world coordinates. */
+function FacadeFeatures({ side, realW, realD, realH, fl }) {
+  var faceW = (side === "south" || side === "north") ? realW : realD;
+  var hasDoor = (side === "south");
+  var feat = useMemo(function(){ return windowsForFace(faceW, realH, fl, hasDoor); },
+                     [faceW, realH, fl, hasDoor]);
+
+  var groupProps;
+  /* Each facade local +Z points outward */
+  if (side === "south") {
+    groupProps = { position: [0, 0, realD/2 + 0.005] };
+  } else if (side === "east") {
+    groupProps = { position: [realW/2 + 0.005, 0, 0], rotation: [0, Math.PI/2, 0] };
+  } else if (side === "north") {
+    groupProps = { position: [0, 0, -realD/2 - 0.005], rotation: [0, Math.PI, 0] };
+  } else {
+    groupProps = { position: [-realW/2 - 0.005, 0, 0], rotation: [0, -Math.PI/2, 0] };
+  }
+
+  return (
+    <group {...groupProps}>
+      {feat.positions.map(function(p, i) {
+        return (
+          <group key={i} position={[p.x, p.y, 0]}>
+            {/* Window frame */}
+            <mesh castShadow>
+              <planeGeometry args={[p.w + 0.06, p.h + 0.06]} />
+              <meshStandardMaterial color="#ffffff" roughness={0.6} />
+            </mesh>
+            {/* Glass with slight reflection */}
+            <mesh position={[0, 0, 0.005]}>
+              <planeGeometry args={[p.w, p.h]} />
+              <meshStandardMaterial
+                color="#5588ad" roughness={0.05} metalness={0.7}
+                envMapIntensity={1}/>
+            </mesh>
+            {/* Cross mullions */}
+            <mesh position={[0, 0, 0.012]}>
+              <boxGeometry args={[p.w, 0.02, 0.005]} />
+              <meshStandardMaterial color="#ffffff"/>
+            </mesh>
+            <mesh position={[0, 0, 0.012]}>
+              <boxGeometry args={[0.02, p.h, 0.005]} />
+              <meshStandardMaterial color="#ffffff"/>
+            </mesh>
+            {/* Sill: thin protruding ledge under the window */}
+            <mesh position={[0, -p.h/2 - 0.025, 0.04]} castShadow>
+              <boxGeometry args={[p.w + 0.18, 0.05, 0.08]} />
+              <meshStandardMaterial color="#d8d4c8" roughness={0.85}/>
+            </mesh>
+          </group>
+        );
+      })}
+      {feat.doorRect && (
+        <group position={[feat.doorRect.x, feat.doorRect.y, 0]}>
+          <mesh position={[0, 0, 0.012]} castShadow>
+            <planeGeometry args={[feat.doorRect.w, feat.doorRect.h]} />
+            <meshStandardMaterial color="#5a3825" roughness={0.85}/>
+          </mesh>
+          {/* Panels (subtle indents drawn as slightly darker rects) */}
+          <mesh position={[-feat.doorRect.w*0.22, feat.doorRect.h*0.2, 0.013]}>
+            <planeGeometry args={[feat.doorRect.w*0.35, feat.doorRect.h*0.3]} />
+            <meshStandardMaterial color="#3a2614" roughness={0.9}/>
+          </mesh>
+          <mesh position={[ feat.doorRect.w*0.22, feat.doorRect.h*0.2, 0.013]}>
+            <planeGeometry args={[feat.doorRect.w*0.35, feat.doorRect.h*0.3]} />
+            <meshStandardMaterial color="#3a2614" roughness={0.9}/>
+          </mesh>
+          {/* Brass handle */}
+          <mesh position={[feat.doorRect.w*0.35, 0, 0.04]} castShadow>
+            <sphereGeometry args={[0.05, 12, 12]} />
+            <meshStandardMaterial color="#DAA520" metalness={0.85} roughness={0.25}/>
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+}
+
+function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
   var matColor = (mat && mat.col) || "#BFB09A";
+  var matId = mat && mat.id;
+  var photoUrl = mat && mat.photo && mat.photo.url;
   var roofColor = "#5a3825";
+
+  /* Wall texture: tiles every ~2.5 m horizontally + every ~3 m vertically */
+  var wallRepeatH = Math.max(1, Math.round(realW / 2.5));
+  var wallRepeatV = Math.max(1, Math.round(realH / 3));
+  var wallTex = useMatTexture(matId || "white", photoUrl, [wallRepeatH, wallRepeatV]);
+  var sideRepeatH = Math.max(1, Math.round(realD / 2.5));
+  var sideTex = useMatTexture(matId || "white", photoUrl, [sideRepeatH, wallRepeatV]);
+  /* Slate roof texture (always slate regardless of wall material) */
+  var roofTex = useMatTexture("slate", null, [Math.max(2, Math.round(realW / 2)), 2]);
 
   var rt = (roofType || "").toLowerCase();
   var isFlat    = rt.indexOf("terras") !== -1;
@@ -959,10 +1220,28 @@ function Building3D({ realW, realD, realH, fl, mat, roofType }) {
 
   return (
     <group>
-      {/* Walls */}
+      {/* Walls solid box with per-face textures (BoxGeometry face order:
+          +X, -X, +Y, -Y, +Z, -Z = east, west, top, bottom, south, north) */}
       <mesh castShadow receiveShadow position={[0, realH/2, 0]}>
         <boxGeometry args={[realW, realH, realD]} />
-        <meshStandardMaterial color={matColor} roughness={0.85} metalness={0.04} />
+        <meshStandardMaterial attach="material-0" map={sideTex} color="#fff" roughness={0.88} metalness={0.04}/>
+        <meshStandardMaterial attach="material-1" map={sideTex} color="#fff" roughness={0.88} metalness={0.04}/>
+        <meshStandardMaterial attach="material-2" color={matColor} roughness={1}/>
+        <meshStandardMaterial attach="material-3" color="#5a564a" roughness={1}/>
+        <meshStandardMaterial attach="material-4" map={wallTex} color="#fff" roughness={0.88} metalness={0.04}/>
+        <meshStandardMaterial attach="material-5" map={wallTex} color="#fff" roughness={0.88} metalness={0.04}/>
+      </mesh>
+
+      {/* Windows + door on each of the 4 facades */}
+      <FacadeFeatures side="south" realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="east"  realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="north" realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="west"  realW={realW} realD={realD} realH={realH} fl={fl}/>
+
+      {/* Gutter: thin metallic band wrapping the wall top, just below the roof */}
+      <mesh position={[0, realH - 0.05, 0]} receiveShadow>
+        <boxGeometry args={[realW + 0.36, 0.18, realD + 0.36]} />
+        <meshStandardMaterial color="#9aa3ad" roughness={0.5} metalness={0.55}/>
       </mesh>
 
       {/* Inter-floor lines as thin dark bands */}
@@ -1002,29 +1281,29 @@ function Building3D({ realW, realD, realH, fl, mat, roofType }) {
       {isFlat && (
         <mesh castShadow receiveShadow position={[0, realH + 0.15, 0]}>
           <boxGeometry args={[realW + 0.6, 0.3, realD + 0.6]} />
-          <meshStandardMaterial color="#3a3a3a" roughness={0.9} />
+          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
         </mesh>
       )}
       {!isFlat && !isMansart && !is4pans && (
         <mesh castShadow receiveShadow position={[0, realH, -realD/2 - 0.3]}>
           <extrudeGeometry args={[gableShape, {depth: realD + 0.6, bevelEnabled: false}]} />
-          <meshStandardMaterial color={roofColor} roughness={0.9} />
+          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
         </mesh>
       )}
       {is4pans && hippedGeom && (
         <mesh castShadow receiveShadow position={[0, realH, 0]} geometry={hippedGeom}>
-          <meshStandardMaterial color={roofColor} roughness={0.9} side={THREE.DoubleSide}/>
+          <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} side={THREE.DoubleSide}/>
         </mesh>
       )}
       {isMansart && mansardLowerShape && mansardUpperShape && (
         <group position={[0, realH, 0]}>
           <mesh castShadow receiveShadow position={[0, 0, -realD/2 - 0.3]}>
             <extrudeGeometry args={[mansardLowerShape, {depth: realD + 0.6, bevelEnabled: false}]} />
-            <meshStandardMaterial color="#3a4452" roughness={0.85} />
+            <meshStandardMaterial map={roofTex} color="#fff" roughness={0.85} />
           </mesh>
           <mesh castShadow receiveShadow position={[0, roofH * 0.55, -realD/2 + 0.5]}>
             <extrudeGeometry args={[mansardUpperShape, {depth: realD - 0.4, bevelEnabled: false}]} />
-            <meshStandardMaterial color={roofColor} roughness={0.9} />
+            <meshStandardMaterial map={roofTex} color="#fff" roughness={0.9} />
           </mesh>
         </group>
       )}
