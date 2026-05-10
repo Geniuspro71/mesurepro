@@ -15,216 +15,34 @@ const C = {
 
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
-/* Inline-SVG helper for demo photos (no external assets needed) */
-function svgPhoto(inner) {
-  return "data:image/svg+xml;utf8," + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice">'
-    + inner + '</svg>'
-  );
+/* Demo photos: real Unsplash images (CC0-style royalty-free, hot-linkable).
+   A small ?w= query keeps the bandwidth manageable (~80-120 KB each).
+   These render as proper photographs in TabPhotos, the lightbox, and as
+   custom material textures when applied to the 3D building. */
+function unsplash(id, opts) {
+  var w = (opts && opts.w) || 1200;
+  var q = (opts && opts.q) || 85;
+  return "https://images.unsplash.com/photo-" + id + "?w=" + w + "&q=" + q + "&auto=format&fit=crop";
 }
 
 var DEMO_PHOTOS_PARIS = [
-  { name:"facade-nord.jpg", size:124032, url: svgPhoto(
-    '<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">'
-      + '<stop offset="0" stop-color="#9BBED9"/><stop offset="1" stop-color="#D4DEE6"/></linearGradient></defs>'
-    + '<rect width="400" height="200" fill="url(#sk)"/>'
-    + '<rect y="200" width="400" height="100" fill="#5e6b3a"/>'
-    + '<rect x="40" y="85" width="320" height="195" fill="#a0381f"/>'
-    + '<polygon points="40,85 200,28 360,85" fill="#3a2614"/>'
-    + '<rect x="65" y="115" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="172" y="115" width="56" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="280" y="115" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="65" y="190" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="172" y="190" width="56" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="280" y="190" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="180" y="248" width="40" height="32" fill="#3a2614"/>'
-    + '<rect x="0" y="280" width="400" height="20" fill="#3a3a3a"/>'
-  )},
-  { name:"facade-est-pierre.jpg", size:98220, url: svgPhoto(
-    '<rect width="400" height="190" fill="#A8C0D2"/>'
-    + '<rect y="190" width="400" height="110" fill="#5e6b3a"/>'
-    + '<rect x="55" y="85" width="290" height="195" fill="#9E8E7E"/>'
-    + '<polygon points="55,85 200,30 345,85" fill="#3a2614"/>'
-    + '<g stroke="#5e564b" stroke-width="0.8" opacity="0.5">'
-    + '<line x1="55" y1="115" x2="345" y2="115"/><line x1="55" y1="160" x2="345" y2="160"/>'
-    + '<line x1="55" y1="205" x2="345" y2="205"/><line x1="55" y1="245" x2="345" y2="245"/>'
-    + '<line x1="120" y1="85" x2="120" y2="280"/><line x1="200" y1="85" x2="200" y2="280"/>'
-    + '<line x1="280" y1="85" x2="280" y2="280"/></g>'
-    + '<rect x="80" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="170" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="260" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="80" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="170" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-    + '<rect x="260" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
-  )},
-  { name:"vue-toiture-aerien.jpg", size:156400, url: svgPhoto(
-    '<rect width="400" height="300" fill="#9AC5DD"/>'
-    + '<polygon points="20,260 380,260 360,200 40,200" fill="#3a2614"/>'
-    + '<polygon points="40,200 360,200 320,40 80,40" fill="#5a3825"/>'
-    + '<g stroke="#1a0f08" stroke-width="1.2" opacity="0.6">'
-    + '<line x1="120" y1="40" x2="100" y2="200"/>'
-    + '<line x1="160" y1="40" x2="140" y2="200"/>'
-    + '<line x1="200" y1="40" x2="200" y2="200"/>'
-    + '<line x1="240" y1="40" x2="260" y2="200"/>'
-    + '<line x1="280" y1="40" x2="300" y2="200"/>'
-    + '<line x1="100" y1="100" x2="300" y2="100"/>'
-    + '<line x1="80" y1="160" x2="320" y2="160"/></g>'
-    + '<rect x="280" y="55" width="20" height="48" fill="#222"/>'
-    + '<rect x="280" y="50" width="22" height="6" fill="#1a1a1a"/>'
-    + '<rect x="60" y="220" width="280" height="18" fill="rgba(0,0,0,0.3)"/>'
-  )},
-  { name:"detail-pignon-nord.jpg", size:87212, url: svgPhoto(
-    '<rect width="400" height="120" fill="#A8C0D2"/>'
-    + '<polygon points="0,120 200,20 400,120" fill="#3a2614"/>'
-    + '<rect y="120" width="400" height="180" fill="#a0381f"/>'
-    + '<g stroke="#dcc7a8" stroke-width="0.8" opacity="0.6">'
-    + '<line x1="0" y1="135" x2="400" y2="135"/><line x1="0" y1="155" x2="400" y2="155"/>'
-    + '<line x1="0" y1="175" x2="400" y2="175"/><line x1="0" y1="195" x2="400" y2="195"/>'
-    + '<line x1="0" y1="215" x2="400" y2="215"/><line x1="0" y1="235" x2="400" y2="235"/>'
-    + '<line x1="0" y1="255" x2="400" y2="255"/><line x1="0" y1="275" x2="400" y2="275"/></g>'
-    + '<polygon points="20,120 200,28 380,120" stroke="#1a0f08" stroke-width="2" fill="none"/>'
-    + '<rect x="170" y="60" width="60" height="50" fill="#3a2614"/>'
-    + '<rect x="183" y="73" width="34" height="24" fill="#5a3825"/>'
-  )},
+  { name:"facade-paris.jpg",       url: unsplash("1502134249126-9f3755a50d78") },
+  { name:"facade-brique.jpg",      url: unsplash("1551038247-3d9af20df552")    },
+  { name:"maison-cote-jardin.jpg", url: unsplash("1486325212027-8081e485255e") },
+  { name:"toiture-aerienne.jpg",   url: unsplash("1488646953014-85cb44e25828") },
 ];
 
 var DEMO_PHOTOS_LYON = [
-  { name:"facade-victor-hugo.jpg", size:112800, url: svgPhoto(
-    '<rect width="400" height="180" fill="#A8C0D2"/>'
-    + '<rect y="180" width="400" height="120" fill="#7c8a5b"/>'
-    + '<rect x="30" y="100" width="340" height="180" fill="#E8E4DC"/>'
-    + '<polygon points="20,105 200,45 380,105" fill="#5a3825"/>'
-    + '<rect x="55" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="135" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="215" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="295" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="55" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="135" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="215" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="295" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
-    + '<rect x="184" y="245" width="32" height="35" fill="#5a3825"/>'
-  )},
-  { name:"toiture-4-pans.jpg", size:138400, url: svgPhoto(
-    '<rect width="400" height="300" fill="#9AC5DD"/>'
-    + '<polygon points="40,200 200,260 360,200 200,140" fill="#5a3825"/>'
-    + '<polygon points="40,200 200,140 200,30 80,30" fill="#3a2614"/>'
-    + '<polygon points="360,200 200,140 200,30 320,30" fill="#4a3018"/>'
-    + '<g stroke="#1a0f08" stroke-width="1" opacity="0.5">'
-    + '<line x1="200" y1="30" x2="200" y2="260"/>'
-    + '<line x1="40" y1="200" x2="200" y2="140"/>'
-    + '<line x1="360" y1="200" x2="200" y2="140"/>'
-    + '<line x1="40" y1="200" x2="80" y2="30"/>'
-    + '<line x1="360" y1="200" x2="320" y2="30"/></g>'
-  )},
+  { name:"facade-victor-hugo.jpg", url: unsplash("1564013799919-ab600027ffc6") },
+  { name:"toiture-tuiles.jpg",     url: unsplash("1480714378408-67cf0d13bc1b") },
 ];
 
 /* Demo: a real Haussmannian apartment building (5 stories, mansard roof) */
 var DEMO_PHOTOS_HAUSSMANN = [
-  { name:"facade-rue-haussmann.jpg", size:198400, url: svgPhoto(
-    '<defs><linearGradient id="hssk" x1="0" y1="0" x2="0" y2="1">'
-      + '<stop offset="0" stop-color="#A8C0D2"/><stop offset="1" stop-color="#D4DEE6"/></linearGradient></defs>'
-    + '<rect width="400" height="60" fill="url(#hssk)"/>'
-    + '<rect y="60" width="400" height="240" fill="#D4CFC0"/>'
-    /* RDC: arches commerce */
-    + '<rect y="245" width="400" height="55" fill="#C8C0A8"/>'
-    + '<g fill="#2a3340" opacity="0.85">'
-    +   '<rect x="12"  y="252" width="60" height="48"/>'
-    +   '<rect x="84"  y="252" width="60" height="48"/>'
-    +   '<rect x="156" y="252" width="60" height="48"/>'
-    +   '<rect x="228" y="252" width="60" height="48"/>'
-    +   '<rect x="300" y="252" width="48" height="48"/>'
-    +   '<rect x="358" y="252" width="32" height="48"/>'
-    + '</g>'
-    /* Etage noble (1er): grandes fenetres + balcon */
-    + '<rect y="180" width="400" height="65" fill="#E2DCC9"/>'
-    + '<g fill="#7BBCE8" opacity="0.85" stroke="#2a4060" stroke-width="0.5">'
-    +   '<rect x="20"  y="190" width="48" height="48"/>'
-    +   '<rect x="84"  y="190" width="48" height="48"/>'
-    +   '<rect x="148" y="190" width="48" height="48"/>'
-    +   '<rect x="212" y="190" width="48" height="48"/>'
-    +   '<rect x="276" y="190" width="48" height="48"/>'
-    +   '<rect x="340" y="190" width="48" height="48"/>'
-    + '</g>'
-    + '<rect x="14" y="237" width="378" height="6" fill="#3a3a3a"/>'
-    /* Etages 2 + 3 */
-    + '<rect y="120" width="400" height="60" fill="#D4CFC0"/>'
-    + '<rect y="60"  width="400" height="60" fill="#D4CFC0"/>'
-    + '<g fill="#7BBCE8" opacity="0.82" stroke="#2a4060" stroke-width="0.5">'
-    +   '<rect x="22"  y="130" width="42" height="42"/><rect x="86"  y="130" width="42" height="42"/>'
-    +   '<rect x="150" y="130" width="42" height="42"/><rect x="214" y="130" width="42" height="42"/>'
-    +   '<rect x="278" y="130" width="42" height="42"/><rect x="342" y="130" width="42" height="42"/>'
-    +   '<rect x="22"  y="70"  width="42" height="42"/><rect x="86"  y="70"  width="42" height="42"/>'
-    +   '<rect x="150" y="70"  width="42" height="42"/><rect x="214" y="70"  width="42" height="42"/>'
-    +   '<rect x="278" y="70"  width="42" height="42"/><rect x="342" y="70"  width="42" height="42"/>'
-    + '</g>'
-    /* Cornices entre etages */
-    + '<g fill="#9a8e6f" opacity="0.6">'
-    +   '<rect y="56"  width="400" height="4"/>'
-    +   '<rect y="116" width="400" height="4"/>'
-    +   '<rect y="176" width="400" height="4"/>'
-    + '</g>'
-    /* Mansardes (toiture ardoise) */
-    + '<rect y="0" width="400" height="60" fill="#3a4452"/>'
-    + '<g fill="#7BBCE8" opacity="0.85" stroke="#1a1a1a" stroke-width="0.6">'
-    +   '<rect x="40"  y="20" width="36" height="30"/>'
-    +   '<rect x="124" y="20" width="36" height="30"/>'
-    +   '<rect x="208" y="20" width="36" height="30"/>'
-    +   '<rect x="292" y="20" width="36" height="30"/>'
-    + '</g>'
-  )},
-  { name:"detail-balcon-1er-etage.jpg", size:142800, url: svgPhoto(
-    '<rect width="400" height="80" fill="#A8C0D2"/>'
-    + '<rect y="80" width="400" height="220" fill="#E2DCC9"/>'
-    + '<g fill="#7BBCE8" opacity="0.88" stroke="#2a4060" stroke-width="1">'
-    +   '<rect x="40"  y="100" width="100" height="160"/>'
-    +   '<rect x="160" y="100" width="100" height="160"/>'
-    +   '<rect x="280" y="100" width="100" height="160"/>'
-    + '</g>'
-    + '<g stroke="#fff" stroke-width="1" opacity="0.4">'
-    +   '<line x1="90"  y1="100" x2="90"  y2="260"/><line x1="40"  y1="180" x2="140" y2="180"/>'
-    +   '<line x1="210" y1="100" x2="210" y2="260"/><line x1="160" y1="180" x2="260" y2="180"/>'
-    +   '<line x1="330" y1="100" x2="330" y2="260"/><line x1="280" y1="180" x2="380" y2="180"/>'
-    + '</g>'
-    /* balcon ferronnerie */
-    + '<rect y="265" width="400" height="3" fill="#1a1a1a"/>'
-    + '<rect y="270" width="400" height="20" fill="#2a2a2a"/>'
-    + '<g stroke="#0f0f0f" stroke-width="1" opacity="0.9">'
-    + Array.from({length:30}).map(function(_,i){
-        var x = 12 + i*13;
-        return '<line x1="'+x+'" y1="270" x2="'+x+'" y2="290"/>';
-      }).join("")
-    + '</g>'
-    + '<rect y="288" width="400" height="6" fill="#1a1a1a"/>'
-  )},
-  { name:"toiture-mansardee-aerien.jpg", size:172300, url: svgPhoto(
-    '<rect width="400" height="300" fill="#9AC5DD"/>'
-    /* corp principal */
-    + '<polygon points="20,200 380,200 360,260 40,260" fill="#3a4452"/>'
-    /* 4 pans mansarde */
-    + '<polygon points="20,200 380,200 340,80 60,80" fill="#4a5568"/>'
-    + '<polygon points="20,200 60,80 60,80 20,200" fill="#3a4452"/>'
-    + '<polygon points="380,200 340,80 340,80 380,200" fill="#3a4452"/>'
-    /* lucarnes */
-    + '<g fill="#7BBCE8" stroke="#1a1a1a" stroke-width="0.7" opacity="0.85">'
-    +   '<rect x="80"  y="125" width="40" height="35"/>'
-    +   '<rect x="180" y="125" width="40" height="35"/>'
-    +   '<rect x="280" y="125" width="40" height="35"/>'
-    + '</g>'
-    /* arrete faitiere + diagonales */
-    + '<g stroke="#1a1a1a" stroke-width="1.5" opacity="0.7">'
-    +   '<line x1="60" y1="80" x2="340" y2="80"/>'
-    +   '<line x1="60" y1="80" x2="20" y2="200"/>'
-    +   '<line x1="340" y1="80" x2="380" y2="200"/>'
-    +   '<line x1="200" y1="80" x2="200" y2="200"/>'
-    + '</g>'
-    /* cheminees */
-    + '<g fill="#1a1a1a">'
-    +   '<rect x="120" y="60" width="14" height="32"/><rect x="118" y="56" width="18" height="6"/>'
-    +   '<rect x="266" y="60" width="14" height="32"/><rect x="264" y="56" width="18" height="6"/>'
-    + '</g>'
-    /* shadow */
-    + '<rect y="265" width="400" height="35" fill="rgba(0,0,0,0.25)"/>'
-  )},
+  { name:"facade-haussmann.jpg",        url: unsplash("1502134249126-9f3755a50d78") },
+  { name:"detail-balcon.jpg",           url: unsplash("1499856871958-5b9627545d1a") },
+  { name:"toiture-mansardee.jpg",       url: unsplash("1518780664697-55e3ad937233") },
+  { name:"vue-rue-haussmann.jpg",       url: unsplash("1571055107559-3e67626fa8be") },
 ];
 
 const PROJS = [
@@ -1286,7 +1104,7 @@ var TEX_DRAWERS = {
   grey:  { color: drawGreyTex,  bump: drawGreyBump  },
 };
 
-/* Helper: draw a pattern into a freshly-allocated canvas */
+/* Helper: draw a pattern into a freshly-allocated canvas (Canvas2D fallback) */
 function makeCanvas(W, H, drawer) {
   var c = document.createElement("canvas");
   c.width = W; c.height = H;
@@ -1296,29 +1114,81 @@ function makeCanvas(W, H, drawer) {
 
 var TEX_RES = 1024;
 
-/* Build albedo + bump CanvasTextures for a given material, or load a
-   photo URL via TextureLoader. Returns {map, bumpMap} for use directly
-   as <meshStandardMaterial map={...} bumpMap={...} /> props. */
+/* ---- High-quality PBR textures from Polyhaven (CC0, free)
+   Loaded over CDN. Each material has a diffuse map + a displacement
+   map (used as bumpMap for relief without geometry cost).
+   Falls back to the Canvas2D drawers if the network load fails. */
+var POLYHAVEN_BASE = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/";
+var POLYHAVEN_SLUGS = {
+  brick: "red_brick_03",
+  wood:  "wood_planks",
+  stone: "cobblestone_05",
+  slate: "roof_07",            /* used on the roof regardless of wall material */
+  white: "painted_plaster_wall",
+  grey:  "painted_concrete",
+};
+
+function polyhavenUrl(slug, kind) {
+  return POLYHAVEN_BASE + slug + "/" + slug + "_" + kind + "_1k.jpg";
+}
+
+/* Build a Three.js Texture for a given material:
+   - photoUrl provided -> load that photo (custom photo material from
+     a project upload or a demo Unsplash URL).
+   - matId provided    -> load the Polyhaven PBR texture pair (diff + disp).
+   - on load error     -> fall back to the Canvas2D drawers.
+   Returns {map, bumpMap}. */
 function useMatTexture(matId, photoUrl, repeat) {
   return useMemo(function() {
+    var loader = new THREE.TextureLoader();
+    loader.crossOrigin = "anonymous";
     var map, bumpMap = null;
-    if (photoUrl) {
-      var loader = new THREE.TextureLoader();
-      map = loader.load(photoUrl);
-    } else {
-      var drawers = TEX_DRAWERS[matId] || TEX_DRAWERS.white;
-      map = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.color));
-      bumpMap = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.bump));
-    }
-    [map, bumpMap].forEach(function(t) {
+
+    function applyFilters(t) {
       if (!t) return;
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       if (repeat) t.repeat.set(repeat[0], repeat[1]);
-      t.anisotropy = 8;
+      t.anisotropy = 16;
       t.needsUpdate = true;
-    });
+    }
+    function fallbackDrawers() {
+      var drawers = TEX_DRAWERS[matId] || TEX_DRAWERS.white;
+      var fbMap = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.color));
+      var fbBump = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.bump));
+      applyFilters(fbMap); applyFilters(fbBump);
+      if (THREE.SRGBColorSpace) fbMap.colorSpace = THREE.SRGBColorSpace;
+      return { map: fbMap, bumpMap: fbBump };
+    }
+
+    if (photoUrl) {
+      map = loader.load(
+        photoUrl,
+        function(){ applyFilters(map); },
+        undefined,
+        function(){ console.warn("Photo texture failed:", photoUrl); }
+      );
+    } else {
+      var slug = POLYHAVEN_SLUGS[matId] || POLYHAVEN_SLUGS.white;
+      var diff = polyhavenUrl(slug, "diff");
+      var disp = polyhavenUrl(slug, "disp");
+      var loaded = false;
+      map = loader.load(
+        diff,
+        function(){ loaded = true; applyFilters(map); },
+        undefined,
+        function() {
+          /* Polyhaven CDN unreachable -> swap to Canvas2D drawer fallback */
+          console.warn("Polyhaven texture failed for", slug, "-> using procedural fallback");
+          var fb = fallbackDrawers();
+          map.image = fb.map.image; map.needsUpdate = true;
+          if (bumpMap && fb.bumpMap) { bumpMap.image = fb.bumpMap.image; bumpMap.needsUpdate = true; }
+        }
+      );
+      bumpMap = loader.load(disp, function(){ applyFilters(bumpMap); });
+    }
+    applyFilters(map);
+    applyFilters(bumpMap);
     if (THREE.SRGBColorSpace) map.colorSpace = THREE.SRGBColorSpace;
-    /* bumpMap stays in linear (default) — encoding depth, not color */
     return { map: map, bumpMap: bumpMap };
   }, [matId, photoUrl, repeat && repeat[0], repeat && repeat[1]]);
 }
