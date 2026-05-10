@@ -1,8 +1,9 @@
 # MesurePro — Contexte Claude Code
 
-> **Dernière mise à jour : 10 mai 2026 — fin session 2 + backlog Davide (v2.7)**
-> **Repo :** https://github.com/Geniuspro71/mesurepro (privé) — 44 commits sur `main`
+> **Dernière mise à jour : 10 mai 2026 — session 2 + backlog Davide étendu (v2.7)**
+> **Repo :** https://github.com/Geniuspro71/mesurepro (privé) — 49 commits sur `main`
 > **Dev local :** http://**localhost**:3000 via `npm run dev` (préférer localhost à 127.0.0.1 pour la geolocation macOS)
+> **Optionnel** : `.env` à la racine avec `VITE_GOOGLE_API_KEY=AIza...` active la saisie auto via Google Solar API (étape 2 du Modal de création de projet)
 
 ---
 

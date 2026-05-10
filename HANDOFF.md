@@ -1,12 +1,21 @@
 # MesurePro — HANDOFF session 1 → 2 → 3
 
-> **Date :** 10 mai 2026 (session 2 livrée — UI **v2.7**)
+> **Date :** 10 mai 2026 (session 2 + backlog Davide étendu — UI **v2.7**)
 > **Repo :** https://github.com/Geniuspro71/mesurepro
-> **Branch :** `main` (à jour, **44 commits**, push OK)
+> **Branch :** `main` (à jour, **49 commits**, push OK)
 > **Dev local :** Vite tourne sur http://localhost:3000 (PID variable, à relancer si tué)
 > **Conseil :** ouvrir l'app sur **`localhost:3000`** (pas 127.0.0.1) — meilleure compat geolocation macOS
 >
-> ## 🎁 Backlog Davide livré en autonomie totale (5 items, 6 commits)
+> ## 🛰️ Setup optionnel — Google Solar API (saisie auto facades)
+> Crée un fichier `.env` à la racine du projet à partir de `.env.example` :
+> ```
+> VITE_GOOGLE_API_KEY=AIza...
+> ```
+> Active sur Google Cloud Console : **Solar API** + **Geocoding API**.
+> Free tier ~1000 calls/jour Solar + 40 000/mois Geocoding — largement suffisant.
+> L'app détecte la clé automatiquement, le bouton 🛰️ « Récupérer » apparaît dans le Modal étape 2.
+>
+> ## 🎁 Backlog Davide livré en autonomie totale (10 items, 11 commits)
 >
 > | Item | Module | Commit |
 > |---|---|---|
@@ -15,6 +24,10 @@
 > | 3 | PROJETS Design — photos chantier auto en textures 3D | [`978dd1c`](https://github.com/Geniuspro71/mesurepro/commit/978dd1c) |
 > | 4 | RAPPORTS — niveau auditeur senior (sections + checklist 16 pts + auditor identity) | [`0e943c4`](https://github.com/Geniuspro71/mesurepro/commit/0e943c4) |
 > | 5+7 | PROJETS Plans — détails architecte pro (gouttières/EP, cheminée, velux, cotes fen/portes, faîtage/égout, repère coupe A-A) | [`986c6d5`](https://github.com/Geniuspro71/mesurepro/commit/986c6d5) |
+> | 9 | PROJETS Modèle 3D — PDF metadata indexable + export DXF (4 élévations) | [`debb193`](https://github.com/Geniuspro71/mesurepro/commit/debb193) |
+> | 8 partie 1+2 | PARTOUT — Tooltips infobulles + Page d'aide dédiée 12 sections | [`cfcf88d`](https://github.com/Geniuspro71/mesurepro/commit/cfcf88d) |
+> | 8 partie 3 | PARTOUT — Responsive (tablette/mobile breakpoints + body scroll lock) | [`26b6b8c`](https://github.com/Geniuspro71/mesurepro/commit/26b6b8c) |
+> | Bonus | Google Solar API auto-fill (Building Insights free tier) | [`53ce368`](https://github.com/Geniuspro71/mesurepro/commit/53ce368) |
 
 ---
 
@@ -218,13 +231,16 @@ try {
 
 ---
 
-## 📊 Stats fin session 2
+## 📊 Stats fin session 2 (étendue)
 
-- **Lignes** : ~5840 (App.jsx, +1161 vs session 1) + 100 KB JSON + 9.7 MB assets
-- **Commits totaux** : 44 (24 session 1 + 20 session 2 dont 9 fixes itératifs + 6 backlog Davide)
+- **Lignes** : ~6850 (App.jsx, +2171 vs session 1) + 100 KB JSON + 9.7 MB assets
+- **Commits totaux** : 49 (24 session 1 + 25 session 2 dont 9 fixes itératifs + 11 backlog Davide + 5 docs/cleanup)
 - **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three) — pas de nouvelle dépendance ajoutée
+- **API externes** : Photon (autocomplete BE), Nominatim (reverse geocoding), Google Geocoding + Solar API (optionnel via .env)
 - **Bundle dev served** : Vite + HMR + ~10 MB textures/photos lazy-loaded
 - **UI version** : `v2.7` (visible sidebar)
+- **Sidebar** : 4 entrées (Projets, Rapports, Paramètres, Aide)
+- **Responsive** : 3 paliers (desktop > 1024 px / tablette ≤ 1024 / mobile ≤ 640) avec body scroll lock
 
 ## 🎓 Leçons apprises session 2
 
