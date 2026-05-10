@@ -3960,6 +3960,16 @@ function Modal({ onClose, onCreate }) {
   var [num, setNum]         = useState("");
   var [cp, setCp]           = useState("");
   var [city, setCity]       = useState("");
+  /* Step 1 — Remplir : mesures façade par façade */
+  var [facades, setFacades] = useState({
+    sud:   { l:"", h:"", win:"", doors:"" },
+    est:   { l:"", h:"", win:"", doors:"" },
+    nord:  { l:"", h:"", win:"", doors:"" },
+    ouest: { l:"", h:"", win:"", doors:"" },
+  });
+  var [activeFacade, setActiveFacade] = useState("sud");
+  var [activeField, setActiveField] = useState(null);   /* "sud:l" | "est:h" ... — sera utilisé par le laser BLE en commit B */
+  var [bleStatus, setBleStatus] = useState("");
   /* Photos */
   var [photos, setPhotos]   = useState([]);
   var fRef = useRef();
@@ -3985,7 +3995,78 @@ function Modal({ onClose, onCreate }) {
     && num.trim().length > 0
     && /^\d{4}$/.test(cp.trim())
     && city.trim().length > 1;
-  var stepOk = step === 0 ? step0Ok : true;
+  /* Step 1 OK : au moins une façade avec longueur ET hauteur > 0 */
+  var step1Ok = ["sud","est","nord","ouest"].some(function(side){
+    var f = facades[side];
+    return parseFloat(f.l) > 0 && parseFloat(f.h) > 0;
+  });
+  var stepOk = step === 0 ? step0Ok : step === 1 ? step1Ok : true;
+
+  function setFacadeField(side, field, val) {
+    setFacades(function(prev){
+      return Object.assign({}, prev, {
+        [side]: Object.assign({}, prev[side], {[field]: val})
+      });
+    });
+  }
+
+  /* Calcule meas global à partir des 4 façades (totaux pour TabMeas) */
+  function computeMeasFromFacades() {
+    var sides = ["sud","est","nord","ouest"];
+    var perim = sides.reduce(function(a,s){ return a + (parseFloat(facades[s].l)||0); }, 0);
+    var walls = sides.reduce(function(a,s){
+      var l = parseFloat(facades[s].l)||0, h = parseFloat(facades[s].h)||0;
+      return a + l*h;
+    }, 0);
+    var hMax = Math.max.apply(null, sides.map(function(s){ return parseFloat(facades[s].h)||0; }));
+    var lSud = parseFloat(facades.sud.l)||0, lNord = parseFloat(facades.nord.l)||0;
+    var lEst = parseFloat(facades.est.l)||0, lOuest = parseFloat(facades.ouest.l)||0;
+    /* Approximation rectangle : moy(Sud,Nord) × moy(Est,Ouest) */
+    var foot = ((lSud+lNord)/2) * ((lEst+lOuest)/2);
+    var roof = foot > 0 ? foot * 1.15 : 0;   /* approximation pente +15% */
+    var win  = sides.reduce(function(a,s){ return a + (parseFloat(facades[s].win)||0); }, 0);
+    var doors= sides.reduce(function(a,s){ return a + (parseFloat(facades[s].doors)||0); }, 0);
+    var fmt = function(n){ return n > 0 ? n.toFixed(1) : ""; };
+    var fmtInt = function(n){ return n > 0 ? String(Math.round(n)) : ""; };
+    return {
+      walls: fmt(walls),
+      roof:  fmt(roof),
+      perim: fmt(perim),
+      h:     fmt(hMax),
+      foot:  fmt(foot),
+      win:   fmtInt(win),
+      doors: fmtInt(doors),
+    };
+  }
+  /* Génère 4 entrées rooms (TabMeas table) à partir des façades remplies */
+  function computeRoomsFromFacades() {
+    var labels = { sud:"Façade Sud", est:"Façade Est", nord:"Façade Nord", ouest:"Façade Ouest" };
+    return ["sud","est","nord","ouest"].filter(function(s){
+      var f = facades[s];
+      return parseFloat(f.l) > 0 || parseFloat(f.h) > 0;
+    }).map(function(s){
+      var f = facades[s];
+      var l = parseFloat(f.l)||0, h = parseFloat(f.h)||0;
+      return {
+        n: labels[s],
+        a: l*h > 0 ? (l*h).toFixed(1) : "",
+        l: l > 0 ? f.l : "",
+        h: h > 0 ? f.h : "",
+        t: "w",
+      };
+    });
+  }
+
+  /* Bluetooth laser — drivers réels arrivent en commit B */
+  function connectLaser() {
+    if (!navigator.bluetooth) {
+      setBleStatus("⚠️ Web Bluetooth non supporté (Safari/Firefox). Utilisez Chrome ou Edge.");
+      setTimeout(function(){ setBleStatus(""); }, 4000);
+      return;
+    }
+    setBleStatus("⚠️ Pilote BLE en préparation — disponible au prochain déploiement.");
+    setTimeout(function(){ setBleStatus(""); }, 3500);
+  }
 
   function geoLocate() {
     if (!navigator.geolocation) {
@@ -4053,14 +4134,21 @@ function Modal({ onClose, onCreate }) {
     border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
     fontSize:13,padding:"9px 12px",outline:"none"};
 
+  var FACADE_LABELS = [
+    {key:"sud",   label:"Sud",   color:"#FF8C42"},
+    {key:"est",   label:"Est",   color:"#00C2FF"},
+    {key:"nord",  label:"Nord",  color:"#00E5A0"},
+    {key:"ouest", label:"Ouest", color:"#B580FF"},
+  ];
+
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
       display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
       <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
-        padding:24,width:560,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
+        padding:24,width:600,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
         boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
         <div style={{display:"flex",gap:5,marginBottom:22}}>
-          {["Identification","Photos","Lancement"].map(function(s, i) {
+          {["Identification","Remplir","Photos","Lancement"].map(function(s, i) {
             return (
               <div key={i} style={{flex:1,display:"flex",flexDirection:"column",
                 alignItems:"center",gap:4}}>
@@ -4191,6 +4279,133 @@ function Modal({ onClose, onCreate }) {
 
         {step === 1 && (
           <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
+              <button type="button" onClick={connectLaser}
+                title="Connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM)"
+                style={{background:"#152135",border:"1px solid #00E5A0",
+                  color:"#00E5A0",borderRadius:7,padding:"5px 11px",fontSize:11,
+                  fontWeight:700,cursor:"pointer",outline:"none"}}>
+                📡 Connecter laser
+              </button>
+            </div>
+            {bleStatus && (
+              <div style={{fontSize:10,color:"#FFB35E",marginBottom:10,fontStyle:"italic"}}>
+                {bleStatus}
+              </div>
+            )}
+
+            {/* Façade tabs */}
+            <div style={{display:"flex",gap:4,marginBottom:14}}>
+              {FACADE_LABELS.map(function(f){
+                var active = activeFacade === f.key;
+                var fd = facades[f.key];
+                var hasData = parseFloat(fd.l) > 0 || parseFloat(fd.h) > 0;
+                return (
+                  <button key={f.key} type="button"
+                    onClick={function(){setActiveFacade(f.key);}}
+                    style={{flex:1, background: active ? f.color : "#152135",
+                      color: active ? "#000" : f.color,
+                      border:"1px solid " + f.color, borderRadius:7,
+                      padding:"7px 6px", fontSize:11, fontWeight:800,
+                      cursor:"pointer", outline:"none", position:"relative"}}>
+                    {f.label}
+                    {hasData && (
+                      <span style={{position:"absolute", top:3, right:5,
+                        fontSize:8, color: active ? "#000" : "#00E5A0"}}>✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active façade fields */}
+            {(function(){
+              var fd = facades[activeFacade];
+              var col = (FACADE_LABELS.find(function(f){return f.key === activeFacade;}) || {}).color || "#00C2FF";
+              var fieldStyle = function(name){
+                var focused = activeField === activeFacade + ":" + name;
+                return Object.assign({}, inputStyle, {
+                  borderColor: focused ? col : "#1C3050",
+                  borderWidth: focused ? 2 : 1,
+                  textAlign:"right", fontFamily:"monospace",
+                  fontSize:14, fontWeight:700,
+                });
+              };
+              return (
+                <div style={{background:"#08111E",border:"1px solid #1C3050",
+                  borderRadius:9, padding:14, marginBottom:12}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div>
+                      <div style={labelStyle}>Longueur (m) *</div>
+                      <input type="number" step="any" value={fd.l}
+                        onFocus={function(){setActiveField(activeFacade+":l");}}
+                        onChange={function(e){setFacadeField(activeFacade,"l",e.target.value);}}
+                        placeholder="0.0" style={fieldStyle("l")}/>
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Hauteur (m) *</div>
+                      <input type="number" step="any" value={fd.h}
+                        onFocus={function(){setActiveField(activeFacade+":h");}}
+                        onChange={function(e){setFacadeField(activeFacade,"h",e.target.value);}}
+                        placeholder="0.0" style={fieldStyle("h")}/>
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div>
+                      <div style={labelStyle}>Fenêtres</div>
+                      <input type="number" min="0" step="1" value={fd.win}
+                        onFocus={function(){setActiveField(activeFacade+":win");}}
+                        onChange={function(e){setFacadeField(activeFacade,"win",e.target.value);}}
+                        placeholder="0" style={fieldStyle("win")}/>
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Portes</div>
+                      <input type="number" min="0" step="1" value={fd.doors}
+                        onFocus={function(){setActiveField(activeFacade+":doors");}}
+                        onChange={function(e){setFacadeField(activeFacade,"doors",e.target.value);}}
+                        placeholder="0" style={fieldStyle("doors")}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Récap visuel des 4 façades */}
+            <div style={{background:"#152135",border:"1px solid #1C3050",
+              borderRadius:9, padding:"10px 14px"}}>
+              <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:8}}>Récap des 4 façades</div>
+              {FACADE_LABELS.map(function(f){
+                var fd = facades[f.key];
+                var l = parseFloat(fd.l)||0, h = parseFloat(fd.h)||0;
+                var area = l*h;
+                var filled = l>0 && h>0;
+                return (
+                  <div key={f.key} style={{display:"flex",justifyContent:"space-between",
+                    padding:"4px 0",fontSize:11,
+                    color: filled ? "#E8EDF5" : "#2E4A6A"}}>
+                    <span style={{color:f.color,fontWeight:700,minWidth:50}}>{f.label}</span>
+                    <span style={{fontFamily:"monospace"}}>
+                      {filled ? l.toFixed(1)+" × "+h.toFixed(1)+" m" : "non saisi"}
+                    </span>
+                    <span style={{fontFamily:"monospace",fontWeight:700,minWidth:60,textAlign:"right"}}>
+                      {filled ? area.toFixed(1)+" m²" : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",marginTop:10,lineHeight:1.5}}>
+              Au moins une façade complète (longueur + hauteur) requise.
+              <br/>Les totaux (périmètre, surface murs, emprise au sol) sont calculés automatiquement à l'étape Lancement.
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div>
             <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:5}}>Photos</div>
             <div onClick={function(){fRef.current.click();}}
               style={{border:"2px dashed #1C3050",borderRadius:10,padding:"24px",
@@ -4227,25 +4442,40 @@ function Modal({ onClose, onCreate }) {
           </div>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           <div>
             <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:8}}>Récapitulatif</div>
             <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,
               padding:"13px 16px",marginBottom:14}}>
-              {[["Client",fullClient||"--"],
-                ["Adresse",fullAddr||"--"],
-                ["Code postal / Ville", (cp||"--") + " " + (city||"--")],
-                ["Photos",photos.length+" fichier(s)"]
-              ].map(function(pair) {
-                return (
-                  <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
-                    padding:"5px 0",borderBottom:"1px solid #1C3050"}}>
-                    <span style={{fontSize:12,color:"#607898"}}>{pair[0]}</span>
-                    <span style={{fontSize:12,color:"#E8EDF5",fontWeight:600,
-                      maxWidth:"60%",textAlign:"right",overflow:"hidden",textOverflow:"ellipsis"}}>{pair[1]}</span>
-                  </div>
-                );
-              })}
+              {(function(){
+                var meas = computeMeasFromFacades();
+                var nbFacades = FACADE_LABELS.filter(function(f){
+                  var fd = facades[f.key];
+                  return parseFloat(fd.l) > 0 && parseFloat(fd.h) > 0;
+                }).length;
+                var rows = [
+                  ["Client",fullClient||"--"],
+                  ["Adresse",fullAddr||"--"],
+                  ["Code postal / Ville", (cp||"--") + " " + (city||"--")],
+                  ["Façades saisies", nbFacades + " / 4"],
+                  ["Périmètre (auto)", meas.perim ? meas.perim+" m" : "--"],
+                  ["Surface murs (auto)", meas.walls ? meas.walls+" m²" : "--"],
+                  ["Emprise sol (auto)", meas.foot ? meas.foot+" m²" : "--"],
+                  ["Hauteur max (auto)", meas.h ? meas.h+" m" : "--"],
+                  ["Fenêtres + portes", (meas.win||"0") + " + " + (meas.doors||"0")],
+                  ["Photos",photos.length+" fichier(s)"]
+                ];
+                return rows.map(function(pair) {
+                  return (
+                    <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
+                      padding:"5px 0",borderBottom:"1px solid #1C3050"}}>
+                      <span style={{fontSize:12,color:"#607898"}}>{pair[0]}</span>
+                      <span style={{fontSize:12,color:"#E8EDF5",fontWeight:600,
+                        maxWidth:"60%",textAlign:"right",overflow:"hidden",textOverflow:"ellipsis"}}>{pair[1]}</span>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}
@@ -4256,19 +4486,22 @@ function Modal({ onClose, onCreate }) {
           <Btn sm={true} primary={true}
             onClick={function(){
               if (!stepOk) return;
-              if (step < 2) setStep(function(s){return s+1;});
+              if (step < 3) setStep(function(s){return s+1;});
               else {
                 onCreate({
                   addr:fullAddr, city:(cp+" "+city).trim(),
                   client:fullClient, photos:photos,
                   civilite:civilite, nom:nom, prenom:prenom,
                   cp:cp, rue:rue, num:num,
+                  meas: computeMeasFromFacades(),
+                  rooms: computeRoomsFromFacades(),
+                  facades: facades,
                 });
                 onClose();
               }
             }}
             style={{opacity:stepOk ? 1 : 0.4, cursor:stepOk ? "pointer" : "not-allowed"}}>
-            {step < 2 ? "Suivant" : "Lancer"}
+            {step < 3 ? "Suivant" : "Lancer"}
           </Btn>
         </div>
       </div>
@@ -4623,17 +4856,22 @@ export default function App() {
   }
 
   function addProject(info) {
+    var meas = info.meas ? Object.assign({}, EMPTY_MEAS, info.meas) : Object.assign({}, EMPTY_MEAS);
+    var area = parseFloat(meas.walls) || 0;
+    var hMax = parseFloat(meas.h) || 0;
+    var floors = hMax > 0 ? Math.max(1, Math.round(hMax / 3)) : 0;   /* ~3 m / étage */
     var np = {
       id: Date.now(),
       addr: info.addr || "Nouvelle adresse",
       city: info.city || "Ville",
       status:"processing",
       date: new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),
-      area:0, floors:0, roof:"--", shape:"M",
+      area: area, floors: floors, roof:"--", shape:"M",
       client: info.client || "",
       photos: info.photos || [],
-      meas: Object.assign({},EMPTY_MEAS),
-      rooms:[],
+      meas: meas,
+      rooms: info.rooms && info.rooms.length ? info.rooms : [],
+      facades: info.facades || null,
     };
     setProjects(function(ps){ return ps.concat([np]); });
     /* Auto-promote processing -> draft after 3s (no real CV pipeline yet) */
