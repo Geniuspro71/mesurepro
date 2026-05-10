@@ -12,9 +12,113 @@ const C = {
 
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
+/* Inline-SVG helper for demo photos (no external assets needed) */
+function svgPhoto(inner) {
+  return "data:image/svg+xml;utf8," + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" preserveAspectRatio="xMidYMid slice">'
+    + inner + '</svg>'
+  );
+}
+
+var DEMO_PHOTOS_PARIS = [
+  { name:"facade-nord.jpg", size:124032, url: svgPhoto(
+    '<defs><linearGradient id="sk" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0" stop-color="#9BBED9"/><stop offset="1" stop-color="#D4DEE6"/></linearGradient></defs>'
+    + '<rect width="400" height="200" fill="url(#sk)"/>'
+    + '<rect y="200" width="400" height="100" fill="#5e6b3a"/>'
+    + '<rect x="40" y="85" width="320" height="195" fill="#a0381f"/>'
+    + '<polygon points="40,85 200,28 360,85" fill="#3a2614"/>'
+    + '<rect x="65" y="115" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="172" y="115" width="56" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="280" y="115" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="65" y="190" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="172" y="190" width="56" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="280" y="190" width="55" height="58" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="180" y="248" width="40" height="32" fill="#3a2614"/>'
+    + '<rect x="0" y="280" width="400" height="20" fill="#3a3a3a"/>'
+  )},
+  { name:"facade-est-pierre.jpg", size:98220, url: svgPhoto(
+    '<rect width="400" height="190" fill="#A8C0D2"/>'
+    + '<rect y="190" width="400" height="110" fill="#5e6b3a"/>'
+    + '<rect x="55" y="85" width="290" height="195" fill="#9E8E7E"/>'
+    + '<polygon points="55,85 200,30 345,85" fill="#3a2614"/>'
+    + '<g stroke="#5e564b" stroke-width="0.8" opacity="0.5">'
+    + '<line x1="55" y1="115" x2="345" y2="115"/><line x1="55" y1="160" x2="345" y2="160"/>'
+    + '<line x1="55" y1="205" x2="345" y2="205"/><line x1="55" y1="245" x2="345" y2="245"/>'
+    + '<line x1="120" y1="85" x2="120" y2="280"/><line x1="200" y1="85" x2="200" y2="280"/>'
+    + '<line x1="280" y1="85" x2="280" y2="280"/></g>'
+    + '<rect x="80" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="170" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="260" y="120" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="80" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="170" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+    + '<rect x="260" y="200" width="60" height="55" fill="#7BBCE8" opacity="0.85"/>'
+  )},
+  { name:"vue-toiture-aerien.jpg", size:156400, url: svgPhoto(
+    '<rect width="400" height="300" fill="#9AC5DD"/>'
+    + '<polygon points="20,260 380,260 360,200 40,200" fill="#3a2614"/>'
+    + '<polygon points="40,200 360,200 320,40 80,40" fill="#5a3825"/>'
+    + '<g stroke="#1a0f08" stroke-width="1.2" opacity="0.6">'
+    + '<line x1="120" y1="40" x2="100" y2="200"/>'
+    + '<line x1="160" y1="40" x2="140" y2="200"/>'
+    + '<line x1="200" y1="40" x2="200" y2="200"/>'
+    + '<line x1="240" y1="40" x2="260" y2="200"/>'
+    + '<line x1="280" y1="40" x2="300" y2="200"/>'
+    + '<line x1="100" y1="100" x2="300" y2="100"/>'
+    + '<line x1="80" y1="160" x2="320" y2="160"/></g>'
+    + '<rect x="280" y="55" width="20" height="48" fill="#222"/>'
+    + '<rect x="280" y="50" width="22" height="6" fill="#1a1a1a"/>'
+    + '<rect x="60" y="220" width="280" height="18" fill="rgba(0,0,0,0.3)"/>'
+  )},
+  { name:"detail-pignon-nord.jpg", size:87212, url: svgPhoto(
+    '<rect width="400" height="120" fill="#A8C0D2"/>'
+    + '<polygon points="0,120 200,20 400,120" fill="#3a2614"/>'
+    + '<rect y="120" width="400" height="180" fill="#a0381f"/>'
+    + '<g stroke="#dcc7a8" stroke-width="0.8" opacity="0.6">'
+    + '<line x1="0" y1="135" x2="400" y2="135"/><line x1="0" y1="155" x2="400" y2="155"/>'
+    + '<line x1="0" y1="175" x2="400" y2="175"/><line x1="0" y1="195" x2="400" y2="195"/>'
+    + '<line x1="0" y1="215" x2="400" y2="215"/><line x1="0" y1="235" x2="400" y2="235"/>'
+    + '<line x1="0" y1="255" x2="400" y2="255"/><line x1="0" y1="275" x2="400" y2="275"/></g>'
+    + '<polygon points="20,120 200,28 380,120" stroke="#1a0f08" stroke-width="2" fill="none"/>'
+    + '<rect x="170" y="60" width="60" height="50" fill="#3a2614"/>'
+    + '<rect x="183" y="73" width="34" height="24" fill="#5a3825"/>'
+  )},
+];
+
+var DEMO_PHOTOS_LYON = [
+  { name:"facade-victor-hugo.jpg", size:112800, url: svgPhoto(
+    '<rect width="400" height="180" fill="#A8C0D2"/>'
+    + '<rect y="180" width="400" height="120" fill="#7c8a5b"/>'
+    + '<rect x="30" y="100" width="340" height="180" fill="#E8E4DC"/>'
+    + '<polygon points="20,105 200,45 380,105" fill="#5a3825"/>'
+    + '<rect x="55" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="135" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="215" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="295" y="125" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="55" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="135" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="215" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="295" y="195" width="55" height="55" fill="#7BBCE8" opacity="0.88"/>'
+    + '<rect x="184" y="245" width="32" height="35" fill="#5a3825"/>'
+  )},
+  { name:"toiture-4-pans.jpg", size:138400, url: svgPhoto(
+    '<rect width="400" height="300" fill="#9AC5DD"/>'
+    + '<polygon points="40,200 200,260 360,200 200,140" fill="#5a3825"/>'
+    + '<polygon points="40,200 200,140 200,30 80,30" fill="#3a2614"/>'
+    + '<polygon points="360,200 200,140 200,30 320,30" fill="#4a3018"/>'
+    + '<g stroke="#1a0f08" stroke-width="1" opacity="0.5">'
+    + '<line x1="200" y1="30" x2="200" y2="260"/>'
+    + '<line x1="40" y1="200" x2="200" y2="140"/>'
+    + '<line x1="360" y1="200" x2="200" y2="140"/>'
+    + '<line x1="40" y1="200" x2="80" y2="30"/>'
+    + '<line x1="360" y1="200" x2="320" y2="30"/></g>'
+  )},
+];
+
 const PROJS = [
   { id:1, addr:"142 Rue de la Paix", city:"Paris 75001", status:"done",
     date:"2 mai 2026", area:284, floors:2, roof:"Pignon", shape:"L",
+    client:"M. Laurent Bernard",
     meas:{ walls:"412.6", roof:"186.4", perim:"68.2", h:"7.4", foot:"142.3", win:"12", doors:"3" },
     rooms:[
       {n:"Mur Nord", a:"94.2", l:"16.4 m", h:"5.7 m", t:"w"},
@@ -22,9 +126,11 @@ const PROJS = [
       {n:"Mur Est",  a:"78.4", l:"13.8 m", h:"5.7 m", t:"w"},
       {n:"Mur Ouest",a:"78.4", l:"13.8 m", h:"5.7 m", t:"w"},
       {n:"Toit",     a:"186.4",l:"---",    h:"---",    t:"r"},
-    ]},
+    ],
+    photos: DEMO_PHOTOS_PARIS },
   { id:2, addr:"88 Avenue Victor Hugo", city:"Lyon 69006", status:"done",
     date:"28 avr. 2026", area:196, floors:1, roof:"4 pans", shape:"S",
+    client:"Mme. Isabelle Moreau",
     meas:{ walls:"298.1", roof:"124.8", perim:"56.4", h:"4.8", foot:"196.0", win:"8", doors:"2" },
     rooms:[
       {n:"Mur Nord",  a:"72.4", l:"14.8 m", h:"4.8 m", t:"w"},
@@ -32,7 +138,8 @@ const PROJS = [
       {n:"Mur Est",   a:"64.2", l:"13.4 m", h:"4.8 m", t:"w"},
       {n:"Mur Ouest", a:"64.2", l:"13.4 m", h:"4.8 m", t:"w"},
       {n:"Toiture",   a:"124.8",l:"---",    h:"---",    t:"r"},
-    ]},
+    ],
+    photos: DEMO_PHOTOS_LYON },
   { id:3, addr:"23 Boulevard Carnot", city:"Bordeaux 33000", status:"processing",
     date:"6 mai 2026", area:320, floors:3, roof:"Terrasse", shape:"M",
     meas:{...EMPTY_MEAS}, rooms:[] },
@@ -597,7 +704,7 @@ function House({ shape, mat, matCol, small, photos }) {
 }
 
 /* ---- Iso 3D model (SVG, no canvas) ---- */
-function IsoModel({ matCol, mat, photos, floors, meas }) {
+function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
   var [angle, setAngle] = useState(30);
   var [auto, setAuto]   = useState(false);
   var [showAnno, setShowAnno] = useState(true);
@@ -836,14 +943,50 @@ function IsoModel({ matCol, mat, photos, floors, meas }) {
           })()}
 
           {showAnno && (() => {
+            /* Try to read facade lengths from project.rooms first.
+               Fallback to derived realW / realD. */
+            function parseM(s) {
+              if (s == null) return null;
+              var v = parseFloat(String(s).replace(/[^\d.,-]/g,"").replace(",","."));
+              return isFinite(v) && v > 0 ? v : null;
+            }
+            function lookup(needle) {
+              var r = (rooms||[]).find(function(x){
+                if (!x || x.t === "r") return false;
+                var n = (x.n||"").toLowerCase();
+                return n.indexOf(needle) !== -1;
+              });
+              return r ? parseM(r.l) : null;
+            }
+            var Lfront = lookup("nord") || lookup("sud")  || lookup("front") || realW;
+            var Lleft  = lookup("est")  || lookup("ouest")|| lookup("late")  || realD;
+
             var hLabel = m.h ? m.h + " m" : realH.toFixed(1) + " m";
-            var perimLabel = m.perim ? m.perim + " m" : (2*(realW+realD)).toFixed(1) + " m";
             var wallsLabel = m.walls ? m.walls + " m²" : null;
-            var roofLabel = m.roof ? m.roof + " m²" : null;
-            var topMid = { x:(P[4].x+P[5].x+P[6].x+P[7].x)/4, y:(P[4].y+P[5].y+P[6].y+P[7].y)/4 };
-            var ridgeMid = { x:(rid.x+rid2.x)/2, y:(rid.y+rid2.y)/2 };
+            var roofLabel  = m.roof ? m.roof + " m²"  : null;
+            var topMid     = { x:(P[4].x+P[5].x+P[6].x+P[7].x)/4, y:(P[4].y+P[5].y+P[6].y+P[7].y)/4 };
+            var ridgeMid   = { x:(rid.x+rid2.x)/2, y:(rid.y+rid2.y)/2 };
+
+            /* Front-bottom edge: P[0]→P[1]. Compute outward normal so the
+               label + tick lines sit just below the edge regardless of angle. */
+            var fEdge = { x1:P[0].x, y1:P[0].y, x2:P[1].x, y2:P[1].y };
+            var fLen  = Math.sqrt((fEdge.x2-fEdge.x1)**2 + (fEdge.y2-fEdge.y1)**2) || 1;
+            var fNx = -(fEdge.y2-fEdge.y1)/fLen, fNy = (fEdge.x2-fEdge.x1)/fLen;
+            if (fNy < 0) { fNx = -fNx; fNy = -fNy; }
+            var fOff = 12;
+            var fM = { x:(fEdge.x1+fEdge.x2)/2 + fNx*fOff, y:(fEdge.y1+fEdge.y2)/2 + fNy*fOff };
+
+            /* Left-bottom edge: P[3]→P[0] */
+            var lEdge = { x1:P[3].x, y1:P[3].y, x2:P[0].x, y2:P[0].y };
+            var lLen  = Math.sqrt((lEdge.x2-lEdge.x1)**2 + (lEdge.y2-lEdge.y1)**2) || 1;
+            var lNx = -(lEdge.y2-lEdge.y1)/lLen, lNy = (lEdge.x2-lEdge.x1)/lLen;
+            if (lNy < 0) { lNx = -lNx; lNy = -lNy; }
+            var lOff = 12;
+            var lM = { x:(lEdge.x1+lEdge.x2)/2 + lNx*lOff, y:(lEdge.y1+lEdge.y2)/2 + lNy*lOff };
+
             return (
               <g>
+                {/* hauteur — cote verticale gauche */}
                 <line x1={P[0].x-22} y1={P[0].y} x2={P[0].x-22} y2={P[4].y}
                   stroke="#00E5A0" strokeWidth="0.8" opacity="0.85"/>
                 <line x1={P[0].x-26} y1={P[0].y} x2={P[0].x-18} y2={P[0].y}
@@ -854,10 +997,40 @@ function IsoModel({ matCol, mat, photos, floors, meas }) {
                   fill="#00E5A0" fontSize="10" fontFamily="monospace" fontWeight="bold">
                   {hLabel}
                 </text>
-                <text x={(P[0].x+P[1].x)/2-22} y={(P[0].y+P[1].y)/2+34}
-                  fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold">
-                  {perimLabel}
+
+                {/* cote longueur facade frontale */}
+                <line x1={fEdge.x1+fNx*4} y1={fEdge.y1+fNy*4}
+                      x2={fEdge.x1+fNx*14} y2={fEdge.y1+fNy*14}
+                  stroke="#00C2FF" strokeWidth="0.8" opacity="0.9"/>
+                <line x1={fEdge.x2+fNx*4} y1={fEdge.y2+fNy*4}
+                      x2={fEdge.x2+fNx*14} y2={fEdge.y2+fNy*14}
+                  stroke="#00C2FF" strokeWidth="0.8" opacity="0.9"/>
+                <line x1={fEdge.x1+fNx*9} y1={fEdge.y1+fNy*9}
+                      x2={fEdge.x2+fNx*9} y2={fEdge.y2+fNy*9}
+                  stroke="#00C2FF" strokeWidth="0.7" opacity="0.85"/>
+                <text x={fM.x} y={fM.y+3} textAnchor="middle"
+                  fill="#00C2FF" fontSize="10" fontFamily="monospace" fontWeight="bold"
+                  paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2.2">
+                  {Lfront.toFixed(1)} m
                 </text>
+
+                {/* cote longueur facade laterale */}
+                <line x1={lEdge.x1+lNx*4} y1={lEdge.y1+lNy*4}
+                      x2={lEdge.x1+lNx*14} y2={lEdge.y1+lNy*14}
+                  stroke="#FF8C42" strokeWidth="0.8" opacity="0.9"/>
+                <line x1={lEdge.x2+lNx*4} y1={lEdge.y2+lNy*4}
+                      x2={lEdge.x2+lNx*14} y2={lEdge.y2+lNy*14}
+                  stroke="#FF8C42" strokeWidth="0.8" opacity="0.9"/>
+                <line x1={lEdge.x1+lNx*9} y1={lEdge.y1+lNy*9}
+                      x2={lEdge.x2+lNx*9} y2={lEdge.y2+lNy*9}
+                  stroke="#FF8C42" strokeWidth="0.7" opacity="0.85"/>
+                <text x={lM.x} y={lM.y+3} textAnchor="middle"
+                  fill="#FF8C42" fontSize="10" fontFamily="monospace" fontWeight="bold"
+                  paintOrder="stroke" stroke="rgba(0,0,0,0.7)" strokeWidth="2.2">
+                  {Lleft.toFixed(1)} m
+                </text>
+
+                {/* surface murs sur la facade frontale */}
                 {wallsLabel && (
                   <text x={(P[0].x+P[1].x)/2-18} y={(P[0].y+P[5].y)/2+2}
                     fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
@@ -865,6 +1038,7 @@ function IsoModel({ matCol, mat, photos, floors, meas }) {
                     {wallsLabel}
                   </text>
                 )}
+                {/* surface toit */}
                 {roofLabel && (
                   <text x={ridgeMid.x-18} y={(topMid.y+ridgeMid.y)/2}
                     fill="#fff" fontSize="9" fontFamily="monospace" fontWeight="bold"
@@ -1332,7 +1506,7 @@ function TabModel({ project, mat, setMat, onUpdate }) {
       <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
         <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
           flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas}/>
+          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas} rooms={project.rooms}/>
         </div>
         <div style={{fontSize:11,color:"#607898",marginTop:8,textAlign:"center"}}>
           Glissez sur le modele pour le faire pivoter
