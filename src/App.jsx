@@ -4404,27 +4404,53 @@ function Modal({ onClose, onCreate }) {
       return;
     }
     setGeoStatus("Localisation en cours…");
+
+    function onSuccess(pos) {
+      setGeoStatus("Lecture de l'adresse…");
+      reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(function(d){
+        if (!d || !d.address) {
+          setGeoStatus("Adresse introuvable — saisissez manuellement");
+          return;
+        }
+        var a = d.address;
+        if (a.road) setRue(a.road);
+        if (a.house_number) setNum(a.house_number);
+        if (a.postcode) setCp(a.postcode);
+        var v = a.city || a.town || a.village || a.municipality || a.suburb;
+        if (v) setCity(v);
+        setGeoStatus("✓ Adresse localisée");
+      }).catch(function(){ setGeoStatus("Erreur de géolocalisation — saisissez manuellement"); });
+    }
+
+    function describeError(err, attempted) {
+      if (err.code === 1) return "Permission refusée — autorisez la position dans Réglages › Confidentialité › Service de localisation › Chrome.";
+      if (err.code === 2) {
+        var hint = (location.hostname === "127.0.0.1")
+          ? " Astuce : ouvrez l'app sur http://localhost:3000 (Chrome traite 127.0.0.1 différemment)."
+          : "";
+        return "Position indisponible — Wi-Fi/GPS non détecté." + hint + " Saisissez manuellement.";
+      }
+      if (err.code === 3) return attempted === "high" ? "Délai dépassé en haute précision — nouvelle tentative…" : "Délai dépassé — saisissez manuellement.";
+      return "Erreur " + err.code + " — saisissez manuellement.";
+    }
+
+    /* Tente d'abord la haute précision (GPS), puis si POSITION_UNAVAILABLE
+       ou TIMEOUT bascule sur low-accuracy (Wi-Fi/IP) avec un timeout plus long.
+       Sur Mac sans GPS le low-accuracy passe souvent quand le high-accuracy
+       échoue. */
     navigator.geolocation.getCurrentPosition(
-      function(pos) {
-        setGeoStatus("Lecture de l'adresse…");
-        reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(function(d){
-          if (!d || !d.address) {
-            setGeoStatus("Adresse introuvable - saisissez manuellement");
-            return;
-          }
-          var a = d.address;
-          if (a.road) setRue(a.road);
-          if (a.house_number) setNum(a.house_number);
-          if (a.postcode) setCp(a.postcode);
-          var v = a.city || a.town || a.village || a.municipality || a.suburb;
-          if (v) setCity(v);
-          setGeoStatus("✓ Adresse localisée");
-        }).catch(function(){ setGeoStatus("Erreur de géolocalisation"); });
-      },
+      onSuccess,
       function(err) {
-        setGeoStatus(err.code === 1 ? "Permission refusée" :
-                     err.code === 2 ? "Position indisponible" :
-                     err.code === 3 ? "Délai dépassé" : "Erreur " + err.code);
+        if (err.code === 2 || err.code === 3) {
+          setGeoStatus("Tentative basse précision…");
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            function(err2){ setGeoStatus(describeError(err2, "low")); },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
+          );
+        } else {
+          setGeoStatus(describeError(err, "high"));
+        }
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
     );
