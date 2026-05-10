@@ -2,9 +2,19 @@
 
 > **Date :** 10 mai 2026 (session 2 livrée — UI **v2.7**)
 > **Repo :** https://github.com/Geniuspro71/mesurepro
-> **Branch :** `main` (à jour, **35 commits**, push OK)
+> **Branch :** `main` (à jour, **44 commits**, push OK)
 > **Dev local :** Vite tourne sur http://localhost:3000 (PID variable, à relancer si tué)
 > **Conseil :** ouvrir l'app sur **`localhost:3000`** (pas 127.0.0.1) — meilleure compat geolocation macOS
+>
+> ## 🎁 Backlog Davide livré en autonomie totale (5 items, 6 commits)
+>
+> | Item | Module | Commit |
+> |---|---|---|
+> | 1 | PROJETS — modifier + supprimer projet | [`e0de6be`](https://github.com/Geniuspro71/mesurepro/commit/e0de6be) |
+> | 6 | PARAMETRES — préférences fines (TVA, devise, civilité, ratio profondeur, décimales) | [`aaef0f1`](https://github.com/Geniuspro71/mesurepro/commit/aaef0f1) |
+> | 3 | PROJETS Design — photos chantier auto en textures 3D | [`978dd1c`](https://github.com/Geniuspro71/mesurepro/commit/978dd1c) |
+> | 4 | RAPPORTS — niveau auditeur senior (sections + checklist 16 pts + auditor identity) | [`0e943c4`](https://github.com/Geniuspro71/mesurepro/commit/0e943c4) |
+> | 5+7 | PROJETS Plans — détails architecte pro (gouttières/EP, cheminée, velux, cotes fen/portes, faîtage/égout, repère coupe A-A) | [`986c6d5`](https://github.com/Geniuspro71/mesurepro/commit/986c6d5) |
 
 ---
 
@@ -210,9 +220,9 @@ try {
 
 ## 📊 Stats fin session 2
 
-- **Lignes** : ~5240 (App.jsx, +561 vs session 1) + 100 KB JSON + 9.7 MB assets
-- **Commits totaux** : 35 (24 session 1 + 11 session 2 dont 9 fixes itératifs)
-- **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three) — pas de nouvelle dépendance pour le BLE (API browser native)
+- **Lignes** : ~5840 (App.jsx, +1161 vs session 1) + 100 KB JSON + 9.7 MB assets
+- **Commits totaux** : 44 (24 session 1 + 20 session 2 dont 9 fixes itératifs + 6 backlog Davide)
+- **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three) — pas de nouvelle dépendance ajoutée
 - **Bundle dev served** : Vite + HMR + ~10 MB textures/photos lazy-loaded
 - **UI version** : `v2.7` (visible sidebar)
 
