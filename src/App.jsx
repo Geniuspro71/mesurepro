@@ -4206,6 +4206,37 @@ const BLE_DRIVERS = [
       return v;
     },
   },
+  /* Stanley TLM (TLM65 / TLM99 / TLM330) — driver placeholder.
+     Les UUIDs Bluetooth de la gamme Stanley TLM ne sont pas publiquement
+     documentés ; on utilise le service générique "Device Information"
+     comme tentative de fallback + parser ASCII tolérant. À valider
+     avec un appareil physique en session 3 — voir reference_ble_drivers.md
+     pour la procédure d'identification (nRF Connect / Bluetooth Explorer). */
+  {
+    id: "stanley",
+    label: "Stanley TLM",
+    namePattern: /stanley|tlm/i,
+    /* TODO session 3 : remplacer par les vrais UUIDs après sniffing BLE.
+       Le service ci-dessous est un placeholder Nordic UART très répandu
+       dans les lasers entry-level. */
+    services: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"],
+    distanceCharacteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
+    /* Parser ASCII tolérant — accepte float ou int (mm). */
+    parse: function(dataView) {
+      if (!dataView || dataView.byteLength === 0) return null;
+      var bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+      var s = "";
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      var m = s.match(/(-?\d+(?:\.\d+)?)/);
+      if (!m) return null;
+      var v = parseFloat(m[1]);
+      if (!isFinite(v) || v < 0) return null;
+      /* Si valeur > 200 sans virgule : probablement mm, conversion → m. */
+      if (v > 200 && s.indexOf(".") === -1) v = v / 1000;
+      if (v > 200) return null;
+      return v;
+    },
+  },
 ];
 
 /* requestDevice + GATT subscribe. Returns { device, driver, disconnect } or null. */
@@ -4222,6 +4253,8 @@ function connectBleLaser(onMeasurement, onStatus) {
       { namePrefix: "DISTO" },
       { namePrefix: "Bosch" },
       { namePrefix: "GLM" },
+      { namePrefix: "Stanley" },
+      { namePrefix: "TLM" },
     ],
     optionalServices: allServices,
   }).then(function(device){
