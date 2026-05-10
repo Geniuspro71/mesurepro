@@ -2402,9 +2402,10 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
 /* ---- Sidebar ---- */
 function Sidebar({ view, setView }) {
   var items = [
-    {id:"dash",    icon:"H", lbl:"Projets"},
-    {id:"reports", icon:"D", lbl:"Rapports"},
-    {id:"settings",icon:"S", lbl:"Parametres"},
+    {id:"dash",    icon:"H", lbl:"Projets",    tip:"Liste de tous les projets — créer, ouvrir, exporter, supprimer"},
+    {id:"reports", icon:"D", lbl:"Rapports",   tip:"Rapports de mesures, devis, inspections, propositions niveau auditeur senior"},
+    {id:"settings",icon:"S", lbl:"Parametres", tip:"Profil, préférences (TVA, devise, civilité, ratio profondeur), civilités, stockage local"},
+    {id:"help",    icon:"?", lbl:"Aide",       tip:"Guide pas-à-pas + FAQ — tout ce qu'il faut savoir pour utiliser MesurePro"},
   ];
   return (
     <div data-noprint="1" style={{position:"fixed",top:0,left:0,width:W,height:"100vh",
@@ -2425,7 +2426,8 @@ function Sidebar({ view, setView }) {
         {items.map(function(item) {
           var active = view === item.id || (view === "project" && item.id === "dash");
           return (
-            <button type="button" key={item.id} onClick={() => setView(item.id)} style={{
+            <button type="button" key={item.id} onClick={() => setView(item.id)}
+              title={item.tip} style={{
               display:"flex",alignItems:"center",gap:12,
               width:"100%",padding:"12px 16px",
               background:active ? "rgba(0,194,255,0.13)" : "transparent",
@@ -2486,7 +2488,10 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
             {projects.length} proprietes{ql ? " - " + list.length + " resultat(s)" : ""}
           </div>
         </div>
-        <Btn onClick={onNew} primary={true}>+ Nouveau projet</Btn>
+        <Btn onClick={onNew} primary={true}
+          title="Créer un nouveau projet — parcours guidé en 4 étapes : identification, mesures façade par façade, photos, lancement">
+          + Nouveau projet
+        </Btn>
       </div>
       <div style={{position:"relative",marginBottom:12}}>
         <input value={q} onChange={function(e){setQ(e.target.value);}}
@@ -2625,12 +2630,12 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
 
 /* ---- ProjectDetail ---- */
 var PTABS = [
-  {id:"photos",lbl:"Photos"},
-  {id:"model", lbl:"Modele 3D"},
-  {id:"plans", lbl:"Plans"},
-  {id:"meas",  lbl:"Mesures"},
-  {id:"design",lbl:"Design"},
-  {id:"devis", lbl:"Devis"},
+  {id:"photos",lbl:"Photos",   tip:"Photos chantier — drag-drop, tag façade Sud/Nord/Est/Ouest pour utiliser comme texture 3D"},
+  {id:"model", lbl:"Modele 3D",tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
+  {id:"plans", lbl:"Plans",    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
+  {id:"meas",  lbl:"Mesures",  tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
+  {id:"design",lbl:"Design",   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
+  {id:"devis", lbl:"Devis",    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
 ];
 
 function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
@@ -2650,18 +2655,20 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
       <div data-noprint="1" style={{position:"sticky",top:0,zIndex:10,height:50,background:"#0F1C2E",
         borderBottom:"1px solid #1C3050",
         display:"flex",alignItems:"center",gap:12,padding:"0 20px"}}>
-        <Btn sm={true} onClick={onBack}>Retour</Btn>
+        <Btn sm={true} onClick={onBack} title="Revenir au tableau de bord (la liste des projets)">Retour</Btn>
         <div style={{flex:1}}>
           <span style={{fontSize:14,fontWeight:700,color:"#E8EDF5"}}>{project.addr}</span>
           <span style={{fontSize:11,color:"#607898",marginLeft:8}}>{project.city}</span>
         </div>
         <Badge s={project.status}/>
         {project.status === "draft" && (
-          <Btn sm={true} primary={true} onClick={function(){
+          <Btn sm={true} primary={true}
+            title="Marquer ce projet comme terminé (statut « Terminé », surface arrondie depuis l'emprise/murs)"
+            onClick={function(){
             var m = project.meas || {};
             var area = parseFloat(m.foot) || parseFloat(m.walls) || 0;
             onUpdate({status:"done", area:Math.round(area)});
-            setToast("Projet marque comme termine");
+            setToast("Projet marqué comme terminé");
           }}>Terminer</Btn>
         )}
         <Btn sm={true} onClick={function(){setEditOpen(true);}}
@@ -2682,7 +2689,8 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {PTABS.map(function(t) {
           var active = tab === t.id;
           return (
-            <button type="button" key={t.id} onClick={function(){setTab(t.id);}} style={{
+            <button type="button" key={t.id} onClick={function(){setTab(t.id);}}
+              title={t.tip} style={{
               height:"100%",padding:"0 16px",background:"none",border:"none",
               borderBottom:"2px solid "+(active ? "#00C2FF" : "transparent"),
               color:active ? "#00C2FF" : "#607898",
@@ -5250,6 +5258,7 @@ function Modal({ onClose, onCreate }) {
                 return (
                   <button key={f.key} type="button"
                     onClick={function(){setActiveFacade(f.key);}}
+                    title={"Façade " + f.label + " — saisir longueur, hauteur, fenêtres, portes" + (hasData ? " (déjà renseignée ✓)" : "")}
                     style={{flex:1, background: active ? f.color : "#152135",
                       color: active ? "#000" : f.color,
                       border:"1px solid " + f.color, borderRadius:7,
@@ -5428,9 +5437,16 @@ function Modal({ onClose, onCreate }) {
         )}
 
         <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:18}}>
-          <Btn sm={true} onClick={onClose}>Annuler</Btn>
-          {step > 0 && <Btn sm={true} onClick={function(){setStep(function(s){return s-1;});}}>Précédent</Btn>}
+          <Btn sm={true} onClick={onClose} title="Fermer sans créer de projet — toutes les saisies seront perdues">Annuler</Btn>
+          {step > 0 && <Btn sm={true}
+            title="Revenir à l'étape précédente — vos saisies sont conservées"
+            onClick={function(){setStep(function(s){return s-1;});}}>Précédent</Btn>}
           <Btn sm={true} primary={true}
+            title={
+              !stepOk ? "Remplissez d'abord les champs obligatoires *" :
+              step < 3 ? "Passer à l'étape suivante" :
+              "Créer le projet et atterrir sur l'onglet Mesures"
+            }
             onClick={function(){
               if (!stepOk) return;
               if (step < 3) setStep(function(s){return s+1;});
@@ -5725,6 +5741,190 @@ function CivilitesEditor() {
   );
 }
 
+/* ---- HelpPage : guide pas-à-pas + FAQ + raccourcis. Accessible via la
+   sidebar (entrée « Aide »). Conçue comme une page autonome scrollable
+   à l'intérieur de son panneau, sectionnée par module pour qu'on retrouve
+   l'info en quelques secondes. */
+function HelpPage() {
+  var sections = [
+    {
+      id:"intro", icon:"🚀", title:"Démarrage rapide",
+      body: [
+        "Bienvenue dans MesurePro — une app de mesure immobilière 3D.",
+        "Le parcours type prend 5 minutes : ➀ créer un projet via « + Nouveau projet » sur le Dashboard, ➁ remplir les 4 façades (longueur × hauteur × fenêtres × portes), ➂ optionnellement ajouter des photos, ➃ cliquer Lancer.",
+        "Vous atterrissez ensuite sur l'onglet Mesures avec tous les totaux auto-calculés (périmètre, surface murs, emprise, toit, etc.).",
+        "Les onglets Modèle 3D et Plans s'actualisent automatiquement à partir de vos saisies.",
+      ]
+    },
+    {
+      id:"projets", icon:"📂", title:"Module Projets",
+      body: [
+        "Créer : bouton « + Nouveau projet » en haut du Dashboard. Modal en 4 étapes guidées : Identification → Remplir (façades) → Photos → Lancement.",
+        "Modifier : ouvre un projet, bouton « Modifier » dans le header. Édite l'adresse, la ville, le client ou le statut.",
+        "Supprimer : bouton rouge « Supprimer » dans le header. Confirmation avec l'adresse + ville. Action irréversible.",
+        "Exports disponibles : PDF (texte indexable + métadonnées), CSV/Excel (tableurs), DXF (AutoCAD/LibreCAD/FreeCAD pour les 4 plans d'élévation).",
+        "Statuts : « En traitement » (3 s) → « Brouillon » (modifiable) → « Terminé » (verrouillé). Le bouton « Terminer » bascule automatiquement.",
+      ]
+    },
+    {
+      id:"remplir", icon:"📐", title:"Remplir les façades (étape 2)",
+      body: [
+        "4 onglets Sud / Est / Nord / Ouest. L'onglet actif est en couleur, les façades remplies montrent un ✓.",
+        "Champs par façade : longueur (m), hauteur (m), nombre de fenêtres, nombre de portes.",
+        "Au moins 1 façade doit avoir longueur ET hauteur > 0 pour pouvoir lancer.",
+        "Avec 1 seule façade saisie, l'app infère la profondeur manquante via le ratio paramétrable (par défaut 60 % de la frontage). Modifiable dans Paramètres → Préférences.",
+        "Bouton 📡 Laser BLE : optionnel, connecte un Leica DISTO / Bosch GLM / Stanley TLM via Bluetooth pour saisie auto. Chrome/Edge requis (Safari non supporté).",
+      ]
+    },
+    {
+      id:"3d", icon:"🏠", title:"Modèle 3D",
+      body: [
+        "Vue WebGL temps réel. Faites tourner le modèle au glisser, zoomez à la molette, cliquez ▶ Lecture pour rotation auto.",
+        "Sliders Édition rapide : Étages, Hauteur, Emprise sol — recalcule auto périmètre + murs + toit.",
+        "Photos chantier : si vous avez taggé une photo « Sud », « Nord », « Est » ou « Ouest » dans l'onglet Photos, elle est appliquée automatiquement comme texture sur la façade correspondante du modèle 3D.",
+        "Sans photo taggée, le modèle utilise le matériau choisi dans l'onglet Design (bardage bois, pierre, brique, blanc, gris, ardoise…).",
+      ]
+    },
+    {
+      id:"plans", icon:"📏", title:"Plans d'élévation",
+      body: [
+        "4 plans d'élévation cotés au format A4 paysage : Sud, Est, Nord, Ouest.",
+        "Chaque plan inclut : cotes verticales (par étage + total), niveaux altimétriques (±0.00 = TN, +X.XX), gouttière zinc Ø100, descente EP Ø80 avec pente 2 %, cheminée maçonnée + mitron, velux (sur Sud/Nord), cotes des fenêtres et portes en cm, labels architecte (faîtage, égout, sablière), repère de coupe A-A.",
+        "Les limites de propriété sont représentées en orange pointillé.",
+        "Si une photo est taggée pour la façade, elle apparaît à côté du plan dans la grille.",
+        "Bouton « Télécharger PDF » : tous les plans en un seul PDF A4 paysage (2 plans/page).",
+        "Pour récupérer les plans en CAO, utilisez le bouton DXF du header projet.",
+      ]
+    },
+    {
+      id:"mesures", icon:"📊", title:"Mesures",
+      body: [
+        "Bandeau du haut : barre de progression X/7 champs renseignés, passe en vert quand tout est rempli.",
+        "Barre BLE (optionnelle) : connecter un laser mètre Bluetooth pour remplir auto le champ actif.",
+        "7 cartes de mesures globales : surface murs, surface toit, périmètre, hauteur, emprise sol, fenêtres, portes. Bordure orange si vide.",
+        "Tableau « Façades et zones » : 1 ligne par façade créée à l'étape Remplir. Cliquez dans une cellule pour modifier. Bouton + Ajouter pour ajouter une zone supplémentaire.",
+      ]
+    },
+    {
+      id:"devis", icon:"💶", title:"Devis",
+      body: [
+        "Calcul automatique : sous-total HT + TVA + total TTC + prix de vente avec marge commerciale (slider 0-60 %).",
+        "TVA et devise paramétrables dans Paramètres → Préférences (par défaut 21 % BE et €).",
+        "Le matériau choisi dans l'onglet Design détermine le prix au m².",
+        "Bouton « Générer la proposition » + « Exporter en PDF » pour un document client final.",
+      ]
+    },
+    {
+      id:"rapports", icon:"📄", title:"Rapports niveau auditeur senior",
+      body: [
+        "4 types de rapports : Mesures, Devis, Inspection, Proposition. Tous accessibles via la sidebar « Rapports ».",
+        "Bouton « + Nouveau rapport » : sélection du type → modèle pré-rempli avec sections détaillées.",
+        "Mesures : méthodologie, conditions de relevé, normes NBN/DTU, tolérances, observations, conclusions, identité auditeur.",
+        "Inspection : checklist 16 points sur 7 zones (Façade, Toiture, Eaux pluviales, Structure, Étanchéité, Isolation, Ventilation, Sécurité), score de risque global, date de ré-inspection.",
+        "Devis : adresses chantier + facturation séparées, pénalités de retard, garantie décennale, modalités de paiement.",
+        "Proposition : méthodologie Phase 1/2/3, références projets similaires, équipe affectée, signatures électroniques.",
+      ]
+    },
+    {
+      id:"prefs", icon:"⚙️", title:"Paramètres et préférences",
+      body: [
+        "Profil utilisateur : nom, rôle, ville, téléphone, email — sauvegardé localement.",
+        "Préférences fines : TVA (%), devise, civilité par défaut, ratio de profondeur (cas 1 façade), décimales d'affichage. Bouton « Réinitialiser » pour revenir aux défauts.",
+        "Civilités : liste éditable (M., Mme, Société, SCI, ASBL…) — utilisée dans le Modal de création.",
+        "Stockage : tout est local (localStorage du navigateur). Bouton « Réinitialiser (restaurer la démo) » pour repartir des 5 projets d'exemple.",
+      ]
+    },
+    {
+      id:"laser", icon:"📡", title:"Laser Bluetooth",
+      body: [
+        "Modèles supportés : Leica DISTO (X3 / X4 / D2), Bosch GLM (50C / 100C), Stanley TLM (TLM65 / TLM99 / TLM330 — UUIDs à valider).",
+        "Compatibilité navigateur : Chrome, Edge, Brave (Chromium). Safari NON supporté. Firefox : flag dom.webbluetooth.enabled.",
+        "Connexion : bouton « Connecter » dans le Modal Remplir ou la barre BLE de l'onglet Mesures. Sélectionnez votre appareil dans la fenêtre du navigateur.",
+        "Usage : cliquez dans un champ (la bordure devient verte), tirez le laser, la valeur s'écrit automatiquement.",
+        "L'app est utilisable à 100 % sans laser : la saisie clavier marche tout aussi bien.",
+      ]
+    },
+    {
+      id:"raccourcis", icon:"⌨️", title:"Raccourcis et astuces",
+      body: [
+        "Cmd+Shift+R (Mac) / Ctrl+Shift+R (Windows) : forcer le rechargement après une mise à jour.",
+        "Localhost vs 127.0.0.1 : préférez `http://localhost:3000` — Chrome macOS gère mieux la géolocalisation et le Bluetooth.",
+        "Tooltips : passez la souris sur n'importe quel bouton pour obtenir une explication courte.",
+        "Statut « En traitement » : se transforme automatiquement en « Brouillon » après 3 s (placeholder pour un futur pipeline d'analyse).",
+      ]
+    },
+    {
+      id:"faq", icon:"❓", title:"FAQ",
+      body: [
+        "Q : Mes mesures ne sont pas sauvegardées ? — R : Tout passe par le localStorage du navigateur. Vérifiez que vous n'êtes pas en navigation privée.",
+        "Q : Le 3D affiche un autre bâtiment ? — R : Bug fixé en v2.7. Si ça persiste, faites Cmd+Shift+R + ouvrez Settings → Réinitialiser.",
+        "Q : La géolocalisation dit « Position indisponible » ? — R : Système macOS → Confidentialité → Service de localisation → activez Chrome. Préférez `localhost` à `127.0.0.1`.",
+        "Q : Le laser BLE ne se connecte pas ? — R : Vérifiez que vous utilisez Chrome/Edge, pas Safari. Et que le laser est en mode appairage (long appui sur le bouton Bluetooth).",
+        "Q : Les exports PDF s'ouvrent comme des images ? — R : Non, le contenu est du vrai texte indexable. Utilisez Cmd+F dans Aperçu ou Acrobat pour rechercher.",
+      ]
+    },
+  ];
+  return (
+    <div style={{padding:"30px 32px",overflowY:"auto",height:"100vh",
+      boxSizing:"border-box",background:"#08111E"}}>
+      <div style={{maxWidth:880, margin:"0 auto"}}>
+        <div style={{fontSize:24, fontWeight:900, color:"#E8EDF5", marginBottom:8}}>Aide MesurePro</div>
+        <div style={{fontSize:13, color:"#607898", marginBottom:24, lineHeight:1.6}}>
+          Guide pas-à-pas + FAQ. Trouvez votre réponse en quelques secondes —
+          chaque section correspond à un module de l'app. Survolez un bouton n'importe où dans l'app
+          pour obtenir une infobulle d'explication courte.
+        </div>
+
+        {/* Index sticky en haut */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:6,
+          padding:"10px 12px",marginBottom:22,
+          background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:9}}>
+          {sections.map(function(s){
+            return (
+              <a key={s.id} href={"#help-"+s.id}
+                style={{fontSize:11, color:"#00C2FF", textDecoration:"none",
+                  background:"rgba(0,194,255,0.07)", padding:"4px 10px",
+                  borderRadius:5, fontWeight:600}}>
+                {s.icon} {s.title}
+              </a>
+            );
+          })}
+        </div>
+
+        {sections.map(function(s){
+          return (
+            <div key={s.id} id={"help-"+s.id}
+              style={{background:"#0F1C2E",border:"1px solid #1C3050",
+                borderRadius:12, padding:"22px 26px", marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <div style={{fontSize:26}}>{s.icon}</div>
+                <div style={{fontSize:17, fontWeight:800, color:"#00C2FF"}}>{s.title}</div>
+              </div>
+              {s.body.map(function(p, i){
+                return (
+                  <div key={i} style={{fontSize:13, color:"#E8EDF5", lineHeight:1.7,
+                    marginBottom: i === s.body.length-1 ? 0 : 9,
+                    paddingLeft:14, position:"relative"}}>
+                    <span style={{position:"absolute",left:0,top:9,width:6,height:6,
+                      background:"#00C2FF",borderRadius:"50%",opacity:0.7}}/>
+                    {p}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        <div style={{textAlign:"center", color:"#2E4A6A", fontSize:11,
+          padding:"14px 0 30px"}}>
+          Si vous bloquez, repérez la version dans la sidebar (v2.7) et faites un screenshot —
+          ça aide énormément le support.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---- localStorage persistence ---- */
 var STORE_KEY_PROJECTS  = "mesurepro.projects.v1";
 var STORE_KEY_REPORTS   = "mesurepro.reports.v1";
@@ -5997,6 +6197,7 @@ export default function App() {
         )}
         {view === "reports"  && <Reports reports={reports} setReports={setReports}/>}
         {view === "settings" && <Settings projects={projects} reports={reports}/>}
+        {view === "help"     && <HelpPage/>}
       </div>
       {modal && (
         <Modal
