@@ -1,8 +1,8 @@
 # MesurePro — Contexte Claude Code
 
-> **Dernière mise à jour : 10 mai 2026 — fin session 2**
-> **Repo :** https://github.com/Geniuspro71/mesurepro (privé) — 27 commits sur `main`
-> **Dev local :** http://127.0.0.1:3000 via `npm run dev` (port 3000)
+> **Dernière mise à jour : 10 mai 2026 — fin session 2 (v2.7)**
+> **Repo :** https://github.com/Geniuspro71/mesurepro (privé) — 35 commits sur `main`
+> **Dev local :** http://**localhost**:3000 via `npm run dev` (préférer localhost à 127.0.0.1 pour la geolocation macOS)
 
 ---
 
@@ -46,7 +46,7 @@ npm run dev
 ```
 mesurepro/
 ├── src/
-│   ├── App.jsx              ← TOUT le code (4679 lignes, mono-fichier)
+│   ├── App.jsx              ← TOUT le code (~5240 lignes, mono-fichier)
 │   └── main.jsx             ← entry React
 ├── public/
 │   ├── textures/            ← 12 fichiers Polyhaven (5.3 MB)
