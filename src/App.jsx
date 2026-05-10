@@ -1296,15 +1296,32 @@ function FacadeFeatures({ side, realW, realD, realH, fl }) {
 function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
   var matColor = (mat && mat.col) || "#BFB09A";
   var matId = mat && mat.id;
-  var photoUrl = mat && mat.photo && mat.photo.url;
+  var matPhotoUrl = mat && mat.photo && mat.photo.url;
   var roofColor = "#5a3825";
 
-  /* Wall texture: tiles every ~2.5 m horizontally + every ~3 m vertically */
+  /* Photos chantier taggées par façade : si l'utilisateur a uploadé une
+     photo et l'a taggée "sud" / "nord" / "est" / "ouest", on l'utilise
+     comme texture de cette façade — rendu réaliste, pas un Polyhaven générique.
+     Fallback : photo du matériau global si défini, sinon Polyhaven. */
+  var photoArr = Array.isArray(photos) ? photos : [];
+  function findFacadePhoto(side) {
+    var p = photoArr.find(function(x){ return x && x.facade === side && x.url; });
+    return p ? p.url : null;
+  }
+  var sudUrl   = findFacadePhoto("sud")   || matPhotoUrl;
+  var nordUrl  = findFacadePhoto("nord")  || matPhotoUrl;
+  var estUrl   = findFacadePhoto("est")   || matPhotoUrl;
+  var ouestUrl = findFacadePhoto("ouest") || matPhotoUrl;
+
+  /* Wall texture: si photo chantier → repeat [1,1] (la photo couvre toute
+     la façade) ; sinon Polyhaven tile sur ~2.5 m × 3 m. */
   var wallRepeatH = Math.max(1, Math.round(realW / 2.5));
   var wallRepeatV = Math.max(1, Math.round(realH / 3));
-  var wallTex = useMatTexture(matId || "white", photoUrl, [wallRepeatH, wallRepeatV]);
   var sideRepeatH = Math.max(1, Math.round(realD / 2.5));
-  var sideTex = useMatTexture(matId || "white", photoUrl, [sideRepeatH, wallRepeatV]);
+  var sudTex   = useMatTexture(matId || "white", sudUrl,   sudUrl   ? [1,1] : [wallRepeatH, wallRepeatV]);
+  var nordTex  = useMatTexture(matId || "white", nordUrl,  nordUrl  ? [1,1] : [wallRepeatH, wallRepeatV]);
+  var estTex   = useMatTexture(matId || "white", estUrl,   estUrl   ? [1,1] : [sideRepeatH, wallRepeatV]);
+  var ouestTex = useMatTexture(matId || "white", ouestUrl, ouestUrl ? [1,1] : [sideRepeatH, wallRepeatV]);
   /* Slate roof texture (always slate regardless of wall material) */
   var roofTex = useMatTexture("slate", null, [Math.max(2, Math.round(realW / 2)), 2]);
 
@@ -1380,15 +1397,17 @@ function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
   return (
     <group>
       {/* Walls solid box with per-face textures (BoxGeometry face order:
-          +X, -X, +Y, -Y, +Z, -Z = east, west, top, bottom, south, north) */}
+          +X, -X, +Y, -Y, +Z, -Z = est, ouest, top, bottom, sud, nord).
+          Les 4 textures murs sont calculées en haut du composant à partir
+          des photos chantier taggées + fallback matériau / Polyhaven. */}
       <mesh castShadow receiveShadow position={[0, realH/2, 0]}>
         <boxGeometry args={[realW, realH, realD]} />
-        <meshStandardMaterial attach="material-0" map={sideTex.map} bumpMap={sideTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
-        <meshStandardMaterial attach="material-1" map={sideTex.map} bumpMap={sideTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-0" map={estTex.map}   bumpMap={estTex.bumpMap}   bumpScale={estUrl   ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-1" map={ouestTex.map} bumpMap={ouestTex.bumpMap} bumpScale={ouestUrl ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
         <meshStandardMaterial attach="material-2" color={matColor} roughness={1}/>
         <meshStandardMaterial attach="material-3" color="#5a564a" roughness={1}/>
-        <meshStandardMaterial attach="material-4" map={wallTex.map} bumpMap={wallTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
-        <meshStandardMaterial attach="material-5" map={wallTex.map} bumpMap={wallTex.bumpMap} bumpScale={0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-4" map={sudTex.map}   bumpMap={sudTex.bumpMap}   bumpScale={sudUrl   ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-5" map={nordTex.map}  bumpMap={nordTex.bumpMap}  bumpScale={nordUrl  ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
       </mesh>
 
       {/* Windows + door on each of the 4 facades */}
