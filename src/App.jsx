@@ -1497,7 +1497,7 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
   var fl = Math.max(1, Math.min(8, parseInt(floors) || 2));
   var m  = meas || {};
   var realH = parseFloat(m.h) || (3.5 * fl);
-  var realFoot = parseFloat(m.foot) || 142;
+  var realFoot = parseFloat(m.foot) || 80;   /* fallback neutre, pas la maison démo Haussmann */
   var ratio = 1.6;
   var realW = Math.sqrt(realFoot * ratio);
   var realD = Math.sqrt(realFoot / ratio);
@@ -1614,9 +1614,10 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
   var meas = project.meas || {};
   var fl = Math.max(1, parseInt(project.floors) || 2);
 
-  /* Real dimensions in meters depending on which facade we draw */
-  var realFoot = parseFloat(meas.foot) || 142;
-  var realH    = parseFloat(meas.h)    || 7.4;
+  /* Real dimensions in meters depending on which facade we draw.
+     Fallbacks neutres (pas les valeurs du projet démo Haussmann). */
+  var realFoot = parseFloat(meas.foot) || 80;
+  var realH    = parseFloat(meas.h)    || 6;
   var ratio = 1.6;
   var dimW = Math.sqrt(realFoot * ratio); /* facade width Sud/Nord */
   var dimD = Math.sqrt(realFoot / ratio); /* facade width Est/Ouest */
@@ -2606,8 +2607,11 @@ function TabPlans({ project, setToast }) {
 function TabModel({ project, mat, setMat, onUpdate }) {
   var m = project.meas || {};
   var fl = parseInt(project.floors) || 2;
-  var realH = parseFloat(m.h) || 7.4;
-  var realFoot = parseFloat(m.foot) || 142;
+  /* Fallbacks neutres (petite maison standard) — surtout PAS les valeurs
+     du projet démo Haussmann (7.4 / 142) qui faisaient afficher la maison
+     d'un autre projet quand le projet courant n'avait pas de mesures. */
+  var realH = parseFloat(m.h) || 6;       /* 2 étages × 3 m */
+  var realFoot = parseFloat(m.foot) || 80; /* maison 80 m² */
 
   function setFloors(n) {
     onUpdate && onUpdate({floors: n});
@@ -4222,20 +4226,42 @@ function Modal({ onClose, onCreate }) {
     });
   }
 
-  /* Calcule meas global à partir des 4 façades (totaux pour TabMeas) */
+  /* Calcule meas global à partir des 4 façades (totaux pour TabMeas).
+     Gère les cas partiels (1 ou 2 façades remplies) en inférant la
+     profondeur manquante (~60 % de la largeur, ratio résidentiel courant). */
   function computeMeasFromFacades() {
     var sides = ["sud","est","nord","ouest"];
-    var perim = sides.reduce(function(a,s){ return a + (parseFloat(facades[s].l)||0); }, 0);
-    var walls = sides.reduce(function(a,s){
-      var l = parseFloat(facades[s].l)||0, h = parseFloat(facades[s].h)||0;
-      return a + l*h;
-    }, 0);
-    var hMax = Math.max.apply(null, sides.map(function(s){ return parseFloat(facades[s].h)||0; }));
     var lSud = parseFloat(facades.sud.l)||0, lNord = parseFloat(facades.nord.l)||0;
     var lEst = parseFloat(facades.est.l)||0, lOuest = parseFloat(facades.ouest.l)||0;
-    /* Approximation rectangle : moy(Sud,Nord) × moy(Est,Ouest) */
-    var foot = ((lSud+lNord)/2) * ((lEst+lOuest)/2);
-    var roof = foot > 0 ? foot * 1.15 : 0;   /* approximation pente +15% */
+    var hMax = Math.max.apply(null, sides.map(function(s){ return parseFloat(facades[s].h)||0; }));
+
+    /* Largeur effective (paire Sud/Nord) : moy si les 2, sinon celle remplie. */
+    var W = (lSud > 0 && lNord > 0) ? (lSud + lNord) / 2
+          : (lSud > 0) ? lSud
+          : (lNord > 0) ? lNord : 0;
+    /* Profondeur effective (paire Est/Ouest). */
+    var D = (lEst > 0 && lOuest > 0) ? (lEst + lOuest) / 2
+          : (lEst > 0) ? lEst
+          : (lOuest > 0) ? lOuest : 0;
+    /* Si une seule paire est remplie, on infère l'autre dimension. */
+    if (W > 0 && D === 0) D = W * 0.6;
+    if (D > 0 && W === 0) W = D * 0.6;
+
+    var foot  = W * D;
+    var perim = 2 * (W + D);
+    var roof  = foot > 0 ? foot * 1.15 : 0;   /* pente ~15 % */
+    /* Murs : si les 4 façades sont remplies, somme exacte des surfaces ;
+       sinon estimation perim × hauteur (moins précis mais cohérent avec
+       la reconstruction du bâtiment). */
+    var fillCount = sides.filter(function(s){
+      return parseFloat(facades[s].l) > 0 && parseFloat(facades[s].h) > 0;
+    }).length;
+    var walls = (fillCount === 4)
+      ? sides.reduce(function(a,s){
+          var l = parseFloat(facades[s].l)||0, h = parseFloat(facades[s].h)||0;
+          return a + l*h;
+        }, 0)
+      : perim * hMax;
     var win  = sides.reduce(function(a,s){ return a + (parseFloat(facades[s].win)||0); }, 0);
     var doors= sides.reduce(function(a,s){ return a + (parseFloat(facades[s].doors)||0); }, 0);
     var fmt = function(n){ return n > 0 ? n.toFixed(1) : ""; };
