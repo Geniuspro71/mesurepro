@@ -1519,8 +1519,22 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
   var lOuest = _getRoomLen("ouest");
   var roomW = (lSud != null && lNord != null) ? (lSud + lNord) / 2 : (lSud || lNord);
   var roomD = (lEst != null && lOuest != null) ? (lEst + lOuest) / 2 : (lEst || lOuest);
-  var realW = roomW != null ? roomW : Math.sqrt(realFoot * ratio);
-  var realD = roomD != null ? roomD : Math.sqrt(realFoot / ratio);
+  /* Cas 1 façade : on a soit roomW soit roomD, l'autre se déduit de
+     l'emprise pour rester math-cohérent (W × D = foot). Fallback final
+     ratio 1.6 si aucune des deux paires n'est saisie. */
+  var realW, realD;
+  if (roomW != null && roomD != null) {
+    realW = roomW; realD = roomD;
+  } else if (roomW != null) {
+    realW = roomW;
+    realD = realFoot > 0 ? realFoot / roomW : roomW * 0.6;
+  } else if (roomD != null) {
+    realD = roomD;
+    realW = realFoot > 0 ? realFoot / roomD : roomD * 0.6;
+  } else {
+    realW = Math.sqrt(realFoot * ratio);
+    realD = Math.sqrt(realFoot / ratio);
+  }
 
   /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
   var camDist = Math.max(realW, realD, realH) * 1.7;
@@ -1660,11 +1674,30 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
     var r = findFacadeRoom(needle);
     return r ? parseM(r.h) : null;
   }
+  /* Calcule les dimensions plan selon la façade demandée :
+       - Sud / Nord  : largeur du plan = longueur paire Sud/Nord
+       - Est / Ouest : largeur du plan = longueur paire Est/Ouest
+     Avec 1 seule façade saisie, l'autre paire est déduite de l'emprise
+     (foot / known) pour rester cohérent avec l'emprise affichée à l'écran. */
+  var lSud_   = findFacadeLen("sud");
+  var lNord_  = findFacadeLen("nord");
+  var lEst_   = findFacadeLen("est");
+  var lOuest_ = findFacadeLen("ouest");
+  var widthSN = (lSud_ != null && lNord_ != null) ? (lSud_ + lNord_) / 2 : (lSud_ || lNord_);
+  var widthEW = (lEst_ != null && lOuest_ != null) ? (lEst_ + lOuest_) / 2 : (lEst_ || lOuest_);
+  /* Si une seule paire connue, déduire l'autre à partir de l'emprise. */
+  if (widthSN != null && widthEW == null) {
+    widthEW = realFoot > 0 ? realFoot / widthSN : widthSN * 0.6;
+  } else if (widthEW != null && widthSN == null) {
+    widthSN = realFoot > 0 ? realFoot / widthEW : widthEW * 0.6;
+  } else if (widthSN == null && widthEW == null) {
+    widthSN = dimW; widthEW = dimD;
+  }
   var realW;
   if (facadeId === "sud" || facadeId === "nord") {
-    realW = findFacadeLen(facadeId) || findFacadeLen(facadeId === "sud" ? "nord" : "sud") || dimW;
+    realW = findFacadeLen(facadeId) || widthSN;
   } else {
-    realW = findFacadeLen(facadeId) || findFacadeLen(facadeId === "est" ? "ouest" : "est") || dimD;
+    realW = findFacadeLen(facadeId) || widthEW;
   }
   /* Hauteur SPÉCIFIQUE à cette façade si saisie (rooms[].h) — sinon hauteur
      globale du projet (meas.h). Permet de modéliser un bâtiment où une
