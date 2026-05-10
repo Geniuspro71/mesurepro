@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
@@ -399,7 +400,60 @@ function exportProjectCsv(project) {
   exportCsv(rows, "mesurepro-" + slug(project.addr) + ".csv");
 }
 
-function exportProjectXlsx(project) { exportProjectCsv(project); }
+/* Export Excel réel (SheetJS) — 2 feuilles : Synthèse + Façades.
+   Remplace l'ancien alias CSV qui produisait juste un .csv renommé .xlsx. */
+function exportProjectXlsx(project) {
+  var m = project.meas || {};
+  var wb = XLSX.utils.book_new();
+
+  /* Feuille 1 : Synthèse */
+  var synthese = [
+    ["MesurePro — Fiche projet"],
+    [],
+    ["Adresse",   project.addr  || ""],
+    ["Ville",     project.city  || ""],
+    ["Client",    project.client|| ""],
+    ["Statut",    project.status|| ""],
+    ["Date",      project.date  || ""],
+    [],
+    ["Mesures globales"],
+    ["Surface murs (m²)",  parseFloat(m.walls) || ""],
+    ["Surface toit (m²)",  parseFloat(m.roof)  || ""],
+    ["Périmètre (m)",      parseFloat(m.perim) || ""],
+    ["Hauteur (m)",        parseFloat(m.h)     || ""],
+    ["Emprise sol (m²)",   parseFloat(m.foot)  || ""],
+    ["Fenêtres",           parseFloat(m.win)   || ""],
+    ["Portes",             parseFloat(m.doors) || ""],
+    [],
+    ["Étages",  parseInt(project.floors) || ""],
+    ["Toit",    project.roof || ""],
+    ["Photos",  (project.photos || []).length],
+  ];
+  var ws1 = XLSX.utils.aoa_to_sheet(synthese);
+  ws1["!cols"] = [{ wch: 22 }, { wch: 28 }];
+  /* Titre en gras (cellule A1) si possible */
+  if (ws1.A1) ws1.A1.s = { font: { bold: true, sz: 14 } };
+  XLSX.utils.book_append_sheet(wb, ws1, "Synthèse");
+
+  /* Feuille 2 : Façades détaillées */
+  var facadesRows = [
+    ["Façade", "Surface (m²)", "Longueur (m)", "Hauteur (m)", "Type"],
+  ];
+  (project.rooms || []).forEach(function(r){
+    facadesRows.push([
+      r.n || "",
+      parseFloat(r.a) || "",
+      parseFloat(r.l) || "",
+      parseFloat(r.h) || "",
+      r.t === "r" ? "Toit" : "Mur",
+    ]);
+  });
+  var ws2 = XLSX.utils.aoa_to_sheet(facadesRows);
+  ws2["!cols"] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Façades");
+
+  XLSX.writeFile(wb, "mesurepro-" + slug(project.addr) + ".xlsx");
+}
 
 function exportReportPdf(r) {
   var doc = new jsPDF();
