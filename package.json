@@ -10,13 +10,13 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@react-three/drei": "^9.122.0",
-    "@react-three/fiber": "^8.18.0",
+    "@react-three/drei": "^9.114.3",
+    "@react-three/fiber": "^8.17.10",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.184.0"
+    "three": "^0.171.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.1",
