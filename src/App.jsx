@@ -2763,6 +2763,16 @@ function TabMeas({ project, onUpdate }) {
   var m = project.meas || {};
   var rooms = project.rooms || [];
 
+  /* BLE laser : tracking du champ focus + connexion partagée */
+  var [activeMeasField, setActiveMeasField] = useState(null);   /* "walls" | "rooms:0:l" | null */
+  var [bleConn, setBleConn] = useState(null);
+  var [bleStatus, setBleStatus] = useState("");
+  var activeFieldRef = useRef(activeMeasField);
+  useEffect(function(){ activeFieldRef.current = activeMeasField; }, [activeMeasField]);
+  useEffect(function(){
+    return function(){ if (bleConn) { try { bleConn.disconnect(); } catch(e){} } };
+  }, [bleConn]);
+
   var FIELDS = [
     {key:"walls", lbl:"Surface murs", unit:"m²", col:"#00C2FF"},
     {key:"roof",  lbl:"Surface toit", unit:"m²", col:"#00E5A0"},
@@ -2791,6 +2801,40 @@ function TabMeas({ project, onUpdate }) {
 
   function delRoom(i) {
     onUpdate({rooms: rooms.filter(function(_, j){ return j !== i; })});
+  }
+
+  /* Écrit la valeur reçue par le laser dans le champ actuellement focus */
+  function writeLaserToActive(meters) {
+    var f = activeFieldRef.current;
+    if (!f) {
+      setBleStatus("⚠️ Cliquez d'abord dans un champ avant de tirer le laser.");
+      return;
+    }
+    if (f.indexOf("rooms:") === 0) {
+      var parts = f.split(":");          /* "rooms:0:l" */
+      var idx = parseInt(parts[1], 10);
+      var fld = parts[2];
+      var val = (fld === "a") ? meters.toFixed(2) : meters.toFixed(2);
+      setRoomField(idx, fld, val);
+    } else {
+      /* champs principaux : win/doors = entier, autres = 2 décimales */
+      var v = (f === "win" || f === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
+      setMeasField(f, v);
+    }
+    setBleStatus("✓ " + meters.toFixed(2) + " m → " + f);
+  }
+  function connectMeasLaser() {
+    if (bleConn) {
+      bleConn.disconnect();
+      setBleConn(null);
+      setBleStatus("Déconnecté.");
+      setTimeout(function(){ setBleStatus(""); }, 2000);
+      return;
+    }
+    function onStatus(s){ setBleStatus((s.ok ? "" : "⚠️ ") + s.msg); }
+    connectBleLaser(writeLaserToActive, onStatus).then(function(conn){
+      if (conn) setBleConn(conn);
+    });
   }
 
   /* Shared style for inline text inputs in the rooms table */
@@ -2834,15 +2878,44 @@ function TabMeas({ project, onUpdate }) {
         );
       })()}
 
+      {/* BLE Laser bar — Connecter Leica DISTO / Bosch GLM */}
+      <div style={{background:"#0F1C2E", border:"1px solid " + (bleConn ? "#00E5A0" : "#1C3050"),
+        borderRadius:10, padding:"10px 14px", marginBottom:18,
+        display:"flex", alignItems:"center", gap:12}}>
+        <div style={{fontSize:18}}>{bleConn ? "🟢" : "📡"}</div>
+        <div style={{flex:1, minWidth:0}}>
+          <div style={{fontSize:11, color:"#E8EDF5", fontWeight:700}}>
+            {bleConn ? bleConn.driver.label + " — connecté" : "Laser mètre Bluetooth"}
+          </div>
+          <div style={{fontSize:10, color:"#607898", marginTop:2,
+            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+            {bleStatus
+              ? bleStatus
+              : (activeMeasField
+                ? "Champ actif : " + activeMeasField + " — tirez le laser"
+                : "Cliquez dans un champ puis tirez le laser pour remplir auto")}
+          </div>
+        </div>
+        <button type="button" onClick={connectMeasLaser}
+          style={{background: bleConn ? "#00E5A0" : "#152135",
+            border:"1px solid #00E5A0",
+            color: bleConn ? "#000" : "#00E5A0",
+            borderRadius:7, padding:"6px 14px", fontSize:11,
+            fontWeight:800, cursor:"pointer", outline:"none", flexShrink:0}}>
+          {bleConn ? "Déconnecter" : "Connecter"}
+        </button>
+      </div>
+
       {/* 7 measurement cards */}
       <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:26}}>
         {FIELDS.map(function(f) {
           var v = m[f.key];
           var empty = v === "" || v == null || !(parseFloat(v) > 0);
-          var borderCol = empty ? "rgba(255,140,66,0.55)" : f.col;
+          var focused = activeMeasField === f.key;
+          var borderCol = focused ? "#00E5A0" : (empty ? "rgba(255,140,66,0.55)" : f.col);
           return (
             <div key={f.key} style={{background:"#0F1C2E",
-              border: "1px solid " + (empty ? "rgba(255,140,66,0.35)" : "#1C3050"),
+              border: "1px solid " + (focused ? "#00E5A0" : (empty ? "rgba(255,140,66,0.35)" : "#1C3050")),
               borderRadius:10, padding:"14px 16px",
               transition:"border-color 0.2s"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -2858,6 +2931,7 @@ function TabMeas({ project, onUpdate }) {
                   type="number"
                   step="any"
                   value={v === "" || v == null ? "" : v}
+                  onFocus={function(){ setActiveMeasField(f.key); }}
                   onChange={function(e){ setMeasField(f.key, e.target.value); }}
                   placeholder="0"
                   style={{
@@ -2925,26 +2999,34 @@ function TabMeas({ project, onUpdate }) {
                     background:i%2===0 ? "transparent" : "rgba(0,0,0,0.06)"}}>
                     <td style={{padding:"8px 12px"}}>
                       <input value={room.n || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":n"); }}
                         onChange={function(e){ setRoomField(i,"n",e.target.value); }}
-                        style={{...cellInput, fontFamily:"inherit", fontWeight:600, color:"#E8EDF5", width:130}}/>
+                        style={{...cellInput, fontFamily:"inherit", fontWeight:600, color:"#E8EDF5", width:130,
+                          borderColor: activeMeasField === "rooms:"+i+":n" ? "#00E5A0" : "#1C3050"}}/>
                     </td>
                     <td style={{padding:"8px 12px"}}>
                       <input type="number" step="any" value={room.a || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":a"); }}
                         onChange={function(e){ setRoomField(i,"a",e.target.value); }}
                         placeholder="m2"
-                        style={{...cellInput, color:"#00C2FF", width:80, textAlign:"right"}}/>
+                        style={{...cellInput, color:"#00C2FF", width:80, textAlign:"right",
+                          borderColor: activeMeasField === "rooms:"+i+":a" ? "#00E5A0" : "#1C3050"}}/>
                     </td>
                     <td style={{padding:"8px 12px"}}>
                       <input value={room.l || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":l"); }}
                         onChange={function(e){ setRoomField(i,"l",e.target.value); }}
                         placeholder="m"
-                        style={{...cellInput, width:80}}/>
+                        style={{...cellInput, width:80,
+                          borderColor: activeMeasField === "rooms:"+i+":l" ? "#00E5A0" : "#1C3050"}}/>
                     </td>
                     <td style={{padding:"8px 12px"}}>
                       <input value={room.h || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":h"); }}
                         onChange={function(e){ setRoomField(i,"h",e.target.value); }}
                         placeholder="m"
-                        style={{...cellInput, width:80}}/>
+                        style={{...cellInput, width:80,
+                          borderColor: activeMeasField === "rooms:"+i+":h" ? "#00E5A0" : "#1C3050"}}/>
                     </td>
                     <td style={{padding:"8px 12px"}}>
                       <select value={room.t || "w"}
@@ -3949,6 +4031,131 @@ function AutoComplete({ value, onChange, onPick, getLabel, options, placeholder,
   );
 }
 
+/* ----------------------------------------------------------------------
+   BLE Laser drivers (Web Bluetooth API)
+
+   Each driver knows how to identify a device, find the right GATT
+   characteristic, and parse incoming measurements into meters.
+
+   Supported families:
+     • Leica DISTO (X3 / X4 / D2) — proprietary service, float32 LE meters
+     • Bosch GLM   (50C / 100C)   — Nordic UART, ASCII string
+
+   Browser support: Chrome, Edge, Brave (Chromium). Safari = no.
+   Firefox needs flag dom.webbluetooth.enabled. HTTPS required in prod.
+   ---------------------------------------------------------------------- */
+const BLE_DRIVERS = [
+  {
+    id: "leica",
+    label: "Leica DISTO",
+    namePattern: /disto|leica/i,
+    services: ["3ab10100-f831-4395-b29d-570977d5bf94"],
+    distanceCharacteristic: "3ab10101-f831-4395-b29d-570977d5bf94",
+    /* Trame Leica : float32 little-endian, valeur en mètres. */
+    parse: function(dataView) {
+      if (!dataView || dataView.byteLength < 4) return null;
+      var meters = dataView.getFloat32(0, true);
+      if (!isFinite(meters) || meters < 0 || meters > 200) return null;
+      return meters;
+    },
+  },
+  {
+    id: "bosch",
+    label: "Bosch GLM",
+    namePattern: /glm|bosch/i,
+    services: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"],
+    distanceCharacteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
+    /* Bosch GLM Nordic UART : ASCII genre "1.234m\r\n" ou "1234" (mm). */
+    parse: function(dataView) {
+      if (!dataView || dataView.byteLength === 0) return null;
+      var bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+      var s = "";
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      var m = s.match(/(-?\d+(?:\.\d+)?)/);
+      if (!m) return null;
+      var v = parseFloat(m[1]);
+      if (!isFinite(v) || v < 0) return null;
+      /* Heuristique : si valeur > 200 sans virgule, on suppose des millimètres. */
+      if (v > 200 && s.indexOf(".") === -1) v = v / 1000;
+      if (v > 200) return null;
+      return v;
+    },
+  },
+];
+
+/* requestDevice + GATT subscribe. Returns { device, driver, disconnect } or null. */
+function connectBleLaser(onMeasurement, onStatus) {
+  if (typeof navigator === "undefined" || !navigator.bluetooth) {
+    onStatus({ ok:false, msg:"Web Bluetooth non supporté (Safari/Firefox). Utilisez Chrome ou Edge." });
+    return Promise.resolve(null);
+  }
+  onStatus({ ok:true, msg:"Sélection de l'appareil…" });
+  var allServices = BLE_DRIVERS.reduce(function(a,d){ return a.concat(d.services); }, []);
+  return navigator.bluetooth.requestDevice({
+    filters: [
+      { namePrefix: "Leica" },
+      { namePrefix: "DISTO" },
+      { namePrefix: "Bosch" },
+      { namePrefix: "GLM" },
+    ],
+    optionalServices: allServices,
+  }).then(function(device){
+    var driver = BLE_DRIVERS.find(function(d){ return d.namePattern.test(device.name || ""); });
+    if (!driver) {
+      onStatus({ ok:false, msg:"Modèle non reconnu : " + (device.name || "appareil sans nom") });
+      return null;
+    }
+    onStatus({ ok:true, msg:"Connexion à " + device.name + "…" });
+
+    return device.gatt.connect().then(function(server){
+      /* try each service of the driver */
+      var tryServices = driver.services.slice();
+      function findService() {
+        if (!tryServices.length) return Promise.resolve(null);
+        var sUuid = tryServices.shift();
+        return server.getPrimaryService(sUuid).catch(function(){ return findService(); });
+      }
+      return findService().then(function(svc){
+        if (!svc) {
+          onStatus({ ok:false, msg:"Service BLE introuvable sur " + device.name });
+          try { device.gatt.disconnect(); } catch(e){}
+          return null;
+        }
+        return svc.getCharacteristic(driver.distanceCharacteristic).then(function(ch){
+          return ch.startNotifications().then(function(){
+            function onValue(ev) {
+              var meters = driver.parse(ev.target.value);
+              if (meters != null) onMeasurement(meters, driver);
+            }
+            function onDisconnect() {
+              onStatus({ ok:false, msg:"Déconnecté de " + device.name });
+            }
+            ch.addEventListener("characteristicvaluechanged", onValue);
+            device.addEventListener("gattserverdisconnected", onDisconnect);
+            onStatus({ ok:true, msg:"🟢 " + driver.label + " connecté — tirez le laser" });
+            return {
+              device: device,
+              driver: driver,
+              disconnect: function(){
+                try { ch.removeEventListener("characteristicvaluechanged", onValue); } catch(e){}
+                try { device.removeEventListener("gattserverdisconnected", onDisconnect); } catch(e){}
+                try { if (device.gatt.connected) device.gatt.disconnect(); } catch(e){}
+              },
+            };
+          });
+        });
+      });
+    });
+  }).catch(function(err){
+    if (err && err.name === "NotFoundError") {
+      onStatus({ ok:false, msg:"Aucun appareil sélectionné." });
+    } else {
+      onStatus({ ok:false, msg:"Erreur Bluetooth : " + ((err && err.message) || (err && err.name) || "inconnue") });
+    }
+    return null;
+  });
+}
+
 function Modal({ onClose, onCreate }) {
   var [step, setStep]       = useState(0);
   /* Identification fields */
@@ -3968,8 +4175,9 @@ function Modal({ onClose, onCreate }) {
     ouest: { l:"", h:"", win:"", doors:"" },
   });
   var [activeFacade, setActiveFacade] = useState("sud");
-  var [activeField, setActiveField] = useState(null);   /* "sud:l" | "est:h" ... — sera utilisé par le laser BLE en commit B */
+  var [activeField, setActiveField] = useState("sud:l");   /* "sud:l" | "est:h" ... — champ qui recevra la prochaine mesure laser */
   var [bleStatus, setBleStatus] = useState("");
+  var [bleConn, setBleConn] = useState(null);   /* { device, driver, disconnect } | null */
   /* Photos */
   var [photos, setPhotos]   = useState([]);
   var fRef = useRef();
@@ -4057,16 +4265,45 @@ function Modal({ onClose, onCreate }) {
     });
   }
 
-  /* Bluetooth laser — drivers réels arrivent en commit B */
+  /* Ref vers activeField pour que le callback BLE lise la valeur actuelle, pas
+     celle capturée au moment de la connexion. */
+  var activeFieldRef = useRef(activeField);
+  useEffect(function(){ activeFieldRef.current = activeField; }, [activeField]);
+
+  /* Bluetooth laser — connecte un Leica DISTO ou Bosch GLM, écrit la mesure
+     reçue dans le champ actuellement en focus (ex. "sud:l" → façade Sud,
+     longueur). */
   function connectLaser() {
-    if (!navigator.bluetooth) {
-      setBleStatus("⚠️ Web Bluetooth non supporté (Safari/Firefox). Utilisez Chrome ou Edge.");
-      setTimeout(function(){ setBleStatus(""); }, 4000);
+    if (bleConn) {
+      bleConn.disconnect();
+      setBleConn(null);
+      setBleStatus("Déconnecté.");
+      setTimeout(function(){ setBleStatus(""); }, 2000);
       return;
     }
-    setBleStatus("⚠️ Pilote BLE en préparation — disponible au prochain déploiement.");
-    setTimeout(function(){ setBleStatus(""); }, 3500);
+    function onMeasurement(meters) {
+      var f = activeFieldRef.current;
+      if (!f) {
+        setBleStatus("⚠️ Sélectionnez un champ avant de tirer le laser.");
+        return;
+      }
+      var parts = f.split(":");
+      var side = parts[0], field = parts[1];
+      /* Pour fenêtres/portes le laser n'a pas de sens : on écrit quand même
+         la valeur entière comme indicateur, le user corrigera. */
+      var val = (field === "win" || field === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
+      setFacadeField(side, field, val);
+      setBleStatus("✓ " + meters.toFixed(2) + " m → " + side + " / " + field);
+    }
+    function onStatus(s) { setBleStatus((s.ok ? "" : "⚠️ ") + s.msg); }
+    connectBleLaser(onMeasurement, onStatus).then(function(conn){
+      if (conn) setBleConn(conn);
+    });
   }
+  /* Cleanup BLE on unmount */
+  useEffect(function(){
+    return function(){ if (bleConn) { try { bleConn.disconnect(); } catch(e){} } };
+  }, [bleConn]);
 
   function geoLocate() {
     if (!navigator.geolocation) {
@@ -4282,11 +4519,13 @@ function Modal({ onClose, onCreate }) {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
               <button type="button" onClick={connectLaser}
-                title="Connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM)"
-                style={{background:"#152135",border:"1px solid #00E5A0",
-                  color:"#00E5A0",borderRadius:7,padding:"5px 11px",fontSize:11,
-                  fontWeight:700,cursor:"pointer",outline:"none"}}>
-                📡 Connecter laser
+                title={bleConn ? "Déconnecter le laser" : "Connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM)"}
+                style={{background: bleConn ? "#00E5A0" : "#152135",
+                  border:"1px solid #00E5A0",
+                  color: bleConn ? "#000" : "#00E5A0",
+                  borderRadius:7, padding:"5px 11px", fontSize:11,
+                  fontWeight:700, cursor:"pointer", outline:"none"}}>
+                {bleConn ? "🟢 " + bleConn.driver.label + " — déconnecter" : "📡 Connecter laser"}
               </button>
             </div>
             {bleStatus && (
