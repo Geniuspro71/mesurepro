@@ -3495,6 +3495,14 @@ var REPORT_TEMPLATES = {
     notes:"",
     data:{"Surface murs":"","Surface toit":"","Perimetre":"","Hauteur":"","Emprise sol":"","Fenetres":"","Portes":""},
     rows:[],
+    /* Niveau auditeur senior (2026-05) */
+    methodology: "Mesures relevées au télémètre laser BLE (Leica DISTO X3 / Bosch GLM 50C, précision ±1 mm) et vérification au mètre ruban classe II. Modélisation 3D et plans d'élévation cotés générés à partir des relevés.",
+    conditions: "Bâtiment partiellement habité, accès toiture par échelle conforme. Conditions météo : sec, vent < 30 km/h, T° 10-20 °C.",
+    standards: "Conformité aux normes NBN EN 13201-1 (mesures bâtiment), NBN B 03-001 (charges), DTU 36.1 (toiture). Tolérances dimensionnelles selon NBN EN 14732.",
+    tolerances: "Linéaires ±0,5 cm · surfaces ±1 % · angles ±0,5° · hauteurs sous plafond ±1 cm.",
+    observations: "",
+    conclusions: "",
+    auditor:{ nom:"", titre:"Auditeur senior", ordre:"" },
   },
   devis: {
     title:"Nouveau Devis",
@@ -3502,21 +3510,46 @@ var REPORT_TEMPLATES = {
     cl:{nom:"",adr:"",tel:"",email:""},
     lines:[{d:"Prestation 1",q:"1",u:"fft",pu:"0.00",t:"0.00"}],
     discount:"0", acompte:"30",
-    payTerms:"Acompte 30% a la commande, solde a reception.",
-    notes:"Delai 3 semaines. Garantie decennale incluse. TVA 20%.",
+    payTerms:"Acompte 30 % à la commande, solde à réception après PV de réception sans réserve.",
+    notes:"Délai d'exécution : 3 semaines après signature. Garantie décennale incluse. TVA conforme aux préférences utilisateur.",
     validity:"30 jours",
+    /* Niveau auditeur senior */
+    penalties: "Pénalités de retard : 0,5 % HT par jour ouvré au-delà de la date contractuelle, plafonnées à 5 % HT.",
+    decennalRef: "Garantie décennale conforme à l'art. 1792 du Code civil — assurance n° à compléter.",
+    chantierAdr: "",
+    facturationAdr: "",
+    methodPaiement: "Virement SEPA · IBAN à compléter · BIC à compléter.",
   },
   insp: {
-    title:"Nouveau Rapport Inspection",
+    title:"Nouveau Rapport d'Inspection",
     co:{nom:"",adr:"",tel:"",email:""},
     cl:{nom:"",adr:"",tel:"",email:""},
     tech:"", techDate:new Date().toLocaleDateString("fr-FR"),
+    /* Checklist senior — 16 points sur 7 zones (vs 3 points avant) */
     checks:[
-      {z:"Facade", it:"Etat general facade", s:"ok", note:""},
-      {z:"Toiture", it:"Etat tuiles ardoises", s:"ok", note:""},
-      {z:"Murs porteurs", it:"Integrite structurelle", s:"ok", note:""},
+      {z:"Façade",       it:"État général façade (bardage / enduit)",        s:"ok", note:"", priority:"normal"},
+      {z:"Façade",       it:"Fissures structurelles (>1 mm)",                s:"ok", note:"", priority:"haut"},
+      {z:"Façade",       it:"Joints et étanchéité raccords",                  s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"État tuiles / ardoises / membrane",             s:"ok", note:"", priority:"haut"},
+      {z:"Toiture",      it:"Cheminées : étanchéité solin",                  s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"Lucarnes / velux : joints + raccords",           s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"Charpente : fléchissements / attaques visibles", s:"ok", note:"", priority:"haut"},
+      {z:"Eaux pluviales", it:"Gouttières : pente, fixation, débordements",  s:"ok", note:"", priority:"normal"},
+      {z:"Eaux pluviales", it:"Descentes EP : sections + raccords au sol",    s:"ok", note:"", priority:"normal"},
+      {z:"Structure",    it:"Murs porteurs : intégrité",                     s:"ok", note:"", priority:"haut"},
+      {z:"Structure",    it:"Sol : tassements, planchers",                   s:"ok", note:"", priority:"haut"},
+      {z:"Étanchéité",   it:"Caves : remontées / infiltrations",              s:"ok", note:"", priority:"haut"},
+      {z:"Isolation",    it:"Combles : épaisseur + état (PEB)",               s:"ok", note:"", priority:"normal"},
+      {z:"Isolation",    it:"Façades : isolation continue",                   s:"ok", note:"", priority:"normal"},
+      {z:"Ventilation",  it:"VMC simple/double flux + aérations naturelles",  s:"ok", note:"", priority:"normal"},
+      {z:"Sécurité",     it:"Garde-corps balcons / terrasses (≥ 1 m, NBN)",   s:"ok", note:"", priority:"haut"},
     ],
     reco:"",
+    /* Niveau auditeur senior */
+    riskScore: "faible",
+    reinspectionDate: "",
+    standards: "Inspection conforme NBN B 03-001 (charges), DTU 20.1 (maçonnerie), DTU 40.21 (toitures), RGB régional, certificat PEB Wallonie/Bruxelles.",
+    auditor:{ nom:"", titre:"Auditeur senior", ordre:"" },
   },
   prop: {
     title:"Nouvelle Proposition",
@@ -3525,9 +3558,13 @@ var REPORT_TEMPLATES = {
     intro:"",
     projs:[],
     gantt:[],
-    cgu:"Tout devis accepte engage le client. Prix fermes 30 jours.",
+    cgu:"Tout devis accepté engage le client. Prix fermes 30 jours. Conditions générales de vente disponibles sur demande.",
     sigCl:"", sigPro:"",
     version:"v1.0",
+    /* Niveau auditeur senior */
+    methodology: "Phase 1 — relevé terrain : mesures laser BLE + photo HDR par façade.\nPhase 2 — modélisation 3D et plans d'élévation cotés générés depuis les relevés.\nPhase 3 — devis détaillé multi-lots conforme aux DTU + bordereau ferme.",
+    references: "",
+    team: "Auditeur senior + dessinateur projeteur + métreur. Couvreur sous-traité avec certif. décennale et PEB.",
   },
 };
 
@@ -3714,6 +3751,52 @@ function CoCl({ r, upd, updD, T2 }) {
   );
 }
 
+/* Bloc « senior » réutilisable pour les rapports : un titre + une zone
+   multi-lignes éditable. Utilisé sous RptMeas, RptInsp, RptDevis, RptProp
+   pour rendre les sections méthodologie / conditions / normes / conclusions
+   ajoutées par item 4 du backlog (rapports niveau auditeur senior). */
+function RptSeniorField({ r, upd, T2, name, label, color }) {
+  var col = color || "#00C2FF";
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+      padding:"13px 15px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:col,marginBottom:7,
+        textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</div>
+      <EF val={r[name] || ""} multi={true}
+        onSave={function(v){ upd(r.id, {[name]: v}); T2 && T2("OK"); }}
+        style={{fontSize:12,lineHeight:1.65,whiteSpace:"pre-line"}}/>
+    </div>
+  );
+}
+
+/* Bloc Auditeur senior — 3 inputs sur une ligne (Nom / Titre / Ordre) */
+function RptAuditorBlock({ r, upd, T2 }) {
+  var a = r.auditor || { nom:"", titre:"Auditeur senior", ordre:"" };
+  function setField(k, v) {
+    upd(r.id, { auditor: Object.assign({}, a, {[k]: v}) });
+    T2 && T2("OK");
+  }
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+      padding:"13px 15px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#00E5A0",marginBottom:9,
+        textTransform:"uppercase",letterSpacing:"0.06em"}}>Identification de l'auditeur</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        {[["nom","Nom + prénom"],["titre","Titre / fonction"],["ordre","N° d'ordre / certif."]].map(function(p){
+          return (
+            <div key={p[0]}>
+              <div style={{fontSize:9,color:"#607898",marginBottom:4}}>{p[1]}</div>
+              <EF val={a[p[0]] || ""}
+                onSave={function(v){ setField(p[0], v); }}
+                style={{fontSize:11,fontWeight:600,color:"#E8EDF5"}}/>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RptMeas({ r, upd, updD, T2 }) {
   return (
     <div>
@@ -3777,7 +3860,7 @@ function RptMeas({ r, upd, updD, T2 }) {
           onSave={function(v){upd(r.id,{notes:v});T2("Notes mises a jour");}}
           style={{fontSize:12,lineHeight:1.6}}/>
       </div>
-      <div style={{display:"flex",gap:12}}>
+      <div style={{display:"flex",gap:12,marginBottom:14}}>
         {[["Technicien","tech"],["Date","techDate"]].map(function(pair) {
           return (
             <div key={pair[1]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
@@ -3790,6 +3873,18 @@ function RptMeas({ r, upd, updD, T2 }) {
           );
         })}
       </div>
+
+      {/* Sections « auditeur senior » — méthodologie + conditions + normes + observations + conclusions */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodology" label="Méthodologie de mesure" color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="conditions"  label="Conditions de relevé"     color="#00E5A0"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="standards"   label="Normes de référence"      color="#FF8C42"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="tolerances"  label="Tolérances appliquées"     color="#B580FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="observations" label="Observations terrain"   color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="conclusions" label="Conclusions"             color="#00E5A0"/>
+      <RptAuditorBlock r={r} upd={upd} T2={T2}/>
     </div>
   );
 }
@@ -3901,6 +3996,29 @@ function RptDevis({ r, upd, updD, T2 }) {
           })}
         </div>
       </div>
+
+      {/* Sections « auditeur senior » — conditions paiement détaillées + pénalités + décennale + adresses séparées */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Adresse de chantier</div>
+          <EF val={r.chantierAdr || ""}
+            onSave={function(v){ upd(r.id, {chantierAdr: v}); T2("OK"); }}
+            style={{fontSize:11,color:"#E8EDF5"}}/>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Adresse de facturation</div>
+          <EF val={r.facturationAdr || ""}
+            onSave={function(v){ upd(r.id, {facturationAdr: v}); T2("OK"); }}
+            style={{fontSize:11,color:"#E8EDF5"}}/>
+        </div>
+      </div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="penalties"      label="Pénalités de retard"             color="#FF4757"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="decennalRef"    label="Garantie décennale (assurance)"  color="#00E5A0"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodPaiement" label="Modalités de paiement"           color="#00C2FF"/>
     </div>
   );
 }
@@ -3970,13 +4088,43 @@ function RptInsp({ r, upd, updD, T2 }) {
           );
         })}
       </div>
-      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"13px 15px"}}>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+        padding:"13px 15px",marginBottom:14}}>
         <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:7,
           textTransform:"uppercase"}}>Recommandations</div>
         <EF val={r.reco} multi={true}
           onSave={function(v){upd(r.id,{reco:v});T2("OK");}}
           style={{fontSize:12,lineHeight:1.7,whiteSpace:"pre-line"}}/>
       </div>
+
+      {/* Sections « auditeur senior » — risque + ré-inspection + normes */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Score de risque global</div>
+          <select value={r.riskScore || "faible"}
+            onChange={function(e){ upd(r.id, {riskScore: e.target.value}); T2("OK"); }}
+            style={{background:"#08111E",border:"1px solid #1C3050",borderRadius:6,
+              color:"#E8EDF5",fontSize:13,fontWeight:700,padding:"6px 9px",
+              outline:"none",cursor:"pointer",width:"100%"}}>
+            <option value="faible">Faible — bâtiment conforme</option>
+            <option value="modere">Modéré — points à surveiller</option>
+            <option value="eleve">Élevé — interventions nécessaires</option>
+            <option value="critique">Critique — sécurité compromise</option>
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Date prochaine ré-inspection</div>
+          <EF val={r.reinspectionDate || ""}
+            onSave={function(v){ upd(r.id, {reinspectionDate: v}); T2("OK"); }}
+            style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}/>
+        </div>
+      </div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="standards" label="Normes & DTU appliqués" color="#FF8C42"/>
+      <RptAuditorBlock r={r} upd={upd} T2={T2}/>
     </div>
   );
 }
@@ -4084,7 +4232,7 @@ function RptProp({ r, upd, updD, T2 }) {
           onSave={function(v){upd(r.id,{cgu:v});T2("OK");}}
           style={{fontSize:11,lineHeight:1.6,color:"#607898"}}/>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
         {[["Signature Client","sigCl"],["Signature MesurePro","sigPro"]].map(function(pair) {
           return (
             <div key={pair[1]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
@@ -4098,6 +4246,14 @@ function RptProp({ r, upd, updD, T2 }) {
           );
         })}
       </div>
+
+      {/* Sections « auditeur senior » — méthodologie + références + équipe */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodology" label="Méthodologie d'intervention"   color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="references"  label="Références projets similaires" color="#FF8C42"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="team"        label="Équipe affectée"               color="#00E5A0"/>
     </div>
   );
 }
