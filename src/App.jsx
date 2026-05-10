@@ -3833,6 +3833,80 @@ function RptProp({ r, upd, updD, T2 }) {
 }
 
 /* ---- Modal ---- */
+/* ---- AsyncAutoComplete: debounced async search dropdown
+   For Photon-based address/city searches. Debounces user keystrokes,
+   shows a loading dot while the request is in flight, picks reset
+   the input + close. */
+function AsyncAutoComplete({ value, onChange, onPick, fetchOptions, getLabel, getKey, placeholder, debounceMs, minChars }) {
+  var [items, setItems]   = useState([]);
+  var [open, setOpen]     = useState(false);
+  var [loading, setLoad]  = useState(false);
+  var [version, setVer]   = useState(0);
+  var timer = useRef(null);
+  var reqVersion = useRef(0);
+
+  useEffect(function() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    var v = (value || "").trim();
+    var min = minChars || 3;
+    if (v.length < min) {
+      setItems([]); setLoad(false);
+      return;
+    }
+    setLoad(true);
+    var thisVer = version + 1;
+    setVer(thisVer);
+    reqVersion.current = thisVer;
+    timer.current = setTimeout(function() {
+      fetchOptions(v).then(function(arr) {
+        if (reqVersion.current !== thisVer) return; /* stale */
+        setItems(arr || []);
+        setLoad(false);
+      }).catch(function(){ setLoad(false); setItems([]); });
+    }, debounceMs || 320);
+    return function() { if (timer.current) clearTimeout(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return (
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={function(e){ onChange(e.target.value); setOpen(true); }}
+        onFocus={function(){ setOpen(true); }}
+        onBlur={function(){ setTimeout(function(){ setOpen(false); }, 180); }}
+        placeholder={placeholder}
+        style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+          border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+          fontSize:13,padding:"9px 12px",paddingRight: loading ? 30 : 12,outline:"none"}}/>
+      {loading && (
+        <div style={{position:"absolute",right:10,top:11,fontSize:11,
+          color:"#00C2FF",animation:"none",fontWeight:700}}>⏳</div>
+      )}
+      {open && items.length > 0 && (
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,
+          background:"#0F1C2E",border:"1px solid #00C2FF",borderRadius:7,marginTop:3,
+          maxHeight:260,overflowY:"auto",
+          boxShadow:"0 6px 22px rgba(0,0,0,0.55)"}}>
+          {items.map(function(o, i) {
+            return (
+              <button key={getKey ? getKey(o) : i} type="button"
+                onMouseDown={function(e){ e.preventDefault(); onPick(o); setOpen(false); }}
+                style={{display:"block",width:"100%",padding:"8px 12px",
+                  background:"transparent",border:"none",textAlign:"left",
+                  color:"#E8EDF5",fontSize:12,cursor:"pointer",outline:"none",
+                  borderBottom: i < items.length - 1 ? "1px solid #1C3050" : "none",
+                  lineHeight:1.4}}
+                onMouseEnter={function(e){ e.currentTarget.style.background = "rgba(0,194,255,0.13)"; }}
+                onMouseLeave={function(e){ e.currentTarget.style.background = "transparent"; }}>
+                {getLabel(o)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---- AutoComplete: simple inline dropdown (light, no external dep) ---- */
 function AutoComplete({ value, onChange, onPick, getLabel, options, placeholder, max }) {
   var [open, setOpen] = useState(false);
@@ -4021,13 +4095,26 @@ function Modal({ onClose, onCreate }) {
               </div>
             )}
 
-            {/* Address */}
+            {/* Address: async autocomplete via Photon (covers all BE
+                streets + sub-municipalities). Picking a result fills
+                rue / num / cp / ville in one shot. */}
             <div style={{display:"grid",gridTemplateColumns:"3fr 1fr",gap:8,marginBottom:9}}>
               <div>
                 <div style={labelStyle}>Adresse (rue) *</div>
-                <input value={rue} onChange={function(e){setRue(e.target.value);}}
-                  placeholder="Boulevard Haussmann"
-                  style={inputStyle}/>
+                <AsyncAutoComplete
+                  value={rue}
+                  onChange={setRue}
+                  onPick={function(o){
+                    setRue(o.street || "");
+                    if (o.num) setNum(o.num);
+                    if (o.postcode) setCp(o.postcode);
+                    if (o.city) setCity(o.city);
+                  }}
+                  fetchOptions={searchAddressBE}
+                  getLabel={function(o){ return o.display; }}
+                  getKey={function(o){ return o.display; }}
+                  placeholder="Boulevard Haussmann (toute adresse Belgique)"
+                  minChars={3}/>
               </div>
               <div>
                 <div style={labelStyle}>N° *</div>
@@ -4050,15 +4137,19 @@ function Modal({ onClose, onCreate }) {
                   max={10}/>
               </div>
               <div>
-                <div style={labelStyle}>Ville *</div>
-                <AutoComplete
+                <div style={labelStyle}>Ville (incl. sous-communes) *</div>
+                <AsyncAutoComplete
                   value={city}
                   onChange={setCity}
-                  onPick={pickPostalByCity}
-                  getLabel={function(o){ return o[1]; }}
-                  options={bePostal}
-                  placeholder="Bruxelles"
-                  max={10}/>
+                  onPick={function(o){
+                    setCity(o.city);
+                    if (o.postcode) setCp(o.postcode);
+                  }}
+                  fetchOptions={searchCityBE}
+                  getLabel={function(o){ return o.display; }}
+                  getKey={function(o){ return o.city + ":" + o.postcode; }}
+                  placeholder="Bruxelles, Templeuve, Schaerbeek..."
+                  minChars={2}/>
               </div>
             </div>
 
@@ -4371,6 +4462,68 @@ function reverseGeocode(lat, lng) {
   return fetch(url, { headers: { "Accept-Language": "fr" } })
     .then(function(r){ return r.ok ? r.json() : null; })
     .catch(function(){ return null; });
+}
+
+/* Belgium bbox = west,south,east,north. Used to restrict autocomplete
+   results to Belgian addresses (incl. all sub-municipalities). */
+var BE_BBOX = "2.5,49.4,6.5,51.6";
+
+/* Live address search via Photon (Komoot's open OSM-backed
+   autocomplete service - faster than Nominatim for as-you-type). */
+function searchAddressBE(query) {
+  var q = (query || "").trim();
+  if (q.length < 3) return Promise.resolve([]);
+  var url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(q)
+    + "&lang=fr&limit=8&bbox=" + BE_BBOX;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.features) return [];
+      return j.features
+        .filter(function(f){ return f.properties && f.properties.countrycode === "BE"; })
+        .map(function(f){
+          var p = f.properties;
+          var name = p.name || p.street || "";
+          var city = p.city || p.district || p.locality || p.county || "";
+          var pc   = p.postcode || "";
+          /* "type" can be street, house, locality, region... */
+          var disp = name;
+          if (p.housenumber) disp += " " + p.housenumber;
+          if (pc || city) disp += "  ·  " + (pc ? pc + " " : "") + city;
+          return {
+            street: name, num: p.housenumber || "",
+            city: city, postcode: pc, type: p.type || "",
+            display: disp,
+          };
+        });
+    })
+    .catch(function(){ return []; });
+}
+
+/* Live place search (cities + sub-municipalities + hamlets) for the
+   "Ville" field. Filters on osm_tag=place (excludes streets/POIs). */
+function searchCityBE(query) {
+  var q = (query || "").trim();
+  if (q.length < 2) return Promise.resolve([]);
+  var url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(q)
+    + "&lang=fr&limit=10&osm_tag=place&bbox=" + BE_BBOX;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.features) return [];
+      return j.features
+        .filter(function(f){ return f.properties && f.properties.countrycode === "BE"; })
+        .map(function(f){
+          var p = f.properties;
+          var name = p.name || "";
+          var pc = p.postcode || "";
+          var state = p.state || "";
+          var disp = name + (pc ? "  ·  " + pc : "") + (state ? "  ·  " + state : "");
+          return { city: name, postcode: pc, state: state, display: disp };
+        })
+        .filter(function(o){ return o.city; });
+    })
+    .catch(function(){ return []; });
 }
 
 function loadStored(key, fallback) {
