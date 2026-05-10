@@ -1,7 +1,7 @@
 # MesurePro — Contexte Claude Code
 
-> **Dernière mise à jour : 10 mai 2026 — fin session 1**
-> **Repo :** https://github.com/Geniuspro71/mesurepro (privé)
+> **Dernière mise à jour : 10 mai 2026 — fin session 2**
+> **Repo :** https://github.com/Geniuspro71/mesurepro (privé) — 27 commits sur `main`
 > **Dev local :** http://127.0.0.1:3000 via `npm run dev` (port 3000)
 
 ---
@@ -95,6 +95,14 @@ mesurepro/
 - `reverseGeocode(lat, lng)` (Nominatim OSM)
 - `searchAddressBE(q)` + `searchCityBE(q)` (Photon Komoot)
 
+### BLE Laser drivers (NEW session 2)
+- `BLE_DRIVERS` array — registre extensible. Chaque driver : `id`, `label`, `namePattern` (regex), `services[]`, `distanceCharacteristic`, `parse(dataView)→meters|null`.
+  - `leica` : Leica DISTO X3/X4/D2 — service `3ab10100-…`, characteristic `3ab10101-…`, parser float32 little-endian (mètres).
+  - `bosch` : Bosch GLM 50C/100C — Nordic UART service `6e400001-…`, characteristic notif `6e400003-…`, parser ASCII regex (avec heuristique mm→m si > 200 sans virgule).
+- `connectBleLaser(onMeasurement, onStatus)` — async helper top-level (pas un hook). `requestDevice` avec filtres `namePrefix` Leica/DISTO/Bosch/GLM, sélection driver par regex sur device.name, GATT subscribe sur la characteristic. Retourne `{device, driver, disconnect}` ou `null`.
+- Intégré dans `Modal` step 1 (façades) et `TabMeas` (project detail).
+- Pattern : `activeFieldRef = useRef(activeField)` mis à jour par `useEffect` pour que le callback BLE lise toujours la valeur courante (anti-stale closure).
+
 ### Composants 3D (R3F)
 - `drawBrickTex/Bump`, `drawWoodTex/Bump`, etc. — fallback Canvas2D si Polyhaven cassé
 - `useMatTexture(matId, photoUrl, repeat)` → `{map, bumpMap}` THREE.Texture
@@ -162,7 +170,7 @@ mesurepro/
 - Création nouveau rapport vide (modale type) + suppression
 - Export PDF par rapport
 
-### Intake (modal `+ Nouveau projet`)
+### Intake (modal `+ Nouveau projet`) — **4 étapes (session 2)**
 - **Étape 1 (Identification)** : champs séparés rue + N° + CP + Ville
 - Civilité paramétrable (`Settings → Civilités`) avec personne (M./Mme/...) vs entité (Société/SCI/ASBL)
 - Bouton **📍 Géolocaliser** → Nominatim reverse → remplit tout
@@ -170,6 +178,16 @@ mesurepro/
 - **Ville** : `AsyncAutoComplete` Photon → toutes villes + sous-communes (Templeuve, Lillo, Anderlues...)
 - **CP** : `AutoComplete` local (offline-friendly, 2781 entrées GeoNames)
 - Validation stricte (regex `^\d{4}$` pour CP)
+- **Étape 2 (Remplir)** — NEW : 4 onglets façade (Sud/Est/Nord/Ouest) + champs longueur, hauteur, fenêtres, portes par façade. Récap visuel temps réel + surfaces auto. Bouton 📡 BLE laser pour saisie auto. Au moins 1 façade complète requise.
+- **Étape 3 (Photos)** : (anciennement étape 2) drag-drop + Object URL.
+- **Étape 4 (Lancement)** : récap complet + totaux mesures auto-calculés (`perim`, `walls`, `foot`, `roof`, `h`, `win`, `doors`).
+- À la création : `addProject` reçoit `{meas, rooms, facades}` → projet pré-rempli avec ses 4 façades comme rooms + meas globaux + area/floors dérivés.
+
+### Mesures (TabMeas) — laser intégré (session 2)
+- Barre BLE Laser en haut : status + bouton « Connecter » (devient « Déconnecter » + nom device une fois connecté).
+- Sur les 7 cards principales et les 4 cellules de chaque ligne facade : `onFocus` → `setActiveMeasField(key)`. Le champ focus a un border vert-cyan (#00E5A0).
+- À chaque trame BLE reçue : la valeur (mètres) est écrite dans le champ focus. Format : `(field === "win" || "doors") ? Math.round : toFixed(2)`.
+- Cleanup auto : disconnect sur unmount du composant.
 
 ### Settings
 - Profil utilisateur éditable + persisté
@@ -182,11 +200,8 @@ mesurepro/
 ## ⏳ À faire (prochaine session)
 
 ### URGENT — reprise immédiate
-1. **Étape 2 du modal intake** : la phrase user était tronquée — *« apres l'etape 2 ne sera pas photo mais remplir »*. Probable : remplir les **mesures** (façade par façade ?). À clarifier avec lui avant de coder.
-2. **Bluetooth laser mètre** : Web Bluetooth API pour Leica DISTO / Bosch GLM / Stanley TLM. Gros chantier (~500 lignes) :
-   - `navigator.bluetooth.requestDevice()` avec filtres UUID
-   - Parser trames BLE selon modèle (Leica DISTO X3/D2 vs Bosch GLM 50C, etc.)
-   - Bouton « Connecter laser » dans TabMeas → écrit auto les mesures reçues
+1. **Test physique du laser** : le code BLE est écrit (Leica DISTO + Bosch GLM) mais jamais validé avec un vrai appareil. Quand un laser est dispo : vérifier que les UUIDs match, que le parser décode correctement, ajuster si besoin.
+2. **Stanley TLM driver** : ajouter une 3ᵉ entrée dans `BLE_DRIVERS` quand on a les specs UUIDs.
 
 ### Backlog
 - Theme clair (CSS variables refactor)

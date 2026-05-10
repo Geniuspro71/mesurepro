@@ -1,8 +1,8 @@
-# MesurePro — HANDOFF session 1 → session 2
+# MesurePro — HANDOFF session 1 → 2 → 3
 
-> **Date :** 10 mai 2026
+> **Date :** 10 mai 2026 (session 2 livrée)
 > **Repo :** https://github.com/Geniuspro71/mesurepro
-> **Branch :** `main` (à jour, 24 commits)
+> **Branch :** `main` (à jour, **27 commits**, push OK)
 > **Dev local :** Vite tourne sur http://127.0.0.1:3000 (PID variable, à relancer si tué)
 
 ---
@@ -66,42 +66,68 @@ Partis d'un POC sandbox Claude.ai (1793 lignes, full SVG iso, plein de bugs). Ar
 
 ---
 
+## 🎬 Session 2 — livrée (10 mai 2026, suite)
+
+Hypothèse confirmée par le user (`ok vas-y totalement`). 2 nouveaux commits sur `main`, push OK.
+
+### Commit A — `509fae9` — feat(intake): step 2 "Remplir"
+- Modal refactoré 3 → **4 étapes** : Identification → **Remplir** → Photos → Lancement
+- 4 onglets façade (Sud/Est/Nord/Ouest) avec badge ✓ quand remplie
+- Champs par façade : longueur, hauteur, fenêtres, portes
+- Récap visuel temps réel des 4 façades + surface auto (L × H)
+- Calcul auto des totaux pour `meas` global :
+  - `perim` = Σ longueurs façades
+  - `walls` = Σ surfaces façades (L × H)
+  - `foot` = (moy Sud/Nord) × (moy Est/Ouest) — rectangle approx
+  - `roof` = `foot × 1.15` (pente estimée)
+  - `h` = max hauteur, `win` + `doors` = sommes
+- `addProject` étendu : `meas` pré-rempli, `rooms[]` pré-peuplé (1 entrée / façade), `facades` brut conservé, `area` + `floors` dérivés
+- Modal width 560 → 600 pour 4 stepper labels
+- 📡 bouton « Connecter laser » placeholder en attendant commit B
+
+### Commit B — `0e58d15` — feat(intake+meas): real BLE laser drivers
+- Module top-level `BLE_DRIVERS` extensible :
+  - **Leica DISTO** (X3/X4/D2) — service `3ab10100-…`, parser float32 LE
+  - **Bosch GLM** (50C/100C) — Nordic UART `6e400001-…`, parser ASCII regex
+- Helper partagé `connectBleLaser(onMeasurement, onStatus)` : `requestDevice` + match driver par regex name + GATT subscribe + `{device, driver, disconnect}`
+- **Modal étape 1** : driver réel branché, écrit dans le champ focus (`activeFieldRef` pour éviter staleness React)
+- **TabMeas** : nouvelle barre BLE en haut (status + bouton), `activeMeasField` tracking sur 7 fields + 4 cellules room (n/a/l/h) avec border highlight #00E5A0
+- Cleanup auto : disconnect sur unmount (Modal + TabMeas)
+- Bouton bascule connect/disconnect avec affichage device name
+- Fallback gracieux Safari (`navigator.bluetooth` absent)
+
+### Pourquoi ces choix
+- **Modal width 600** : 4 labels de stepper (Identification / Remplir / Photos / Lancement) au lieu de 3 — 560 px commençait à serrer.
+- **`activeFieldRef` (useRef)** : la callback BLE survit aux re-renders ; sans ref, la valeur de `activeField` capturée à la connexion devient stale.
+- **Approximation rectangle pour `foot`** : la plupart des bâtiments visés sont des parallélépipèdes ; emprise = (moy Sud/Nord) × (moy Est/Ouest) marche pour ~80 % des cas. Affinement possible plus tard.
+- **`win`/`doors` reçoivent aussi le laser** : pas idéal sémantiquement (compteur != distance) mais évite les surprises (« pourquoi rien ne s'écrit ? »). Affichage `Math.round(meters)` comme dégradé.
+
+### Pas vérifié visuellement (limite environnement)
+- Claude Preview MCP a renvoyé `EPERM uv_cwd` (sandbox bloque le spawn shell hors worktree)
+- Pas de Chrome MCP connecté
+- **Vérification déléguée au user** : Vite tourne déjà (PID 59947 sur :3000), HMR a injecté les modifs (curl → 9 hits sur les nouveaux symboles BLE)
+- Smoke test Babel parser : ✅ PASS (5156 lignes)
+
+---
+
 ## ⏳ Tâches en attente (par ordre de priorité)
 
-### 1. Étape 2 du modal intake — **CLARIFICATION USER REQUISE**
+### 1. Test physique du laser (besoin matériel)
+Le code BLE est écrit mais **jamais testé avec un vrai laser** :
+- Acheter / emprunter un Leica DISTO X3 ou un Bosch GLM 50C
+- Vérifier que les UUIDs Leica `3ab10100-…` correspondent au modèle exact (peuvent varier X3 vs D2)
+- Pour Bosch, le format ASCII réel doit être confirmé — peut-être trame binaire selon firmware
+- Si UUIDs faux : ajouter un mode "appairage manuel" (lister tous les services dispo après connect)
 
-Le user a écrit : *« apres l'etape 2 ne sera pas photo mais remplir »* — message **tronqué** avant qu'il termine.
+### 2. Stanley TLM driver
+Le briefing original mentionnait Stanley TLM en plus de Leica/Bosch. UUIDs à investiguer (la doc Bluetooth de Stanley est moins publique). Ajouter une 3ᵉ entrée dans `BLE_DRIVERS` quand on a les specs.
 
-**Hypothèse forte** : étape 2 = saisir les **mesures** elles-mêmes en parcours guidé (façade par façade), avec :
-- Connexion **Bluetooth laser** comme alternative au clavier
-- Validation par étape
-
-**À demander au user dès le démarrage de la prochaine session** :
-- Étape 2 = quoi exactement ? Mesures façade par façade ? Saisie globale ? Autre ?
-- Photos = devient étape 3 ou disparaît ?
-
-### 2. Bluetooth laser mètre (gros chantier ~500 lignes)
-
-User veut connecter des lasers du marché : **Leica DISTO** (X3, X4, D2…), **Bosch GLM** (50C, 100C…), **Stanley TLM**.
-
-**Plan technique** :
-- Web Bluetooth API : `navigator.bluetooth.requestDevice({filters: [...]})`
-- Drivers BLE par modèle (UUIDs services/characteristics) :
-  - Leica DISTO : service `3AB10100-F831-4395-B29D-570977D5BF94`
-  - Bosch GLM : custom UART
-  - Format trame : meters/feet, signe, type (distance/angle/area)
-- Bouton « Connecter laser » dans `TabMeas` → state `connectedDevice` + listener `characteristicvaluechanged`
-- Mesure reçue → champ actif rempli auto + son confirmation
-- Sécurité : Web Bluetooth nécessite HTTPS en prod (OK en dev `http://localhost`)
-
-**Compatibilité browser** : Chrome/Edge OK, Safari NO, Firefox flag-only. Documenter cette limite.
-
-### 3. Backlog
+### 3. Backlog (de session 1)
 - Photos haussmanniennes plus ressemblantes (Unsplash gratuit limité)
 - Theme clair (refactor CSS vars)
 - xlsx réel (au lieu de CSV)
 - PWA (service worker offline-first)
-- Backend API
+- Backend API (remplacer localStorage)
 - Tests E2E
 
 ---
@@ -124,7 +150,7 @@ npm run dev
 # → http://127.0.0.1:3000
 ```
 
-**Première chose à demander au user** : « Pour l'étape 2 (qui devait s'appeler "remplir" et pas "Photos"), tu veux quoi exactement ? Saisir les mesures façade par façade ? Avec connexion laser Bluetooth ? »
+**Première chose à demander au user en session 3** : « Tu as testé le laser physique avec un Leica DISTO ou un Bosch GLM ? Les UUIDs / formats marchent ou il faut ajuster ? »
 
 ---
 
@@ -158,9 +184,9 @@ try {
 
 ## 📊 Stats
 
-- **Lignes** : 4679 (App.jsx) + 100 KB JSON + 9.7 MB assets
-- **Commits** : 24
-- **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three)
+- **Lignes** : 5156 (App.jsx, +477 vs session 1) + 100 KB JSON + 9.7 MB assets
+- **Commits** : 27 (+3 docs, +2 features cette session)
+- **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three) — pas de nouvelle dépendance pour le BLE (API browser native)
 - **Bundle dev served** : Vite + HMR + ~10 MB textures/photos lazy-loaded
 
-Bon dev en session 2 ! 🚀
+Bon dev en session 3 ! 🚀
