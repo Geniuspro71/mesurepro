@@ -1114,11 +1114,12 @@ function makeCanvas(W, H, drawer) {
 
 var TEX_RES = 1024;
 
-/* ---- High-quality PBR textures from Polyhaven (CC0, free)
-   Loaded over CDN. Each material has a diffuse map + a displacement
-   map (used as bumpMap for relief without geometry cost).
-   Falls back to the Canvas2D drawers if the network load fails. */
-var POLYHAVEN_BASE = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/";
+/* ---- High-quality PBR textures (CC0, sourced from Polyhaven)
+   Bundled in /public/textures/ for zero-latency, CORS-clean loading.
+   Each material has a diffuse map + a displacement map (used as
+   bumpMap for relief without geometry cost). Falls back to the
+   Canvas2D drawers if the bundled file is missing. */
+var POLYHAVEN_BASE = "/textures/";
 var POLYHAVEN_SLUGS = {
   brick: "red_brick_03",
   wood:  "wood_planks",
@@ -1129,7 +1130,7 @@ var POLYHAVEN_SLUGS = {
 };
 
 function polyhavenUrl(slug, kind) {
-  return POLYHAVEN_BASE + slug + "/" + slug + "_" + kind + "_1k.jpg";
+  return POLYHAVEN_BASE + slug + "_" + kind + ".jpg";
 }
 
 /* Build a Three.js Texture for a given material:
@@ -1515,18 +1516,18 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
           <color attach="background" args={["#dce3ec"]}/>
           <fog attach="fog" args={["#dce3ec", camDist*1.7, camDist*4.5]}/>
 
-          <ambientLight intensity={0.45}/>
+          <ambientLight intensity={0.55}/>
           <hemisphereLight args={["#dce3ec", "#a8a594", 0.45]}/>
           <directionalLight
             position={[realW*1.4, realH*2.6, realD*1.5]}
-            intensity={1.15}
+            intensity={1.05}
             castShadow
-            shadow-mapSize={[2048, 2048]}
+            shadow-mapSize={[1024, 1024]}
             shadow-camera-near={0.5}
-            shadow-camera-far={camDist * 6}
-            shadow-camera-left={-realW*2}
-            shadow-camera-right={realW*2}
-            shadow-camera-top={realH*3}
+            shadow-camera-far={camDist * 4}
+            shadow-camera-left={-realW*1.8}
+            shadow-camera-right={realW*1.8}
+            shadow-camera-top={realH*2.5}
             shadow-camera-bottom={-realH/2}
             shadow-bias={-0.0008}
           />
@@ -1536,24 +1537,27 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
             fl={fl} mat={mat} roofType={roof}
           />
 
-          {/* HDR environment for realistic reflections on glass + metal,
-              and ambient lighting that follows real sky tones */}
-          <Environment preset="park" background={false}/>
+          {/* HDR environment for realistic reflections on glass + metal.
+              "park" preset is heaviest, "apartment" is lighter and gives
+              warmer indoor-light feel suited to architectural viz. */}
+          <Environment preset="apartment" background={false}/>
 
-          {/* Soft contact shadow under the building (separate from the
-              directional shadow map, kicks in close to the ground) */}
+          {/* Soft contact shadow under the building. resolution 512
+              keeps it cheap (the directional shadow map already does the
+              heavy lifting). */}
           <ContactShadows
             position={[0, 0.001, 0]}
-            opacity={0.55}
-            scale={Math.max(realW, realD) * 4}
-            blur={2.4}
-            far={realH * 1.2}
-            resolution={1024}
+            opacity={0.45}
+            scale={Math.max(realW, realD) * 3.5}
+            blur={1.6}
+            far={realH * 1.1}
+            resolution={512}
+            frames={1}
           />
 
           {/* Ground plane */}
           <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
-            <circleGeometry args={[Math.max(realW, realD) * 4, 64]}/>
+            <circleGeometry args={[Math.max(realW, realD) * 4, 48]}/>
             <meshStandardMaterial color="#a8a594" roughness={0.95}/>
           </mesh>
 
@@ -4009,10 +4013,25 @@ function saveStored(key, value) {
    up automatically on next reload without wiping user data. */
 function mergeWithDefaults(stored, defaults) {
   if (!stored || !Array.isArray(stored)) return defaults;
+  var defMap = {};
+  defaults.forEach(function(d){ if (d && d.id != null) defMap[String(d.id)] = d; });
+  /* For known demo entries, force-refresh the `photos` field from defaults
+     so iterations to the bundled demo content (e.g. swapping inline-SVG
+     placeholders for real Unsplash URLs) reach the user without wiping
+     their other edits to the same project. User-created entries
+     (id not in defMap) are left untouched. */
+  var merged = stored.map(function(s){
+    var d = defMap[String(s.id)];
+    if (!d) return s;
+    var refreshed = Object.assign({}, s);
+    if (Array.isArray(d.photos)) refreshed.photos = d.photos;
+    return refreshed;
+  });
+  /* Add any default that is not yet present */
   var ids = {};
-  stored.forEach(function(x){ if (x && x.id != null) ids[String(x.id)] = true; });
+  merged.forEach(function(x){ if (x && x.id != null) ids[String(x.id)] = true; });
   var missing = defaults.filter(function(d){ return d && d.id != null && !ids[String(d.id)]; });
-  return missing.length === 0 ? stored : stored.concat(missing);
+  return missing.length === 0 ? merged : merged.concat(missing);
 }
 
 /* ---- App root ---- */
