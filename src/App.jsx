@@ -338,6 +338,17 @@ function exportCsv(rows, filename) {
 function exportProjectPdf(project) {
   var doc = new jsPDF();
   var m = project.meas || {};
+  /* Métadonnées PDF — rendent le document indexable par Spotlight, Windows
+     Search, Google Drive, etc. + apparaissent dans Aperçu / Acrobat.
+     Le contenu lui-même est du vrai texte (pas une image rasterisée), donc
+     déjà OCR-équivalent et copy-pasteable. */
+  doc.setProperties({
+    title:    "MesurePro — Rapport de mesures — " + (project.addr || ""),
+    subject:  "Rapport de mesures, plans d'élévation et synthèse projet",
+    author:   "MesurePro",
+    keywords: ["mesure","façade","plan","devis","BLE laser",project.city||"",project.client||""].filter(function(s){return s;}).join(", "),
+    creator:  "MesurePro v2.7",
+  });
   doc.setFontSize(18); doc.setTextColor(0); doc.text("MesurePro - Rapport mesures", 14, 18);
   doc.setFontSize(10); doc.setTextColor(100);
   doc.text(project.addr || "", 14, 26);
@@ -392,6 +403,115 @@ function exportProjectCsv(project) {
 }
 
 function exportProjectXlsx(project) { exportProjectCsv(project); }
+
+/* Export DXF — 4 élévations + fenêtres + portes au format DXF AC1009
+   (R12, le plus compatible : AutoCAD, LibreCAD, FreeCAD, QCAD,
+   ARES Commander, BricsCAD…). Texte pur, taille minuscule, ouvre les
+   plans dans n'importe quel logiciel CAO. Unités = mètres. */
+function exportProjectDxf(project) {
+  var rooms = project.rooms || [];
+  var meas  = project.meas || {};
+  var hMax  = parseFloat(meas.h) || 6;
+  var fl    = Math.max(1, parseInt(project.floors) || 2);
+
+  function find(needle) {
+    return rooms.find(function(x){
+      return x && x.t !== "r" && (x.n||"").toLowerCase().indexOf(needle) !== -1;
+    });
+  }
+  function num(s, fb) {
+    var v = parseFloat(s);
+    return isFinite(v) && v > 0 ? v : fb;
+  }
+  var rSud = find("sud"), rEst = find("est"), rNord = find("nord"), rOuest = find("ouest");
+  var sides = [
+    { id:"sud",   label:"FACADE SUD",   l: num(rSud   && rSud.l,   10), h: num(rSud   && rSud.h,   hMax) },
+    { id:"est",   label:"FACADE EST",   l: num(rEst   && rEst.l,    8), h: num(rEst   && rEst.h,   hMax) },
+    { id:"nord",  label:"FACADE NORD",  l: num(rNord  && rNord.l,  10), h: num(rNord  && rNord.h,  hMax) },
+    { id:"ouest", label:"FACADE OUEST", l: num(rOuest && rOuest.l,  8), h: num(rOuest && rOuest.h, hMax) },
+  ];
+
+  var lines = [];
+  function emit() {
+    for (var i = 0; i < arguments.length; i++) lines.push(String(arguments[i]));
+  }
+  function line(layer, x1, y1, x2, y2) {
+    emit(0,"LINE", 8,layer, 10,x1.toFixed(3), 20,y1.toFixed(3), 11,x2.toFixed(3), 21,y2.toFixed(3));
+  }
+  function rect(layer, x, y, w, h) {
+    line(layer, x,   y,   x+w, y);
+    line(layer, x+w, y,   x+w, y+h);
+    line(layer, x+w, y+h, x,   y+h);
+    line(layer, x,   y+h, x,   y);
+  }
+  function text(layer, x, y, height, content) {
+    /* DXF group code 1 = text content. AC1009 supports basic ASCII. */
+    emit(0,"TEXT", 8,layer, 10,x.toFixed(3), 20,y.toFixed(3), 40,height.toFixed(3), 1,String(content));
+  }
+
+  /* Header — version + units (6 = meters) */
+  emit(0,"SECTION", 2,"HEADER",
+       9,"$ACADVER", 1,"AC1009",
+       9,"$INSUNITS", 70, 6,
+       0,"ENDSEC");
+
+  /* Layer table — 4 calques colorés (AutoCAD index colors) */
+  emit(0,"SECTION", 2,"TABLES", 0,"TABLE", 2,"LAYER", 70, 5,
+       0,"LAYER", 2,"0",          70, 0, 62, 7, 6,"CONTINUOUS",
+       0,"LAYER", 2,"WALLS",      70, 0, 62, 7, 6,"CONTINUOUS",
+       0,"LAYER", 2,"WINDOWS",    70, 0, 62, 5, 6,"CONTINUOUS",
+       0,"LAYER", 2,"DOORS",      70, 0, 62, 1, 6,"CONTINUOUS",
+       0,"LAYER", 2,"DIMENSIONS", 70, 0, 62, 3, 6,"CONTINUOUS",
+       0,"ENDTAB", 0,"ENDSEC");
+
+  /* Entities — 4 élévations placées côte à côte avec un écart de 5 m */
+  emit(0,"SECTION", 2,"ENTITIES");
+  var spacing = 5;
+  var xOff = 0;
+  sides.forEach(function(s){
+    /* Mur */
+    rect("WALLS", xOff, 0, s.l, s.h);
+    /* Toit pignon : 2 lignes obliques */
+    line("WALLS", xOff,         s.h, xOff + s.l/2, s.h + s.h * 0.4);
+    line("WALLS", xOff + s.l/2, s.h + s.h * 0.4, xOff + s.l, s.h);
+    /* Fenêtres : grille cols × fl */
+    var cols = 4;
+    var winW = s.l * 0.13;
+    var winH = (s.h / fl) * 0.55;
+    var pad  = (s.l - winW * cols) / (cols + 1);
+    for (var f = 0; f < fl; f++) {
+      var winY = (s.h / fl) * f + ((s.h / fl) - winH) / 2;
+      for (var c = 0; c < cols; c++) {
+        if (s.id === "sud" && f === 0 && c === Math.floor(cols/2)) continue;  /* place pour la porte */
+        var winX = xOff + pad + c * (winW + pad);
+        rect("WINDOWS", winX, winY, winW, winH);
+      }
+    }
+    /* Porte (façade Sud uniquement) */
+    if (s.id === "sud") {
+      var dC = Math.floor(cols/2);
+      var dW = winW * 1.1;
+      var dH = (s.h / fl) * 0.78;
+      var dX = xOff + pad + dC * (winW + pad) + (winW - dW) / 2;
+      rect("DOORS", dX, 0, dW, dH);
+    }
+    /* Titre + cote */
+    text("DIMENSIONS", xOff + s.l / 2 - s.l * 0.18, -0.7, 0.35, s.label);
+    text("DIMENSIONS", xOff + s.l / 2 - s.l * 0.20, -1.4, 0.25,
+         s.l.toFixed(2) + " m x " + s.h.toFixed(2) + " m");
+    /* Cote au sol — ligne + flèches simples */
+    line("DIMENSIONS", xOff,       -0.3, xOff + s.l, -0.3);
+    line("DIMENSIONS", xOff,       -0.4, xOff,        0);
+    line("DIMENSIONS", xOff + s.l, -0.4, xOff + s.l,  0);
+    xOff += s.l + spacing;
+  });
+  emit(0,"ENDSEC", 0,"EOF");
+
+  var content = lines.join("\n") + "\n";
+  var blob = new Blob([content], { type: "application/dxf" });
+  var fname = "mesurepro-" + slug(project.addr) + "-elevations.dxf";
+  downloadBlob(blob, fname);
+}
 
 function exportReportPdf(r) {
   var doc = new jsPDF();
@@ -2544,10 +2664,16 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
             setToast("Projet marque comme termine");
           }}>Terminer</Btn>
         )}
-        <Btn sm={true} onClick={function(){setEditOpen(true);}}>Modifier</Btn>
-        <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF telecharge");}}>PDF</Btn>
-        <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel telecharge");}}>Excel</Btn>
+        <Btn sm={true} onClick={function(){setEditOpen(true);}}
+          title="Modifier l'adresse, la ville, le client ou le statut du projet">Modifier</Btn>
+        <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF téléchargé");}}
+          title="Télécharger le rapport au format PDF (texte indexable, métadonnées renseignées)">PDF</Btn>
+        <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel téléchargé");}}
+          title="Télécharger les mesures au format CSV (compatible Excel, Numbers, Google Sheets)">Excel</Btn>
+        <Btn sm={true} onClick={function(){exportProjectDxf(project); setToast("DXF téléchargé");}}
+          title="Exporter les 4 plans d'élévation au format DXF (AutoCAD, LibreCAD, FreeCAD…) en mètres">DXF</Btn>
         <Btn sm={true} onClick={handleDelete}
+          title="Supprimer définitivement ce projet (action irréversible)"
           style={{background:"#3a0f12",border:"1px solid #FF4757",color:"#FF4757"}}>Supprimer</Btn>
       </div>
       <div data-noprint="1" style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
