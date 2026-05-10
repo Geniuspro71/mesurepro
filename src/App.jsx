@@ -1637,22 +1637,28 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
   /* Real dimensions in meters depending on which facade we draw.
      Fallbacks neutres (pas les valeurs du projet démo Haussmann). */
   var realFoot = parseFloat(meas.foot) || 80;
-  var realH    = parseFloat(meas.h)    || 6;
   var ratio = 1.6;
   var dimW = Math.sqrt(realFoot * ratio); /* facade width Sud/Nord */
   var dimD = Math.sqrt(realFoot / ratio); /* facade width Est/Ouest */
-  /* Override with the actual rooms.l value when available */
+  /* Override with the actual rooms.l + rooms.h values when available */
   function parseM(s) {
     if (s == null) return null;
     var v = parseFloat(String(s).replace(/[^\d.,-]/g,"").replace(",","."));
     return isFinite(v) && v > 0 ? v : null;
   }
-  function findFacadeLen(needle) {
-    var r = (project.rooms||[]).find(function(x){
+  function findFacadeRoom(needle) {
+    return (project.rooms||[]).find(function(x){
       if (!x || x.t === "r") return false;
       return (x.n||"").toLowerCase().indexOf(needle) !== -1;
-    });
+    }) || null;
+  }
+  function findFacadeLen(needle) {
+    var r = findFacadeRoom(needle);
     return r ? parseM(r.l) : null;
+  }
+  function findFacadeHeight(needle) {
+    var r = findFacadeRoom(needle);
+    return r ? parseM(r.h) : null;
   }
   var realW;
   if (facadeId === "sud" || facadeId === "nord") {
@@ -1660,6 +1666,10 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
   } else {
     realW = findFacadeLen(facadeId) || findFacadeLen(facadeId === "est" ? "ouest" : "est") || dimD;
   }
+  /* Hauteur SPÉCIFIQUE à cette façade si saisie (rooms[].h) — sinon hauteur
+     globale du projet (meas.h). Permet de modéliser un bâtiment où une
+     façade est plus basse (ex. extension 1 niveau collée à un corps 2 niveaux). */
+  var realH = findFacadeHeight(facadeId) || parseFloat(meas.h) || 6;
 
   /* Layout: viewBox 800x600, building drawn 100/520 horizontally, 90/470 vertically. */
   var VB_W = 800, VB_H = 600;
@@ -2057,7 +2067,7 @@ function Sidebar({ view, setView }) {
             fontSize:16,fontWeight:900,color:"#000"}}>M</div>
           <div>
             <div style={{fontSize:15,fontWeight:900,color:"#E8EDF5"}}>MesurePro</div>
-            <div style={{fontSize:10,color:"#607898"}}>v2.5</div>
+            <div style={{fontSize:10,color:"#607898"}}>v2.6</div>
           </div>
         </div>
       </div>
