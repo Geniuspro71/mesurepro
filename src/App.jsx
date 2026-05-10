@@ -1252,6 +1252,346 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms }) {
   );
 }
 
+/* ---- Architectural elevation drawing (one facade, 2D, pro look) ----
+   Inspired by CAD facade plans: white background, thin black strokes,
+   tile pattern on roof, vertical dimension lines on both sides with
+   altimetric levels, ground line (TN), property limits in orange,
+   centered italic label at the bottom. */
+
+function Elevation({ project, facadeId, label, downloadFileName }) {
+  var meas = project.meas || {};
+  var fl = Math.max(1, parseInt(project.floors) || 2);
+
+  /* Real dimensions in meters depending on which facade we draw */
+  var realFoot = parseFloat(meas.foot) || 142;
+  var realH    = parseFloat(meas.h)    || 7.4;
+  var ratio = 1.6;
+  var dimW = Math.sqrt(realFoot * ratio); /* facade width Sud/Nord */
+  var dimD = Math.sqrt(realFoot / ratio); /* facade width Est/Ouest */
+  /* Override with the actual rooms.l value when available */
+  function parseM(s) {
+    if (s == null) return null;
+    var v = parseFloat(String(s).replace(/[^\d.,-]/g,"").replace(",","."));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+  function findFacadeLen(needle) {
+    var r = (project.rooms||[]).find(function(x){
+      if (!x || x.t === "r") return false;
+      return (x.n||"").toLowerCase().indexOf(needle) !== -1;
+    });
+    return r ? parseM(r.l) : null;
+  }
+  var realW;
+  if (facadeId === "sud" || facadeId === "nord") {
+    realW = findFacadeLen(facadeId) || findFacadeLen(facadeId === "sud" ? "nord" : "sud") || dimW;
+  } else {
+    realW = findFacadeLen(facadeId) || findFacadeLen(facadeId === "est" ? "ouest" : "est") || dimD;
+  }
+
+  /* Layout: viewBox 800x600, building drawn 100/520 horizontally, 90/470 vertically. */
+  var VB_W = 800, VB_H = 600;
+  var maxBldgW = 540, maxBldgH = 320;
+  var scaleX = maxBldgW / realW;
+  var scaleY = maxBldgH / realH;
+  var scale  = Math.min(scaleX, scaleY);
+  var bw = realW * scale;
+  var bh = realH * scale;
+  var roofType = (project.roof || "").toLowerCase();
+  var isPignon = roofType.indexOf("pignon") !== -1 || facadeId === "est" || facadeId === "ouest";
+  var isFlat   = roofType.indexOf("terras") !== -1;
+  var isMansart= roofType.indexOf("mans") !== -1;
+  var roofH = isFlat ? 6 : (isMansart ? Math.min(70, bh*0.35) : (isPignon ? Math.min(95, bw*0.32) : Math.min(70, bw*0.18)));
+
+  /* Building origin: centered, ground at y=GROUND_Y */
+  var GROUND_Y = 470;
+  var bx = (VB_W - bw) / 2;
+  var by = GROUND_Y - bh;
+  var roofTopY = by - roofH;
+
+  /* Levels in meters (relative to ±0.00 = ground) */
+  var floorH = realH / fl;
+  var levels = [];
+  for (var i = 0; i <= fl; i++) {
+    levels.push({ m: i * floorH, label: i === 0 ? "±0.00" : "+" + (i*floorH).toFixed(2) });
+  }
+  var ridgeM = realH + (isFlat ? 0 : (isMansart ? realH * 0.25 : realH * 0.45));
+  if (!isFlat) levels.push({ m: ridgeM, label: "+" + ridgeM.toFixed(2), ridge:true });
+
+  /* Convert meters above ground to SVG y */
+  function mToY(m) { return GROUND_Y - m * scale; }
+
+  /* Door: only on south facade. Sliding bay door on south too if available */
+  var hasDoor = (facadeId === "sud");
+
+  /* Window grid */
+  var cols = (facadeId === "est" || facadeId === "ouest") ? Math.max(2, Math.floor(realW/3.5))
+                                                          : Math.max(3, Math.floor(realW/3.5));
+  cols = Math.min(cols, 6);
+  var winW = bw * 0.13;
+  var winH = (bh / fl) * 0.55;
+  var pad  = (bw - winW * cols) / (cols + 1);
+
+  /* Tile pattern id unique per facade so the SVG can be reused inline */
+  var tileId = "tile-" + (facadeId || "x");
+  var hatchId = "hatch-" + (facadeId || "x");
+
+  /* Cote helpers — vertical dimension lines on a side */
+  function VertCote({ x, y1, y2, value, side }) {
+    /* tick lines + arrows + text rotated -90 */
+    var tickLen = 5;
+    var sx = side === "left" ? -1 : 1;
+    return (
+      <g stroke="#222" strokeWidth="0.6" fill="none">
+        <line x1={x} y1={y1} x2={x} y2={y2}/>
+        <line x1={x - tickLen} y1={y1} x2={x + tickLen} y2={y1}/>
+        <line x1={x - tickLen} y1={y2} x2={x + tickLen} y2={y2}/>
+        <polygon points={x+","+y1+" "+(x-3*sx)+","+(y1+5)+" "+(x+3*sx)+","+(y1+5)} fill="#222"/>
+        <polygon points={x+","+y2+" "+(x-3*sx)+","+(y2-5)+" "+(x+3*sx)+","+(y2-5)} fill="#222"/>
+        <text x={x + (sx*7)} y={(y1+y2)/2} fill="#222" fontSize="11"
+          fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+          textAnchor={side === "left" ? "end" : "start"}
+          dominantBaseline="middle"
+          transform={"rotate(-90," + (x + sx*7) + "," + ((y1+y2)/2) + ")"}>
+          {value.toFixed(2)}
+        </text>
+      </g>
+    );
+  }
+
+  /* Tile path used by the roof */
+  var tilePath = "M 0 12 Q 5 4 10 12 Q 15 4 20 12";
+
+  return (
+    <svg viewBox={"0 0 " + VB_W + " " + VB_H}
+      width="100%" height="100%"
+      preserveAspectRatio="xMidYMid meet"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{display:"block", background:"#fff"}}>
+      <defs>
+        {/* Roof tile pattern */}
+        <pattern id={tileId} patternUnits="userSpaceOnUse" width="20" height="12">
+          <rect width="20" height="12" fill="#fff"/>
+          <path d={tilePath} fill="none" stroke="#3a2614" strokeWidth="0.7"/>
+          <path d="M 0 12 L 20 12" stroke="#3a2614" strokeWidth="0.6"/>
+        </pattern>
+        {/* Ground hatch (TN) */}
+        <pattern id={hatchId} patternUnits="userSpaceOnUse" width="8" height="8">
+          <line x1="0" y1="8" x2="8" y2="0" stroke="#444" strokeWidth="0.5"/>
+        </pattern>
+      </defs>
+
+      {/* Property limit lines (orange dashed verticals) + label */}
+      <line x1={70} y1={70} x2={70} y2={GROUND_Y+10}
+        stroke="#E89B2A" strokeWidth="0.8" strokeDasharray="6,3"/>
+      <line x1={VB_W-70} y1={70} x2={VB_W-70} y2={GROUND_Y+10}
+        stroke="#E89B2A" strokeWidth="0.8" strokeDasharray="6,3"/>
+      <text x={70} y={62} fill="#E89B2A" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+        textAnchor="middle" transform={"rotate(-90,70,62)"}>Limite propriete</text>
+      <text x={VB_W-70} y={62} fill="#E89B2A" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+        textAnchor="middle" transform={"rotate(-90," + (VB_W-70) + ",62)"}>Limite propriete</text>
+
+      {/* Ground line (TN) */}
+      <line x1={40} y1={GROUND_Y} x2={VB_W-40} y2={GROUND_Y}
+        stroke="#222" strokeWidth="1.2"/>
+      <rect x={40} y={GROUND_Y} width={VB_W-80} height={14} fill={"url(#" + hatchId + ")"} opacity="0.55"/>
+      <text x={VB_W-46} y={GROUND_Y+11} fill="#222" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" textAnchor="end">TN ±0.00</text>
+
+      {/* Building wall */}
+      <rect x={bx} y={by} width={bw} height={bh}
+        fill="#fff" stroke="#222" strokeWidth="1"/>
+
+      {/* Roof */}
+      {isFlat && (
+        <g>
+          <rect x={bx-3} y={by-roofH} width={bw+6} height={roofH}
+            fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="0.8"/>
+          <rect x={bx-3} y={by-roofH-2} width={bw+6} height={3} fill="#3a2614"/>
+        </g>
+      )}
+      {!isFlat && isPignon && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw/2) + "," + roofTopY + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          {/* Faîtière */}
+          <polyline points={
+            (bx-4) + "," + (by+1) + " " +
+            (bx + bw/2) + "," + (roofTopY+1) + " " +
+            (bx + bw + 4) + "," + (by+1)
+          } fill="none" stroke="#3a2614" strokeWidth="2.5"/>
+          {/* Egout */}
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+      {!isFlat && !isPignon && !isMansart && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw*0.18) + "," + roofTopY + " " +
+            (bx + bw*0.82) + "," + roofTopY + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          <line x1={bx + bw*0.18} y1={roofTopY} x2={bx + bw*0.82} y2={roofTopY}
+            stroke="#3a2614" strokeWidth="2.5"/>
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+      {!isFlat && isMansart && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw*0.10) + "," + (by - roofH*0.55) + " " +
+            (bx + bw*0.90) + "," + (by - roofH*0.55) + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          <polygon points={
+            (bx + bw*0.10) + "," + (by - roofH*0.55) + " " +
+            (bx + bw*0.30) + "," + roofTopY + " " +
+            (bx + bw*0.70) + "," + roofTopY + " " +
+            (bx + bw*0.90) + "," + (by - roofH*0.55)
+          } fill="#fff" stroke="#222" strokeWidth="1"/>
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+
+      {/* Floor lines (subtle, inside the wall) */}
+      {(function(){
+        var lines = [];
+        for (var f = 1; f < fl; f++) {
+          var y = by + (bh / fl) * f;
+          lines.push(<line key={"flline"+f} x1={bx+2} y1={y} x2={bx+bw-2} y2={y}
+            stroke="#222" strokeWidth="0.3" strokeDasharray="3,3" opacity="0.45"/>);
+        }
+        return lines;
+      })()}
+
+      {/* Windows grid */}
+      {(function(){
+        var els = [];
+        for (var f = 0; f < fl; f++) {
+          var fy = by + bh - (bh/fl)*(f+1);
+          var winY = fy + (bh/fl - winH)/2;
+          for (var c = 0; c < cols; c++) {
+            if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+            var x = bx + pad + c * (winW + pad);
+            els.push(
+              <g key={"w-"+f+"-"+c}>
+                <rect x={x} y={winY} width={winW} height={winH}
+                  fill="#fff" stroke="#222" strokeWidth="0.9"/>
+                <rect x={x+2} y={winY+2} width={winW-4} height={winH-4}
+                  fill="#fff" stroke="#222" strokeWidth="0.5"/>
+                <line x1={x+winW/2} y1={winY+2} x2={x+winW/2} y2={winY+winH-2}
+                  stroke="#222" strokeWidth="0.5"/>
+                <line x1={x+2} y1={winY+winH/2} x2={x+winW-2} y2={winY+winH/2}
+                  stroke="#222" strokeWidth="0.5"/>
+                {/* allege */}
+                <line x1={x-1} y1={winY+winH+1.5} x2={x+winW+1} y2={winY+winH+1.5}
+                  stroke="#222" strokeWidth="0.7"/>
+              </g>
+            );
+          }
+        }
+        return els;
+      })()}
+
+      {/* Door (south only) */}
+      {hasDoor && (function(){
+        var dCol = Math.floor(cols/2);
+        var x = bx + pad + dCol * (winW + pad);
+        var dW = winW * 1.1, dH = (bh/fl) * 0.78;
+        var dx = x + (winW - dW)/2;
+        var dy = GROUND_Y - dH;
+        return (
+          <g>
+            <rect x={dx} y={dy} width={dW} height={dH}
+              fill="#fff" stroke="#222" strokeWidth="1.1"/>
+            <rect x={dx+2} y={dy+2} width={dW-4} height={dH-4}
+              fill="#fff" stroke="#222" strokeWidth="0.5"/>
+            {/* Panel split */}
+            <line x1={dx+dW/2} y1={dy+5} x2={dx+dW/2} y2={dy+dH-5}
+              stroke="#222" strokeWidth="0.4"/>
+            <rect x={dx+5} y={dy+8} width={dW/2-7} height={dH/3} fill="none" stroke="#222" strokeWidth="0.4"/>
+            <rect x={dx+dW/2+2} y={dy+8} width={dW/2-7} height={dH/3} fill="none" stroke="#222" strokeWidth="0.4"/>
+            {/* Handle */}
+            <circle cx={dx+dW/2-3} cy={dy+dH*0.55} r="1" fill="#222"/>
+            <circle cx={dx+dW/2+3} cy={dy+dH*0.55} r="1" fill="#222"/>
+          </g>
+        );
+      })()}
+
+      {/* Vertical dimensions on the LEFT side: per-floor + total */}
+      {(function(){
+        var coteX = bx - 24;
+        var lines = [];
+        /* per-floor cotes */
+        for (var i = 0; i < levels.length-1; i++) {
+          var lv = levels[i], lvNext = levels[i+1];
+          var y1 = mToY(lvNext.m), y2 = mToY(lv.m);
+          var dist = lvNext.m - lv.m;
+          lines.push(
+            <VertCote key={"L"+i} x={coteX} y1={y1} y2={y2} value={dist} side="left"/>
+          );
+        }
+        /* total cote on the very left */
+        lines.push(
+          <VertCote key="Ltot" x={coteX-26} y1={roofTopY} y2={GROUND_Y} value={ridgeM} side="left"/>
+        );
+        return lines;
+      })()}
+
+      {/* Vertical dimensions on the RIGHT side */}
+      {(function(){
+        var coteX = bx + bw + 24;
+        var lines = [];
+        for (var i = 0; i < levels.length-1; i++) {
+          var lv = levels[i], lvNext = levels[i+1];
+          var y1 = mToY(lvNext.m), y2 = mToY(lv.m);
+          var dist = lvNext.m - lv.m;
+          lines.push(
+            <VertCote key={"R"+i} x={coteX} y1={y1} y2={y2} value={dist} side="right"/>
+          );
+        }
+        lines.push(
+          <VertCote key="Rtot" x={coteX+26} y1={roofTopY} y2={GROUND_Y} value={ridgeM} side="right"/>
+        );
+        return lines;
+      })()}
+
+      {/* Altimetric level circles */}
+      {levels.map(function(lv, i) {
+        var ly = mToY(lv.m);
+        var cx2 = bx + bw + 8;
+        return (
+          <g key={"alt"+i}>
+            <line x1={bx+bw} y1={ly} x2={cx2-5} y2={ly} stroke="#222" strokeWidth="0.4" opacity="0.6"/>
+            <circle cx={cx2} cy={ly} r="6" fill="#fff" stroke="#222" strokeWidth="0.6"/>
+            <line x1={cx2-3} y1={ly} x2={cx2+3} y2={ly} stroke="#222" strokeWidth="0.4"/>
+            <line x1={cx2} y1={ly-3} x2={cx2} y2={ly+3} stroke="#222" strokeWidth="0.4"/>
+            <text x={cx2+11} y={ly+3} fontSize="9.5" fill="#222"
+              fontFamily="Helvetica, Arial, sans-serif">
+              {lv.label}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Caption */}
+      <text x={VB_W/2} y={VB_H - 35} textAnchor="middle"
+        fill="#222" fontSize="18" fontStyle="italic"
+        fontFamily="Georgia, 'Times New Roman', serif">
+        - {label} -
+      </text>
+      <line x1={VB_W/2 - 90} y1={VB_H - 22} x2={VB_W/2 + 90} y2={VB_H - 22}
+        stroke="#222" strokeWidth="0.5"/>
+    </svg>
+  );
+}
+
 /* ---- Sidebar ---- */
 function Sidebar({ view, setView }) {
   var items = [
@@ -1480,6 +1820,7 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
 var PTABS = [
   {id:"photos",lbl:"Photos"},
   {id:"model", lbl:"Modele 3D"},
+  {id:"plans", lbl:"Plans"},
   {id:"meas",  lbl:"Mesures"},
   {id:"design",lbl:"Design"},
   {id:"devis", lbl:"Devis"},
@@ -1532,6 +1873,7 @@ function ProjectDetail({ project, onBack, onUpdate }) {
       <div style={{minHeight:"calc(100vh - 92px)"}}>
         {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
+        {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
         {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
         {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
@@ -1626,6 +1968,128 @@ function TabPhotos({ project, onUpdate }) {
             padding:30,boxSizing:"border-box"}}>
           <img src={zoom.url} alt={zoom.name}
             style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- TabPlans: 4 architectural elevations (Sud / Est / Nord / Ouest) ---- */
+var FACADES = [
+  { id:"sud",   label:"FACADE SUD" },
+  { id:"est",   label:"FACADE EST" },
+  { id:"nord",  label:"FACADE NORD" },
+  { id:"ouest", label:"FACADE OUEST" },
+];
+
+function TabPlans({ project, setToast }) {
+  var [zoom, setZoom] = useState(null);
+
+  function exportAllPlansPdf() {
+    /* Render each facade SVG to a dataURL via canvas, place 2 per A4 page. */
+    var doc = new jsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+    /* A4 landscape: 297 x 210 mm. Place 2 plans per page (top + bottom). */
+    var nodes = document.querySelectorAll('[data-elevation-svg]');
+    if (nodes.length === 0) {
+      setToast && setToast("Aucun plan a exporter");
+      return;
+    }
+    var done = 0;
+    function rasterize(svgEl, cb) {
+      var svgClone = svgEl.cloneNode(true);
+      svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      var serialized = new XMLSerializer().serializeToString(svgClone);
+      var blob = new Blob([serialized], {type:"image/svg+xml;charset=utf-8"});
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function() {
+        var canvas = document.createElement("canvas");
+        canvas.width = 1600; canvas.height = 1200;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        cb(canvas.toDataURL("image/jpeg", 0.92));
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); cb(null); };
+      img.src = url;
+    }
+    var pngs = [];
+    function next(i) {
+      if (i >= nodes.length) {
+        var slot = 0;
+        pngs.forEach(function(png, k) {
+          if (!png) return;
+          if (slot === 2) { doc.addPage(); slot = 0; }
+          var y = slot === 0 ? 8 : 110;
+          doc.addImage(png, "JPEG", 18, y, 261, 96, undefined, "FAST");
+          slot++;
+        });
+        var addr = (project.addr || "plans").toLowerCase().replace(/[^a-z0-9]+/g,"-");
+        doc.save("mesurepro-plans-" + addr + ".pdf");
+        setToast && setToast("PDF des plans telecharge");
+        return;
+      }
+      rasterize(nodes[i], function(png) {
+        pngs[i] = png;
+        next(i+1);
+      });
+    }
+    next(0);
+  }
+
+  return (
+    <div style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box",background:"#F0EFEA"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:"#1a1a1a"}}>Plans d'elevations</div>
+          <div style={{fontSize:11,color:"#666",marginTop:3}}>
+            {project.addr} - 4 facades cotees, niveau ±0.00 = TN, limites propriete en orange
+          </div>
+        </div>
+        <Btn primary={true} onClick={exportAllPlansPdf}>Telecharger PDF</Btn>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+        {FACADES.map(function(f) {
+          return (
+            <div key={f.id}
+              onClick={function(){setZoom(f);}}
+              style={{background:"#fff",border:"1px solid #d6d2c7",borderRadius:6,
+                cursor:"zoom-in",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",
+                overflow:"hidden"}}>
+              <div data-elevation-svg style={{aspectRatio:"4/3",background:"#fff"}}>
+                <Elevation project={project} facadeId={f.id} label={f.label}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {zoom && (
+        <div onClick={function(){setZoom(null);}}
+          style={{position:"fixed",inset:0,background:"rgba(20,20,20,0.92)",zIndex:300,
+            display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",
+            padding:30,boxSizing:"border-box"}}>
+          <div onClick={function(e){e.stopPropagation();}}
+            style={{background:"#fff",borderRadius:6,padding:0,
+              maxWidth:"95%",maxHeight:"95%",width:"min(1400px,95%)",
+              boxShadow:"0 30px 80px rgba(0,0,0,0.6)",
+              display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"10px 18px",borderBottom:"1px solid #e0e0e0",
+              display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:13,fontWeight:800,color:"#1a1a1a"}}>{zoom.label} - {project.addr}</div>
+              <button type="button" onClick={function(){setZoom(null);}}
+                style={{background:"transparent",border:"1px solid #ccc",
+                  color:"#666",borderRadius:5,padding:"4px 11px",
+                  fontSize:12,cursor:"pointer",outline:"none"}}>Fermer</button>
+            </div>
+            <div style={{flex:1,padding:14,background:"#fff",minHeight:0,
+              display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{width:"100%",aspectRatio:"4/3",maxHeight:"75vh"}}>
+                <Elevation project={project} facadeId={zoom.id} label={zoom.label}/>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
