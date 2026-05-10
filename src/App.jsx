@@ -2252,8 +2252,8 @@ var PTABS = [
   {id:"devis", lbl:"Devis"},
 ];
 
-function ProjectDetail({ project, onBack, onUpdate }) {
-  var [tab, setTab]   = useState("model");
+function ProjectDetail({ project, onBack, onUpdate, initialTab }) {
+  var [tab, setTab]   = useState(initialTab || "model");
   var [mat, setMat]   = useState(null);
   var [toast, setToast] = useState("");
   return (
@@ -5057,6 +5057,7 @@ export default function App() {
   });
   var [view,     setView]     = useState("dash");
   var [openId,   setOpenId]   = useState(null);
+  var [openTab,  setOpenTab]  = useState("model");   /* tab d'atterrissage de ProjectDetail */
   var [modal,    setModal]    = useState(false);
 
   useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
@@ -5088,9 +5089,10 @@ export default function App() {
     setView(v);
   }
 
-  function openProject(p) {
+  function openProject(p, tab) {
     setOpenId(p.id);
     setView("project");
+    setOpenTab(tab || "model");   /* "model" par défaut pour click Dashboard, "meas" après création */
   }
 
   function updateProject(id, patch) {
@@ -5118,9 +5120,10 @@ export default function App() {
       facades: info.facades || null,
     };
     setProjects(function(ps){ return ps.concat([np]); });
-    /* Bascule auto sur la fiche du nouveau projet (sinon le user retombe
-       sur Dashboard et doit re-cliquer pour ouvrir son projet). */
-    openProject(np);
+    /* Bascule auto sur la fiche du nouveau projet, onglet Mesures —
+       l'utilisateur vient de saisir ses 4 façades, c'est le bon endroit
+       pour vérifier les totaux auto-calculés. */
+    openProject(np, "meas");
     /* Auto-promote processing -> draft after 3s (no real CV pipeline yet) */
     setTimeout(function() {
       setProjects(function(ps) {
@@ -5145,9 +5148,11 @@ export default function App() {
         )}
         {view === "project" && openP && (
           <ProjectDetail
+            key={openP.id + ":" + openTab}
             project={openP}
             onBack={function(){nav("dash");}}
             onUpdate={function(patch){updateProject(openP.id,patch);}}
+            initialTab={openTab}
           />
         )}
         {view === "reports"  && <Reports reports={reports} setReports={setReports}/>}
