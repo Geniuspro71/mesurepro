@@ -6283,6 +6283,7 @@ function CivilitesEditor() {
    à l'intérieur de son panneau, sectionnée par module pour qu'on retrouve
    l'info en quelques secondes. */
 function HelpPage() {
+  var [query, setQuery] = useState("");
   var sections = [
     {
       id:"intro", icon:"🚀", title:"Démarrage rapide",
@@ -6392,12 +6393,21 @@ function HelpPage() {
       ]
     },
     {
-      id:"raccourcis", icon:"⌨️", title:"Raccourcis et astuces",
+      id:"raccourcis", icon:"⌨️", title:"Raccourcis clavier et astuces",
       body: [
+        "Raccourcis clavier disponibles dans l'app (ignorés quand vous tapez dans un champ) :",
+        "? — ouvrir cette page d'aide depuis n'importe où",
+        "n — créer un nouveau projet (depuis le Dashboard)",
+        "Esc — fermer le modal de création de projet en cours",
+        "h — bascule directe vers l'Aide",
+        "g puis d — go Dashboard (projets)",
+        "g puis r — go Rapports",
+        "g puis p — go Paramètres",
+        "g puis h — go Aide",
+        "Cmd+F (navigateur natif) — chercher dans la page courante.",
         "Cmd+Shift+R (Mac) / Ctrl+Shift+R (Windows) : forcer le rechargement après une mise à jour.",
         "Localhost vs 127.0.0.1 : préférez `http://localhost:3000` — Chrome macOS gère mieux la géolocalisation et le Bluetooth.",
         "Tooltips : passez la souris sur n'importe quel bouton pour obtenir une explication courte.",
-        "Statut « En traitement » : se transforme automatiquement en « Brouillon » après 3 s (placeholder pour un futur pipeline d'analyse).",
       ]
     },
     {
@@ -6411,34 +6421,92 @@ function HelpPage() {
       ]
     },
   ];
+  /* Filtrage des sections en fonction de la query — match dans le title
+     ou dans n'importe quel paragraphe du body, insensible à la casse. */
+  var q = query.trim().toLowerCase();
+  var filtered = q.length === 0 ? sections : sections.filter(function(s){
+    if (s.title.toLowerCase().indexOf(q) !== -1) return true;
+    return s.body.some(function(p){ return p.toLowerCase().indexOf(q) !== -1; });
+  });
+
+  /* Surligne les occurrences de la query dans un paragraphe — version
+     vanilla qui découpe en segments + applique <mark>. */
+  function highlight(text) {
+    if (q.length < 2) return text;
+    var lower = text.toLowerCase();
+    var idx = lower.indexOf(q);
+    if (idx === -1) return text;
+    var out = [];
+    var pos = 0;
+    while (idx !== -1) {
+      if (idx > pos) out.push(text.slice(pos, idx));
+      out.push(
+        <mark key={"m"+idx} style={{background:"#FFB35E",color:"#000",padding:"0 3px",borderRadius:3}}>
+          {text.slice(idx, idx + q.length)}
+        </mark>
+      );
+      pos = idx + q.length;
+      idx = lower.indexOf(q, pos);
+    }
+    if (pos < text.length) out.push(text.slice(pos));
+    return out;
+  }
+
   return (
     <div style={{padding:"30px 32px",overflowY:"auto",height:"100vh",
       boxSizing:"border-box",background:"#08111E"}}>
       <div style={{maxWidth:880, margin:"0 auto"}}>
         <div style={{fontSize:24, fontWeight:900, color:"#E8EDF5", marginBottom:8}}>Aide MesurePro</div>
-        <div style={{fontSize:13, color:"#607898", marginBottom:24, lineHeight:1.6}}>
+        <div style={{fontSize:13, color:"#607898", marginBottom:18, lineHeight:1.6}}>
           Guide pas-à-pas + FAQ. Trouvez votre réponse en quelques secondes —
           chaque section correspond à un module de l'app. Survolez un bouton n'importe où dans l'app
           pour obtenir une infobulle d'explication courte.
         </div>
 
-        {/* Index sticky en haut */}
-        <div style={{display:"flex",flexWrap:"wrap",gap:6,
-          padding:"10px 12px",marginBottom:22,
-          background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:9}}>
-          {sections.map(function(s){
-            return (
-              <a key={s.id} href={"#help-"+s.id}
-                style={{fontSize:11, color:"#00C2FF", textDecoration:"none",
-                  background:"rgba(0,194,255,0.07)", padding:"4px 10px",
-                  borderRadius:5, fontWeight:600}}>
-                {s.icon} {s.title}
-              </a>
-            );
-          })}
+        {/* Barre de recherche */}
+        <div style={{position:"relative", marginBottom:16}}>
+          <input type="search" value={query}
+            onChange={function(e){ setQuery(e.target.value); }}
+            placeholder="🔎 Rechercher dans l'aide (ex. laser, devis, façade, RGPD…)"
+            style={{width:"100%", background:"#0F1C2E", border:"1px solid #1C3050",
+              borderRadius:9, color:"#E8EDF5", fontSize:13, padding:"10px 14px",
+              outline:"none", boxSizing:"border-box"}}/>
+          {query && (
+            <button type="button" onClick={function(){ setQuery(""); }}
+              title="Effacer la recherche"
+              style={{position:"absolute", right:10, top:9, background:"transparent",
+                border:"none", color:"#607898", cursor:"pointer", fontSize:14, padding:"2px 6px"}}>
+              ×
+            </button>
+          )}
+          {q.length >= 1 && (
+            <div style={{fontSize:10, color:"#607898", marginTop:6}}>
+              {filtered.length === 0
+                ? "Aucune section ne correspond — essayez un autre mot-clé."
+                : filtered.length + " section(s) trouvée(s) sur " + sections.length}
+            </div>
+          )}
         </div>
 
-        {sections.map(function(s){
+        {/* Index sticky en haut */}
+        {filtered.length > 0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,
+            padding:"10px 12px",marginBottom:22,
+            background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:9}}>
+            {filtered.map(function(s){
+              return (
+                <a key={s.id} href={"#help-"+s.id}
+                  style={{fontSize:11, color:"#00C2FF", textDecoration:"none",
+                    background:"rgba(0,194,255,0.07)", padding:"4px 10px",
+                    borderRadius:5, fontWeight:600}}>
+                  {s.icon} {s.title}
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        {filtered.map(function(s){
           return (
             <div key={s.id} id={"help-"+s.id}
               style={{background:"#0F1C2E",border:"1px solid #1C3050",
@@ -6454,7 +6522,7 @@ function HelpPage() {
                     paddingLeft:14, position:"relative"}}>
                     <span style={{position:"absolute",left:0,top:9,width:6,height:6,
                       background:"#00C2FF",borderRadius:"50%",opacity:0.7}}/>
-                    {p}
+                    {highlight(p)}
                   </div>
                 );
               })}
@@ -6716,6 +6784,57 @@ export default function App() {
 
   useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
   useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
+
+  /* Raccourcis clavier globaux. Ignorés quand l'utilisateur tape dans un
+     champ de saisie (input/textarea/contenteditable). Liste :
+       ?            → ouvre l'Aide
+       Esc          → ferme le Modal Nouveau projet s'il est ouvert
+       n            → Nouveau projet (depuis le Dashboard)
+       h            → bascule sur l'Aide
+       g puis d     → go Dashboard
+       g puis r     → go Rapports
+       g puis p     → go Paramètres */
+  useEffect(function(){
+    var pendingG = false;
+    var gTimeout = null;
+    function isTyping(target) {
+      if (!target) return false;
+      var tag = (target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (target.isContentEditable) return true;
+      return false;
+    }
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTyping(e.target)) return;
+      var k = e.key;
+      if (pendingG) {
+        pendingG = false;
+        if (gTimeout) clearTimeout(gTimeout);
+        if (k === "d") { setView("dash"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "r") { setView("reports"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "p") { setView("settings"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "h") { setView("help"); setOpenId(null); e.preventDefault(); return; }
+        return;
+      }
+      if (k === "?" || (k === "/" && e.shiftKey)) { setView("help"); setOpenId(null); e.preventDefault(); return; }
+      if (k === "Escape" && modal) { setModal(false); e.preventDefault(); return; }
+      if (k === "n" && view === "dash") { setModal(true); e.preventDefault(); return; }
+      if (k === "h") { setView("help"); setOpenId(null); e.preventDefault(); return; }
+      if (k === "g") {
+        pendingG = true;
+        gTimeout = setTimeout(function(){ pendingG = false; }, 800);
+        e.preventDefault();
+        return;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return function(){
+      window.removeEventListener("keydown", onKey);
+      if (gTimeout) clearTimeout(gTimeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, view]);
 
   /* Boot-time auto-promote: any project stuck in 'processing' (demo data
      or a refresh during the 3s window) gets bumped to 'draft' after 3s. */
