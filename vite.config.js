@@ -17,5 +17,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    /* Chunks vendors séparés → meilleur cache HTTP (les libs ne changent
+       pas à chaque modif applicative) + parallélisme du fetch initial.
+       Seul Three.js (~750 KB) est isolé — il est gros et stable, ça
+       maximise le hit cache. Le reste reste dans le main bundle pour
+       éviter les cycles entre modules React/JSPDF. */
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          three: ["three", "@react-three/fiber", "@react-three/drei"],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 1500,
   },
 })
