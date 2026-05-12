@@ -4252,6 +4252,102 @@ function RptSeniorField({ r, upd, T2, name, label, color }) {
 }
 
 /* Bloc Auditeur senior — 3 inputs sur une ligne (Nom / Titre / Ordre) */
+/* Signature manuscrite — canvas tactile/souris pour dessiner une vraie
+   signature. Stocke le résultat comme data URL PNG dans le rapport.
+   Marche sur desktop (souris) et mobile/tablette (tactile). */
+function SignatureCanvas({ value, onSave, label }) {
+  var canvasRef = useRef(null);
+  var [drawing, setDrawing] = useState(false);
+  var lastPoint = useRef(null);
+
+  useEffect(function(){
+    var canvas = canvasRef.current;
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    ctx.strokeStyle = "#E8EDF5";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    /* Restaure la signature existante si présente (rechargement page) */
+    if (value && typeof value === "string" && value.indexOf("data:image") === 0) {
+      var img = new Image();
+      img.onload = function(){ ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+      img.src = value;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function getCoords(e) {
+    var canvas = canvasRef.current;
+    var rect = canvas.getBoundingClientRect();
+    var scaleX = canvas.width / rect.width;
+    var scaleY = canvas.height / rect.height;
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+  function onStart(e) {
+    e.preventDefault();
+    setDrawing(true);
+    lastPoint.current = getCoords(e);
+  }
+  function onMove(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    var coords = getCoords(e);
+    var ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
+    ctx.lineTo(coords.x, coords.y);
+    ctx.stroke();
+    lastPoint.current = coords;
+  }
+  function onEnd() {
+    if (!drawing) return;
+    setDrawing(false);
+    /* Sauvegarde la signature en data URL après chaque trait — léger
+       (< 5 KB pour une signature normale en PNG noir & blanc). */
+    try {
+      onSave && onSave(canvasRef.current.toDataURL("image/png"));
+    } catch(e){}
+  }
+  function clear() {
+    var canvas = canvasRef.current;
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onSave && onSave("");
+  }
+
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",
+      borderRadius:10, padding:"14px 16px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+        <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
+        <button type="button" onClick={clear}
+          title="Effacer la signature pour recommencer"
+          style={{background:"transparent", border:"1px solid #2E4A6A",
+            color:"#607898", borderRadius:5, padding:"2px 9px",
+            fontSize:9, cursor:"pointer", outline:"none"}}>
+          Effacer
+        </button>
+      </div>
+      <canvas ref={canvasRef}
+        width={400} height={100}
+        onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
+        onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
+        style={{width:"100%", height:80, background:"#08111E",
+          borderRadius:5, border:"1px dashed #1C3050",
+          cursor:"crosshair", touchAction:"none", display:"block"}}/>
+      <div style={{fontSize:8, color:"#2E4A6A", marginTop:5}}>
+        Signez avec la souris (desktop) ou le doigt (mobile/tablette). Stockée comme image PNG.
+      </div>
+    </div>
+  );
+}
+
 function RptAuditorBlock({ r, upd, T2 }) {
   var a = r.auditor || { nom:"", titre:"Auditeur senior", ordre:"" };
   function setField(k, v) {
@@ -4717,14 +4813,12 @@ function RptProp({ r, upd, updD, T2 }) {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
         {[["Signature Client","sigCl"],["Signature MesurePro","sigPro"]].map(function(pair) {
           return (
-            <div key={pair[1]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
-              borderRadius:10,padding:"14px 16px"}}>
-              <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",marginBottom:9}}>{pair[0]}</div>
-              <div style={{height:44,borderBottom:"2px dashed #1C3050",marginBottom:7}}/>
-              <EF val={r[pair[1]]}
-                onSave={function(v){upd(r.id,{[pair[1]]:v});T2("OK");}}
-                style={{fontSize:11,color:"#607898"}}/>
-            </div>
+            <SignatureCanvas
+              key={pair[1]}
+              label={pair[0]}
+              value={r[pair[1]]}
+              onSave={function(v){ upd(r.id, {[pair[1]]: v}); T2 && T2("Signature enregistrée"); }}
+            />
           );
         })}
       </div>
