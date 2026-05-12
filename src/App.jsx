@@ -6558,3 +6558,17 @@ export default function App() {
     </div>
   );
 }
+
+/* ---- Named exports for unit tests (vitest) — purs, pas de side effect.
+   Permet d'importer ces helpers depuis src/App.test.js sans monter le
+   composant App. Garder cette liste à jour quand on ajoute des helpers
+   testables. */
+export {
+  slug,
+  csvEscape,
+  estimatePhotosSizeKB,
+  parseSolarBuilding,
+  BLE_DRIVERS,
+  DEFAULT_PREFS,
+  EMPTY_MEAS,
+};
