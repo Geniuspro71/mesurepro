@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
@@ -472,7 +473,61 @@ function exportProjectCsv(project) {
   exportCsv(rows, "mesurepro-" + slug(project.addr) + ".csv");
 }
 
-function exportProjectXlsx(project) { exportProjectCsv(project); }
+/* Vrai export Excel via SheetJS — 2 feuilles : Synthèse + Façades. Remplace
+   l'ancien alias CSV. Garde des cellules numériques (parseFloat) pour que
+   les formules Excel marchent directement. */
+function exportProjectXlsx(project) {
+  var m = project.meas || {};
+  var wb = XLSX.utils.book_new();
+  var synthese = [
+    ["MesurePro — Fiche projet"],
+    [],
+    ["Adresse",   project.addr  || ""],
+    ["Ville",     project.city  || ""],
+    ["Client",    project.client|| ""],
+    ["Statut",    project.status|| ""],
+    ["Date",      project.date  || ""],
+    [],
+    ["Mesures globales"],
+    ["Surface murs (m²)",  parseFloat(m.walls) || ""],
+    ["Surface toit (m²)",  parseFloat(m.roof)  || ""],
+    ["Périmètre (m)",      parseFloat(m.perim) || ""],
+    ["Hauteur (m)",        parseFloat(m.h)     || ""],
+    ["Emprise sol (m²)",   parseFloat(m.foot)  || ""],
+    ["Fenêtres",           parseFloat(m.win)   || ""],
+    ["Portes",             parseFloat(m.doors) || ""],
+    [],
+    ["Étages",  parseInt(project.floors) || ""],
+    ["Toit",    project.roof || ""],
+    ["Photos",  (project.photos || []).length],
+  ];
+  var ws1 = XLSX.utils.aoa_to_sheet(synthese);
+  ws1["!cols"] = [{ wch: 22 }, { wch: 28 }];
+  XLSX.utils.book_append_sheet(wb, ws1, "Synthèse");
+  var rows = [["Façade", "Surface (m²)", "Longueur (m)", "Hauteur (m)", "Type"]];
+  (project.rooms || []).forEach(function(r){
+    rows.push([r.n || "", parseFloat(r.a) || "", parseFloat(r.l) || "", parseFloat(r.h) || "", r.t === "r" ? "Toit" : "Mur"]);
+  });
+  var ws2 = XLSX.utils.aoa_to_sheet(rows);
+  ws2["!cols"] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Façades");
+  XLSX.writeFile(wb, "mesurepro-" + slug(project.addr) + ".xlsx");
+}
+
+/* Export JSON — backup machine-readable du projet entier (toutes les
+   propriétés sans modification). Utile pour : sauvegarde, transfert vers
+   un autre device, debug, import par un script tiers. Format pretty-printed
+   pour lisibilité humaine. */
+function exportProjectJson(project) {
+  var payload = {
+    schema: "mesurepro.project.v1",
+    exportedAt: new Date().toISOString(),
+    project: project,
+  };
+  var content = JSON.stringify(payload, null, 2);
+  var blob = new Blob([content], { type: "application/json" });
+  downloadBlob(blob, "mesurepro-" + slug(project.addr) + ".json");
+}
 
 /* Export DXF — 4 élévations + fenêtres + portes au format DXF AC1009
    (R12, le plus compatible : AutoCAD, LibreCAD, FreeCAD, QCAD,
@@ -2746,9 +2801,11 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF téléchargé");}}
           title="Télécharger le rapport au format PDF (texte indexable, métadonnées renseignées)">PDF</Btn>
         <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel téléchargé");}}
-          title="Télécharger les mesures au format CSV (compatible Excel, Numbers, Google Sheets)">Excel</Btn>
+          title="Télécharger un vrai fichier .xlsx avec 2 feuilles (Synthèse + Façades) — cellules numériques, formules Excel compatibles">Excel</Btn>
         <Btn sm={true} onClick={function(){exportProjectDxf(project); setToast("DXF téléchargé");}}
           title="Exporter les 4 plans d'élévation au format DXF (AutoCAD, LibreCAD, FreeCAD…) en mètres">DXF</Btn>
+        <Btn sm={true} onClick={function(){exportProjectJson(project); setToast("JSON téléchargé");}}
+          title="Sauvegarder le projet entier en JSON (backup, transfert vers un autre appareil, debug)">JSON</Btn>
         <Btn sm={true} onClick={handleDelete}
           title="Supprimer définitivement ce projet (action irréversible)"
           style={{background:"#3a0f12",border:"1px solid #FF4757",color:"#FF4757"}}>Supprimer</Btn>
