@@ -30,6 +30,27 @@
       input, select, textarea { font-size: 16px; }
       @keyframes spin { to { transform: rotate(360deg); } }
 
+      /* ============= LIGHT THEME — toggle via Paramètres → Préférences =============
+         Approche pragmatique : CSS filter inverse les couleurs sur tout l'arbre,
+         puis re-inverse sur les médias (img/video/canvas/SVG image) pour qu'ils
+         restent en couleurs naturelles. Permet un thème clair fonctionnel sans
+         refactorer 200+ inline styles inline.
+         Trade-off : les couleurs accentuées peuvent paraître légèrement décalées
+         vs un vrai light theme. Pour le bouton de bascule, voir Settings →
+         Préférences. */
+      html[data-theme="light"] {
+        filter: invert(0.92) hue-rotate(180deg);
+        background: #F5F2ED;
+      }
+      html[data-theme="light"] img,
+      html[data-theme="light"] video,
+      html[data-theme="light"] canvas,
+      html[data-theme="light"] svg image,
+      html[data-theme="light"] picture {
+        filter: invert(1) hue-rotate(180deg);
+      }
+      html { transition: filter 0.2s ease; }
+
       /* ============= RESPONSIVE — règle non-négo backlog item 8 =============
          3 paliers : ordinateur (>1024 px) inchangé, tablette (≤1024 px),
          smartphone (≤640 px). On adapte la sidebar (collapse en bandeau

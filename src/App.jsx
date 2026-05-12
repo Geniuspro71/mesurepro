@@ -6207,10 +6207,33 @@ function PreferencesEditor({ onSaved }) {
         </span>
       </div>
 
+      {/* Thème — toggle dark / light */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Thème</div>
+        <div style={{display:"flex",gap:8,flex:1}}>
+          {[["dark","🌙 Sombre"],["light","☀️ Clair"]].map(function(t){
+            var active = (prefs.theme || "dark") === t[0];
+            return (
+              <button key={t[0]} type="button"
+                onClick={function(){ save({ theme: t[0] }); applyTheme(t[0]); }}
+                title={t[0] === "light" ? "Bascule sur le thème clair (filtre CSS inverse — fonctionnel mais imparfait)" : "Bascule sur le thème sombre (défaut)"}
+                style={{flex:1, background: active ? "#00C2FF" : "transparent",
+                  border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                  color: active ? "#000" : "#8DAFC8",
+                  borderRadius:6, padding:"7px 12px", fontSize:11,
+                  fontWeight:700, cursor:"pointer", outline:"none"}}>
+                {t[1]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div style={{fontSize:10,color:"#2E4A6A",marginTop:6,lineHeight:1.5}}>
         Sauvegarde automatique à chaque modification.<br/>
         TVA + devise s'appliquent immédiatement à l'onglet <span style={{fontWeight:700}}>Devis</span> de chaque projet.<br/>
-        Le ratio profondeur n'affecte que les nouveaux projets créés avec une seule paire de façades remplie.
+        Le ratio profondeur n'affecte que les nouveaux projets créés avec une seule paire de façades remplie.<br/>
+        Le thème clair utilise un filtre CSS d'inversion — fonctionnel mais quelques couleurs accentuées peuvent paraître décalées.
       </div>
     </div>
   );
@@ -6558,7 +6581,15 @@ var DEFAULT_PREFS = {
   depthRatio: 0.6,         /* Ratio profondeur/façade pour inférer la dim manquante */
   defaultCivilite: "M.",   /* Civilité pré-cochée en création de projet */
   decimals: 1,             /* Décimales affichées sur les mesures (m, m²) */
+  theme: "dark",           /* "dark" (défaut) ou "light" — bascule via Paramètres */
 };
+
+/* Applique le data-theme au <html> — sépare ce side-effect de React
+   pour qu'il soit applicable avant le premier render (anti-flash). */
+function applyTheme(theme) {
+  if (typeof document === "undefined") return;
+  try { document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark"); } catch(e){}
+}
 
 function getPrefs() {
   return Object.assign({}, DEFAULT_PREFS, loadStored(STORE_KEY_PREFS, {}));
