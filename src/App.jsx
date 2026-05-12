@@ -314,6 +314,76 @@ function slug(s) {
     .replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase() || "export";
 }
 
+/* Compresse une image File en data URL JPEG, longueur max contrôlée.
+   Pourquoi : avant ce helper, on stockait `URL.createObjectURL(file)`
+   qui produit un blob URL — invalide après reload, donc les photos
+   uploadées disparaissaient à chaque refresh. Pire, une photo iPhone
+   brute (5-10 MB en HEIC/JPEG) saturerait le quota localStorage (5-10 MB
+   total). On compresse à 1280 px max + JPEG 75 % → ~200-400 KB / photo
+   en data URL, persiste correctement en localStorage. */
+function compressImageFile(file, maxWidth, quality) {
+  maxWidth = maxWidth || 1280;
+  quality  = quality  || 0.75;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || file.type.indexOf("image/") !== 0) {
+      reject(new Error("Fichier non-image"));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function(){ reject(new Error("Lecture fichier échouée")); };
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onerror = function(){ reject(new Error("Décodage image échoué")); };
+      img.onload = function() {
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        if (w > maxWidth) {
+          h = Math.round(h * (maxWidth / w));
+          w = maxWidth;
+        }
+        try {
+          var canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL("image/jpeg", quality);
+          var approxBytes = Math.round(dataUrl.length * 0.75);
+          resolve({
+            name: file.name,
+            size: approxBytes,
+            originalSize: file.size,
+            url: dataUrl,
+            width: w,
+            height: h,
+            compressed: true,
+          });
+        } catch (e) { reject(e); }
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* Estime la place totale prise par les photos d'un projet (en KB).
+   Utilisé pour avertir l'utilisateur quand on approche du quota
+   localStorage. */
+function estimatePhotosSizeKB(photos) {
+  if (!photos || !Array.isArray(photos)) return 0;
+  var total = 0;
+  photos.forEach(function(p){
+    if (p && typeof p.url === "string" && p.url.indexOf("data:") === 0) {
+      total += p.url.length * 0.75;
+    } else if (p && p.size) {
+      total += p.size;
+    }
+  });
+  return Math.round(total / 1024);
+}
+
 function downloadBlob(blob, filename) {
   var url = URL.createObjectURL(blob);
   var a = document.createElement("a");
@@ -2810,16 +2880,34 @@ function TabPhotos({ project, onUpdate }) {
   var photos = project.photos || [];
   var [zoom, setZoom] = useState(null);
   var [drag, setDrag] = useState(false);
+  var [uploading, setUploading] = useState(0);   /* nombre de photos en cours de compression */
+  var [uploadError, setUploadError] = useState("");
   var inpRef = useRef();
   function addFiles(fileList) {
     var arr = Array.prototype.slice.call(fileList).filter(function(f){
       return f.type && f.type.indexOf("image/") === 0;
     });
     if (arr.length === 0) return;
-    var next = arr.map(function(f) {
-      return { name: f.name, size: f.size, url: URL.createObjectURL(f) };
+    setUploading(arr.length);
+    setUploadError("");
+    /* Compresse en parallèle puis concatène TOUT d'un coup à la fin —
+       évite les race conditions sur photos[] (chaque setState rate la
+       liste à jour des autres compressions simultanées). */
+    Promise.all(arr.map(function(f){
+      return compressImageFile(f, 1280, 0.75).catch(function(e){
+        return { error: e && e.message ? e.message : "Échec compression", name: f.name };
+      });
+    })).then(function(results){
+      var compressed = results.filter(function(r){ return !r.error; });
+      var errors = results.filter(function(r){ return r.error; });
+      if (compressed.length > 0) {
+        onUpdate({ photos: photos.concat(compressed) });
+      }
+      if (errors.length > 0) {
+        setUploadError(errors.length + " photo(s) refusée(s) : " + errors[0].error);
+      }
+      setUploading(0);
     });
-    onUpdate({ photos: photos.concat(next) });
   }
   function removeAt(i) {
     var p = photos[i];
@@ -2844,12 +2932,29 @@ function TabPhotos({ project, onUpdate }) {
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
         <div>
           <div style={{fontSize:18,fontWeight:900,color:"#E8EDF5"}}>Photos du projet</div>
-          <div style={{fontSize:11,color:"#607898",marginTop:3}}>{photos.length} fichier(s)</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:3}}>
+            {photos.length} fichier(s) · {estimatePhotosSizeKB(photos)} KB total
+          </div>
         </div>
-        <Btn primary={true} onClick={function(){ inpRef.current.click(); }}>+ Ajouter</Btn>
+        <Btn primary={true} onClick={function(){ inpRef.current.click(); }}
+          title="Ajouter des photos — compressées automatiquement (1280 px max, JPEG 75 %) pour tenir dans le stockage local">
+          {uploading > 0 ? "Compression " + uploading + "…" : "+ Ajouter"}
+        </Btn>
         <input ref={inpRef} type="file" multiple accept="image/*" style={{display:"none"}}
           onChange={function(e){ addFiles(e.target.files); e.target.value=""; }}/>
       </div>
+      {uploading > 0 && (
+        <div style={{background:"rgba(0,194,255,0.08)",border:"1px solid #00C2FF",
+          borderRadius:7,padding:"7px 12px",marginBottom:12,fontSize:11,color:"#00C2FF"}}>
+          📦 Compression de {uploading} photo(s) en cours… (1280 px max, JPEG 75 %)
+        </div>
+      )}
+      {uploadError && (
+        <div style={{background:"rgba(255,71,87,0.10)",border:"1px solid #FF4757",
+          borderRadius:7,padding:"7px 12px",marginBottom:12,fontSize:11,color:"#FF4757"}}>
+          ⚠️ {uploadError}
+        </div>
+      )}
       {photos.length === 0 && (
         <div onClick={function(){ inpRef.current.click(); }}
           style={{border:"2px dashed #1C3050",borderRadius:12,padding:"50px 20px",
@@ -5218,16 +5323,21 @@ function Modal({ onClose, onCreate }) {
   }
 
   function onFiles(fileList) {
-    var arr = Array.prototype.slice.call(fileList);
-    var next = arr.map(function(f) {
-      return { name: f.name, size: f.size, url: URL.createObjectURL(f) };
+    var arr = Array.prototype.slice.call(fileList).filter(function(f){
+      return f.type && f.type.indexOf("image/") === 0;
     });
-    setPhotos(function(prev){ return prev.concat(next); });
+    if (arr.length === 0) return;
+    /* Compression côté client — data URL persistant (les blob URLs étaient
+       invalidés au reload). Cf. compressImageFile pour détail. */
+    Promise.all(arr.map(function(f){
+      return compressImageFile(f, 1280, 0.75).catch(function(){ return null; });
+    })).then(function(results){
+      var ok = results.filter(function(r){ return r && !r.error; });
+      if (ok.length > 0) setPhotos(function(prev){ return prev.concat(ok); });
+    });
   }
   function removePhoto(i) {
     setPhotos(function(prev) {
-      var p = prev[i];
-      if (p && p.url) { try { URL.revokeObjectURL(p.url); } catch(e){} }
       return prev.filter(function(_, j){ return j !== i; });
     });
   }
