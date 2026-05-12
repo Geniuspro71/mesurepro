@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, Component } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import * as XLSX from "xlsx";
@@ -447,6 +447,52 @@ function exportProjectPdf(project) {
       headStyles: {fillColor: [21,33,53]},
     });
   }
+
+  /* Annexe photos — uniquement celles qui sont en data URL (compressées
+     localement, persistées en localStorage) ou en chemin /photos/ (démo).
+     Les blob URLs sont skippées car elles ne survivent pas à un reload. */
+  var photos = (project.photos || []).filter(function(p){
+    return p && p.url && (p.url.indexOf("data:") === 0 || p.url.indexOf("/photos/") === 0);
+  });
+  if (photos.length > 0) {
+    doc.addPage();
+    doc.setFontSize(15);
+    doc.setTextColor(21, 33, 53);
+    doc.text("Annexe — Photos du chantier", 14, 18);
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(photos.length + " photo(s) attachée(s)", 14, 25);
+    var pageW = 210, pageH = 297, margin = 14;
+    var thumbW = (pageW - margin*2 - 10) / 2;   /* 2 photos par ligne */
+    var thumbH = thumbW * 0.7;                   /* aspect 10:7 */
+    var x = margin, y = 32;
+    photos.forEach(function(p, i){
+      if (y + thumbH > pageH - 14) {
+        doc.addPage();
+        y = 16;
+      }
+      try {
+        /* jsPDF accepte les data URLs directement, ainsi que des PNG/JPEG
+           via leur URL si CORS ok. On utilise JPEG pour compression. */
+        doc.addImage(p.url, "JPEG", x, y, thumbW, thumbH, undefined, "MEDIUM");
+        /* Légende avec tag façade s'il existe */
+        doc.setFontSize(8);
+        doc.setTextColor(100);
+        var caption = (p.facade ? "[" + p.facade.toUpperCase() + "] " : "") + (p.name || "photo");
+        if (caption.length > 35) caption = caption.slice(0, 33) + "…";
+        doc.text(caption, x, y + thumbH + 4);
+      } catch(e){
+        /* Image non décodable — on saute silencieusement */
+      }
+      if (i % 2 === 0) {
+        x = margin + thumbW + 10;
+      } else {
+        x = margin;
+        y += thumbH + 12;
+      }
+    });
+  }
+
   doc.save("mesurepro-" + slug(project.addr) + ".pdf");
 }
 
@@ -6577,6 +6623,85 @@ function mergeWithDefaults(stored, defaults) {
 }
 
 /* ---- App root ---- */
+/* React error boundary — capture les erreurs JS imprévues (ex. crash R3F
+   sur perte de contexte WebGL, exception dans un useEffect, etc.) et
+   affiche une page de récupération propre plutôt qu'un écran blanc.
+   Sauvegarde la stack trace dans la console + propose 2 actions :
+   - Recharger (Cmd+R équivalent) — résout 80% des cas
+   - Réinitialiser localStorage (nuke option) — si données corrompues */
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) { return { error: error }; }
+  componentDidCatch(error, info) {
+    /* eslint-disable no-console */
+    console.error("MesurePro ErrorBoundary :", error, info);
+  }
+  reload = () => { try { window.location.reload(); } catch(e){} };
+  reset = () => {
+    if (!window.confirm("Effacer toutes les données locales (projets, rapports, préférences) et recharger l'app ?")) return;
+    try {
+      Object.keys(window.localStorage).forEach(function(k){
+        if (k.indexOf("mesurepro") === 0) window.localStorage.removeItem(k);
+      });
+    } catch(e){}
+    try { window.location.reload(); } catch(e){}
+  };
+  render() {
+    if (this.state.error) {
+      var msg = (this.state.error && (this.state.error.stack || this.state.error.message)) || String(this.state.error);
+      return (
+        <div style={{minHeight:"100vh", background:"#08111E", color:"#E8EDF5",
+          padding:"40px 24px", fontFamily:"system-ui, -apple-system, sans-serif",
+          boxSizing:"border-box"}}>
+          <div style={{maxWidth:680, margin:"0 auto"}}>
+            <div style={{fontSize:48, marginBottom:18}}>⚠️</div>
+            <div style={{fontSize:24, fontWeight:800, marginBottom:14}}>
+              Une erreur inattendue s'est produite
+            </div>
+            <p style={{color:"#8DAFC8", lineHeight:1.65, fontSize:13.5, marginBottom:22}}>
+              MesurePro a rencontré un problème et a dû interrompre l'opération en cours.
+              Vos données restent sauvegardées localement, elles ne sont pas perdues.
+              Recharge la page — si l'erreur revient, réinitialise les données locales en
+              dernier recours.
+            </p>
+            <details style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:9,
+              padding:"12px 16px", marginBottom:22, fontSize:12, color:"#607898"}}>
+              <summary style={{cursor:"pointer", fontWeight:700, color:"#FF8C42"}}>
+                Détails techniques (pour debug)
+              </summary>
+              <pre style={{whiteSpace:"pre-wrap", marginTop:10, fontSize:10.5,
+                fontFamily:"monospace", color:"#FF8C42", overflow:"auto", maxHeight:240}}>
+                {msg}
+              </pre>
+            </details>
+            <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+              <button type="button" onClick={this.reload}
+                style={{background:"#00C2FF", color:"#000", border:"none",
+                  borderRadius:7, padding:"10px 22px", fontSize:13, fontWeight:800,
+                  cursor:"pointer", outline:"none"}}>
+                ⟳ Recharger l'app
+              </button>
+              <button type="button" onClick={this.reset}
+                style={{background:"transparent", color:"#FF4757",
+                  border:"1px solid #FF4757", borderRadius:7,
+                  padding:"10px 22px", fontSize:13, fontWeight:600, cursor:"pointer", outline:"none"}}>
+                Réinitialiser les données locales
+              </button>
+            </div>
+            <p style={{marginTop:30, fontSize:11, color:"#2E4A6A"}}>
+              MesurePro v2.7 — Si l'erreur persiste, faites un screenshot de cette page (avec les détails techniques ouverts) pour diagnostic.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   var [projects, setProjects] = useState(function(){
     return mergeWithDefaults(loadStored(STORE_KEY_PROJECTS, null), PROJS);
@@ -6722,4 +6847,5 @@ export {
   BLE_DRIVERS,
   DEFAULT_PREFS,
   EMPTY_MEAS,
+  ErrorBoundary,
 };
