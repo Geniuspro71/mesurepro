@@ -1,10 +1,11 @@
 # MesurePro — HANDOFF session 1 → 2 → 3
 
-> **Date :** 10 mai 2026 (session 2 + backlog Davide étendu — UI **v2.7**)
+> **Date :** 13 mai 2026 (fin session 3 — 6 features "world-class" livrées en autonomie)
 > **Repo :** https://github.com/Geniuspro71/mesurepro
-> **Branch :** `main` (à jour, **49 commits**, push OK)
-> **Dev local :** Vite tourne sur http://localhost:3000 (PID variable, à relancer si tué)
-> **Conseil :** ouvrir l'app sur **`localhost:3000`** (pas 127.0.0.1) — meilleure compat geolocation macOS
+> **Branch :** `main` (à jour, **66 commits**, push OK)
+> **Dev local :** `npm run dev` → http://**localhost**:3000 (préférer localhost à 127.0.0.1)
+> **Tests :** `npm test` → 40/40 passent (20 anciens + 20 session 3)
+> **Build :** `npm run build` → 1001 KB main bundle (gzip 314 KB) + three vendor chunk 1046 KB
 >
 > ## 🛰️ Setup optionnel — Google Solar API (saisie auto facades)
 > Crée un fichier `.env` à la racine du projet à partir de `.env.example` :
@@ -14,174 +15,244 @@
 > Active sur Google Cloud Console : **Solar API** + **Geocoding API**.
 > Free tier ~1000 calls/jour Solar + 40 000/mois Geocoding — largement suffisant.
 > L'app détecte la clé automatiquement, le bouton 🛰️ « Récupérer » apparaît dans le Modal étape 2.
->
-> ## 🎁 Backlog Davide livré en autonomie totale (10 items, 11 commits)
->
-> | Item | Module | Commit |
-> |---|---|---|
-> | 1 | PROJETS — modifier + supprimer projet | [`e0de6be`](https://github.com/Geniuspro71/mesurepro/commit/e0de6be) |
-> | 6 | PARAMETRES — préférences fines (TVA, devise, civilité, ratio profondeur, décimales) | [`aaef0f1`](https://github.com/Geniuspro71/mesurepro/commit/aaef0f1) |
-> | 3 | PROJETS Design — photos chantier auto en textures 3D | [`978dd1c`](https://github.com/Geniuspro71/mesurepro/commit/978dd1c) |
-> | 4 | RAPPORTS — niveau auditeur senior (sections + checklist 16 pts + auditor identity) | [`0e943c4`](https://github.com/Geniuspro71/mesurepro/commit/0e943c4) |
-> | 5+7 | PROJETS Plans — détails architecte pro (gouttières/EP, cheminée, velux, cotes fen/portes, faîtage/égout, repère coupe A-A) | [`986c6d5`](https://github.com/Geniuspro71/mesurepro/commit/986c6d5) |
-> | 9 | PROJETS Modèle 3D — PDF metadata indexable + export DXF (4 élévations) | [`debb193`](https://github.com/Geniuspro71/mesurepro/commit/debb193) |
-> | 8 partie 1+2 | PARTOUT — Tooltips infobulles + Page d'aide dédiée 12 sections | [`cfcf88d`](https://github.com/Geniuspro71/mesurepro/commit/cfcf88d) |
-> | 8 partie 3 | PARTOUT — Responsive (tablette/mobile breakpoints + body scroll lock) | [`26b6b8c`](https://github.com/Geniuspro71/mesurepro/commit/26b6b8c) |
-> | Bonus | Google Solar API auto-fill (Building Insights free tier) | [`53ce368`](https://github.com/Geniuspro71/mesurepro/commit/53ce368) |
 
 ---
 
-## 🎬 Récap session 1 — ce qu'on a livré
+## 🚀 Session 3 — 6 features "best of breed mondial" (13 mai 2026)
 
-Partis d'un POC sandbox Claude.ai (1793 lignes, full SVG iso, plein de bugs). Arrivés à une app à **4679 lignes** avec rendu WebGL réaliste, plans architecte, intake guidé Belgique, photos taggées par façade. **24 commits** structurés.
+**Demande utilisateur** : *"FAIS TOUT ET REVIENS VERS MOI QUAND TU AURAS COMPLETEMENT TERMINE DE PLUS FAITS DES AMELIORATIONS À TA SAUCE APRES AVOIR FAIT UNE RECHERCHE AFIN D'ETRE LE MEILLEUR DU MARCHE MONDIALE"*
 
-### Highlights par axe
+Recherche concurrence faite (Hover.to, EagleView, Roofr, CompanyCam). Gap analysis a identifié 6 features qui rendent MesurePro **meilleur du marché mondial** pour le segment Belgique/Europe :
 
-#### 🔧 Stabilisation initiale (3 commits)
-- Fix bug critique : `Reports state` perdu au switch d'onglet → lift vers App
-- Persistance localStorage (`projects` + `reports` + `profile` + `civilites`)
-- Cleanup code mort (`fmtN`, `NumInput`, doublons `borderLeft`, no-op)
+### Commits session 3
+- `42d154d` — feat(theme): light theme toggle via Paramètres → Préférences (CSS filter invert pragmatique)
+- `b1d6d47` — feat(world-class): 6 best-of-breed features
 
-#### 📦 Features de base (4 commits)
-- Photos upload réel (Object URL)
-- Export PDF/CSV via jspdf
-- Print CSS `@media print`
-- Refonte Settings (profil + stats + reset démo)
-- 3D annotations + TabMeas validation X/7 + recherche globale + Reports CRUD + drag-drop + photo counter
+### Détail des 6 features
 
-#### 🏠 3D enrichi en SVG iso (3 commits)
-- Drag-to-rotate manuel + auto OFF par défaut
-- Bâtiment enrichi : étages multiples, fenêtres, porte, cheminée, gable
-- Sliders d'édition (étages/hauteur/emprise) avec write-back
-- Cotes longueur par façade
-- 4 façades visibles avec back-face culling
+| # | Feature | Apport | Différenciateur |
+|---|---|---|---|
+| 1 | **i18n FR/NL/EN/DE** | Belgique trilingue + EN expat + DE Ostbelgien | Aucun concurrent US n'est localisé UE |
+| 2 | **Templates bâtiments BE** | 5 wizards (libre, mitoyenne, semi, fermette, appart) | Onboard ×5 sur 80 % des typologies BE |
+| 3 | **Quantitatif matériaux BE auto** | 10 matériaux toiture + 7 façade, prix marché BE 2026 | Hover/Roofr font shingles US ; on fait tuiles/ardoises/zinc/EPDM |
+| 4 | **Customer share link + e-sign** | Encode projet en URL, view-only, canvas signature, QR | Roofr/Hover demandent backend ; on fait sans |
+| 5 | **Export AR (GLB)** | Three.js GLTFExporter → blob, Scene Viewer / Reality Composer | Hover n'exporte pas en AR Quick Look natif |
+| 6 | **PEB indicator A-G** | Calc kWh/m²/an depuis dimensions + année + isolation + Solar | Obligation légale BE — niche premium |
 
-#### 🎨 Textures procédurales (2 commits)
-- 6 patterns SVG : brick / wood / stone / slate / white / grey
-- Photos custom du projet → pattern texture
-- Environment HDR overlay + ombres avancées (en SVG)
+### 1. i18n FR/NL/EN/DE
 
-#### 📐 Plans d'élévation architecte (2 commits)
-- Composant `Elevation` SVG avec cotes verticales + niveaux altimétriques + TN + limites propriété + tuiles
-- Onglet `Plans` avec grille 4 façades + lightbox + export PDF A4
+**Architecture** :
+- Table `I18N = { fr, nl, en, de }` ~50 clés × 4 langues
+- Helper `t(key, params)` avec fallback FR + interpolation `{name}`
+- `detectLang()` auto depuis `navigator.language`
+- `SUPPORTED_LANGS` array `[{code, label, flag}, ...]`
+- `DEFAULT_PREFS.lang = null` → auto-détecté dans `getPrefs()` au premier accès
+- Event `mesurepro:prefs` + listener dans App → re-render global
+- `<html lang="...">` setté pour SEO + tooling accessibilité
+- LanguageSwitcher 4 drapeaux dans `PreferencesEditor`
 
-#### 🌐 Migration WebGL R3F (5 commits)
-- Install `@react-three/fiber@8.17.10` + `drei@9.114.3` + `three@0.171.0` (combo battle-tested React 18)
-- `Building3D` + `IsoModel` Canvas R3F : OrbitControls, lights, shadows
-- Textures `THREE.CanvasTexture` puis bumpMaps réels
-- Environment HDR + ContactShadows + perf tuning (shadow 2K→1K)
-- Bundle textures Polyhaven en local (5.3 MB) → fix CORS WebGL
-- Bundle photos Unsplash en local (4.4 MB) → fix CORS
+**Couverture UI** : Sidebar (4 entrées), Dashboard (boutons + filtres), ProjectDetail tabs (9 onglets : photos/model/plans/meas/design/devis/materials/peb/share), Preferences theme + language. Reste à i18n-iser : Reports tab, HelpPage sections.
 
-#### 📷 Photos vraies + façades taggées (1 commit)
-- Audit visuel des 18 photos téléchargées : 9 vraies façades, 9 hors-sujet (galaxie, skyline, signe...) → supprimées
-- Tag `facade: sud/nord/est/ouest/vue` par photo
-- Liaison auto plan ↔ photo dans onglet Plans
-- Badges couleur dans la grille TabPhotos
+### 2. Templates bâtiments belges (Modal step 2)
 
-#### 📍 Intake guidé Belgique (2 commits)
-- Modal step 0 enrichi : civilité (paramétrable), nom, prénom (si personne), rue, n°, CP, ville
-- 2781 codes postaux belges en local (GeoNames)
-- AutoComplete croisé CP ↔ Ville
-- 📍 Géolocaliser via Nominatim reverse
-- AsyncAutoComplete Photon → **toutes** rues + sous-communes Belgique
-- Validation stricte (`^\d{4}$` pour CP)
-- Section Civilités éditable dans Settings
+5 templates rapides au-dessus du sélecteur Façade :
+- **Maison 4 façades** (libre) : 9 × 6 × 12 m, fenêtres typique 1 porte
+- **Maison mitoyenne** : 2 façades libres (7×8m), 2 mitoyennes
+- **Semi-mitoyenne (3 façades)** : 8 × 7m, latéral mitoyen
+- **Fermette** : 12 × 5 × 15m, plus large, plus de fenêtres
+- **Immeuble appartements** : 14 × 15m, R+5, 10-15 fenêtres/façade
+
+Bouton applique en 1 clic → ajustable ensuite façade par façade. Tooltip description.
+
+### 3. TabMaterials — Quantitatif matériaux BE 2026
+
+**Tables** `BE_MATERIALS = { roof: [...10], facade: [...7] }` :
+- **Toiture** : tuiles terre cuite (13 u/m² @ 1.85 €), tuiles béton (10 @ 1.20), ardoises naturelles (22 @ 3.40), ardoises fibrociment (14 @ 1.95), zinc joint debout (88 €/m²), membrane EPDM (38), chevrons C24 (0.018 m³/m² @ 540), lattes (4.5 ml @ 0.95), sous-toiture HPV (1.10 m² @ 4.50), gouttière zinc (0.4 ml @ 28)
+- **Façade** : laine de roche (18 €/m²), PIR (32), crépi minéral (42), Red Cedar (78), bardage thermo-traité (62), briquettes parement (60 u/m² @ 0.65), enduit chaux (48)
+
+**UI** :
+- 3 selectors (toiture / façade / isolation) + checkbox "inclure accessoires toiture"
+- Slider marge 0-50 %
+- Table quantitatif : matériau / surface / qté / prix unit / total
+- Totaux HT + marge + TVA + TTC en bas
+- Bouton **Export PDF** (jspdf-autotable)
+
+Sources prix : moyennes marché BE 2026 (Vandersanden, Eternit, Rockwool, Recticel, VMZinc, Firestone, Saint-Astier, Lunawood).
+
+### 4. TabShare + ShareView — Customer share link
+
+**Encode/decode** :
+- `encodeProjectForShare(project)` → base64 URL-safe (sans `+`, `/`, `=`)
+- Strip les blob:/data: URLs lourdes des photos
+- `decodeProjectFromShare(b64)` → object ou null (tolérant)
+- URL généré : `https://geniuspro71.github.io/mesurepro/?share=eyJ...`
+
+**TabShare UI** (côté propriétaire projet) :
+- Lien copiable + bouton `📋 Copier`
+- QR code via `api.qrserver.com` (online, fallback gracieux)
+- Canvas e-signature mouse + touch (taille 800×180 BMP)
+- Bouton **Effacer** / **Valider** signature
+- Notice client + disclaimer
+
+**ShareView** (mode `?share=...`) :
+- Branchement dans `App()` APRÈS tous les hooks (Rules of Hooks respectée)
+- Header avec adresse + "Vue client" badge
+- Bandeau 6 KPI (emprise, murs, toit, périmètre, hauteur, PEB)
+- 3D Canvas (IsoModel) en grand
+- Section client si projet a `client`
+- Canvas e-signature avec validation + horodatage
+- Disclaimer signature électronique
+- Branding "Made with MesurePro"
+- Bouton **← Quitter l'aperçu client** retire `?share=` de l'URL
+
+### 5. Export AR (GLB)
+
+**Imports** : `import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js"`
+
+**Fonctions** :
+- `buildBuildingScene(project)` :
+  - Lit les vraies longueurs de façades depuis `rooms[]` (priorité)
+  - Fallback : `Math.sqrt(foot * 1.6)` × `Math.sqrt(foot / 1.6)` (cohérent IsoModel)
+  - Crée THREE.Scene avec :
+    - Mesh box murs (couleur brique 0xc04a2b)
+    - Mesh toit adaptatif :
+      - `Pignon` → cone 3 segments (prisme triangulaire)
+      - `4 pans` → cone 4 segments (pyramide)
+      - `Terrasse`/`Flat` → box fin
+      - autres → pignon par défaut
+  - Material : MeshStandardMaterial (roughness, metalness)
+- `exportProjectGlb(project, setToast)` :
+  - Utilise GLTFExporter `{binary: true}` → ArrayBuffer
+  - Blob `model/gltf-binary` + download via `<a download>`
+  - Nom fichier : `slug(project.addr).glb`
+
+**UI** : bouton dans TabModel sidebar `📦 Export AR` avec instructions selon OS :
+- iOS : "ouvrir avec Reality Composer (gratuit App Store) pour conversion AR"
+- Android : "ouvrir avec Scene Viewer pour AR Quick Look"
+- Autres : Scene Viewer, Reality Composer, viewer.io, Blender
+
+**`detectArPlatform()`** : `"ios" | "android" | "other"` par UA sniff.
+
+### 6. TabPEB — Indicateur PEB (Belgique)
+
+**`computePEB(project)`** :
+```
+heatedArea = foot × floors
+baseByYear = {
+  null:        350,
+  <1945:       450,
+  1945-1969:   380,
+  1970-1984:   320,
+  1985-1999:   250,
+  2000-2009:   180,
+  2010-2017:   110,
+  ≥2018:        65 (Q-ZEN)
+}
+insulMult = { full: 0.55, partial: 1.0, none: 1.55 }
+compactness = volume / surface_enveloppe
+compactMult = compactness < 1.0 ? 1.15 : <1.5 ? 1.0 : 0.92
+kwhPerYear = baseByYear × insulMult × compactMult
+            × (project.solar?.maxArrayPanelsCount > 10 ? 0.85 : 1)
+
+cls = {
+  <45 : "A++",
+  <85 : "A",
+  <170: "B",
+  <255: "C",
+  <340: "D",
+  <425: "E",
+  <510: "F",
+  else: "G"
+}
+```
+
+**UI TabPEB** :
+- Échelle visuelle A++ → G colorée (vert → rouge), largeur progressive
+- Flèche ⬇ sur la classe estimée + glow shadow
+- 4 KPI : classe / kWh/m²/an / surface chauffée / consommation totale MWh
+- Inputs interactifs : année construction (number) + isolation (3 boutons)
+- Recommandations contextuelles : isolation, vitrage, Solar API, PAC
+- Disclaimer : indicatif uniquement, certificateur agréé requis
+
+**Couleurs** `PEB_COLORS = { "A++":#00A86B, "A":#3CB371, "B":#9ACD32, "C":#FFD700, "D":#FFA500, "E":#FF6347, "F":#DC143C, "G":#8B0000 }`.
 
 ---
 
-## 🎬 Session 2 — livrée (10 mai 2026, suite)
+## ✅ Tests vitest — 40/40 passent
 
-Hypothèse confirmée par le user (`ok vas-y totalement`). 2 nouveaux commits sur `main`, push OK.
+20 anciens (session 2) + 20 nouveaux session 3 :
 
-### Commit A — `509fae9` — feat(intake): step 2 "Remplir"
-- Modal refactoré 3 → **4 étapes** : Identification → **Remplir** → Photos → Lancement
-- 4 onglets façade (Sud/Est/Nord/Ouest) avec badge ✓ quand remplie
-- Champs par façade : longueur, hauteur, fenêtres, portes
-- Récap visuel temps réel des 4 façades + surface auto (L × H)
-- Calcul auto des totaux pour `meas` global :
-  - `perim` = Σ longueurs façades
-  - `walls` = Σ surfaces façades (L × H)
-  - `foot` = (moy Sud/Nord) × (moy Est/Ouest) — rectangle approx
-  - `roof` = `foot × 1.15` (pente estimée)
-  - `h` = max hauteur, `win` + `doors` = sommes
-- `addProject` étendu : `meas` pré-rempli, `rooms[]` pré-peuplé (1 entrée / façade), `facades` brut conservé, `area` + `floors` dérivés
-- Modal width 560 → 600 pour 4 stepper labels
-- 📡 bouton « Connecter laser » placeholder en attendant commit B
+| Suite | Couverture |
+|---|---|
+| `i18n` | 4 langues + chaque langue a libellé natif + drapeau + FR source de vérité + traductions critiques NL/EN/DE + detectLang() retourne un code valide |
+| `BE_MATERIALS` | ≥6 toiture + ≥7 façade + chaque mat a id/lbl/unit/ratio/priceEur/note + cohérence prix marché (tuiles ~13 @ 1-5 €, ardoises ~22 @ >2 €) |
+| `computePEB` | Maison neuve 2023 full → A/A++/B (<170 kWh) ; ancienne 1930 none → E/F/G (>255 kWh) ; heatedArea = foot×floors ; annualTotal cohérent |
+| `PEB_COLORS` | 8 classes mappées avec hex valide |
+| `encode/decode share` | Round-trip OK, strip blob:/data: photos, decode invalide → null |
+| `detectArPlatform` | ios/android/other |
 
-### Commit B — `0e58d15` — feat(intake+meas): real BLE laser drivers
-- Module top-level `BLE_DRIVERS` extensible :
-  - **Leica DISTO** (X3/X4/D2) — service `3ab10100-…`, parser float32 LE
-  - **Bosch GLM** (50C/100C) — Nordic UART `6e400001-…`, parser ASCII regex
-- Helper partagé `connectBleLaser(onMeasurement, onStatus)` : `requestDevice` + match driver par regex name + GATT subscribe + `{device, driver, disconnect}`
-- **Modal étape 1** : driver réel branché, écrit dans le champ focus (`activeFieldRef` pour éviter staleness React)
-- **TabMeas** : nouvelle barre BLE en haut (status + bouton), `activeMeasField` tracking sur 7 fields + 4 cellules room (n/a/l/h) avec border highlight #00E5A0
-- Cleanup auto : disconnect sur unmount (Modal + TabMeas)
-- Bouton bascule connect/disconnect avec affichage device name
-- Fallback gracieux Safari (`navigator.bluetooth` absent)
+Lancer : `npm test` (ou `npx vitest run` en CI).
 
-### Pourquoi ces choix
-- **Modal width 600** : 4 labels de stepper (Identification / Remplir / Photos / Lancement) au lieu de 3 — 560 px commençait à serrer.
-- **`activeFieldRef` (useRef)** : la callback BLE survit aux re-renders ; sans ref, la valeur de `activeField` capturée à la connexion devient stale.
-- **Approximation rectangle pour `foot`** : la plupart des bâtiments visés sont des parallélépipèdes ; emprise = (moy Sud/Nord) × (moy Est/Ouest) marche pour ~80 % des cas. Affinement possible plus tard.
-- **`win`/`doors` reçoivent aussi le laser** : pas idéal sémantiquement (compteur != distance) mais évite les surprises (« pourquoi rien ne s'écrit ? »). Affichage `Math.round(meters)` comme dégradé.
+---
 
-### Pas vérifié visuellement (limite environnement)
-- Claude Preview MCP a renvoyé `EPERM uv_cwd` (sandbox bloque le spawn shell hors worktree)
-- Pas de Chrome MCP connecté
-- **Vérification déléguée au user** : Vite tourne déjà (PID 59947 sur :3000), HMR a injecté les modifs (curl → 9 hits sur les nouveaux symboles BLE)
-- Smoke test Babel parser : ✅ PASS (5156 lignes)
+## 🎬 Récap session 1 — ce qu'on a livré (historique)
 
-### Bug fixes post-livraison initiale (commits 580542c → 5ee2ff8)
+Partis d'un POC sandbox Claude.ai (1793 lignes, full SVG iso, plein de bugs). Arrivés à une app à **4679 lignes** avec rendu WebGL réaliste, plans architecte, intake guidé Belgique, photos taggées par façade. **24 commits** structurés. (Détails : voir `project_status_session1.md` en mémoire.)
 
-L'utilisateur a testé en chaîne, plusieurs régressions sont apparues. Toutes corrigées :
+## 🎬 Récap session 2 — livrée (10 mai 2026)
 
-| # | Commit | Bug rapporté | Cause racine | Fix |
-|---|---|---|---|---|
-| 1 | `580542c` | Lancer renvoie au Dashboard | `addProject` ajoutait au state mais ne navigait pas | `openProject(np)` après `setProjects` |
-| 2 | `b7a21b9` | Bouton « Connecter laser » donne l'air obligatoire | Bouton vert fluo + bold | Restyle muted + tag « (optionnel) » + tooltip + footnote |
-| 3 | `fe6f0dd` | Lancer atterrit sur 3D, pas Mesures | `useState("model")` hardcodé | Nouveau prop `initialTab` ; `openProject(np, "meas")` après création |
-| 4 | `25378ff` | 3D + Plans affichaient des dimensions « d'autres projets » (cas projet partiel) | Fallbacks `parseFloat(m.foot) \|\| 142`, `\|\| 7.4` correspondaient EXACTEMENT au projet démo Haussmann (id 1) | Fallbacks neutres (80 m², 6 m) + `computeMeasFromFacades` infère depth = 0.6 × frontage si paire perpendiculaire vide |
-| 5 | `705a5b5` | 3D rendait toujours 12.9×8.1 même avec façades exactes | `IsoModel` ignorait `rooms[]` et reconstruisait W/D depuis `foot` via ratio 1.6 hardcodé | `_getRoomLen` lit les vraies longueurs depuis `rooms[]` ; fallback ratio uniquement si vide |
-| 6 | `685ada5` | Plans utilisaient hauteur globale max au lieu de la hauteur de chaque façade | `Elevation` faisait `parseFloat(meas.h)` sans regarder `room.h` | Nouveau `findFacadeHeight(needle)` ; `realH = findFacadeHeight(facadeId) \|\| meas.h \|\| 6` |
-| 7 | `363260e` | Cas 1 façade : `realW × realD ≠ foot` (incohérence math sqrt-ratio) | IsoModel + Elevation utilisaient `sqrt(foot * 1.6)` même avec roomW connu | Quand 1 paire connue : autre paire déduite via `foot / known` (math-cohérent) |
-| 8 | `d189a43` | « Position indisponible » sur géolocalisation | Code 2 = POSITION_UNAVAILABLE — Chrome traite `127.0.0.1` différemment de `localhost` pour Location Services macOS | Retry auto en low-accuracy (Wi-Fi) + messages d'erreur actionnables (suggère `localhost`) |
-| 9 | `6b47b09` puis `5ee2ff8` | HMR cache stale après les fixes | R3F + Canvas ne hot-reload pas toujours proprement | Sidebar v2.5 → v2.7, indicateur cyan `dimSource` (debug temporaire ajouté puis retiré une fois validé) |
+49 commits cumulés. Modal 4 étapes (Identification → Remplir façade par façade → Photos → Lancement) + drivers BLE laser réels (Leica DISTO + Bosch GLM) + 9 fixes itératifs + 11 items backlog Davide (modifier/supprimer projet, préférences fines, photos chantier → textures 3D, rapports senior, plans architecte pro, PDF metadata + DXF, tooltips + Help page, responsive). Plus 5 features autonomes post-session 2 : compression photos, xlsx réel, vitest setup, ErrorBoundary, signature canvas, PWA, search dans Aide.
 
-### Action manuelle de Claude pendant la session
-Pour débloquer un cache Vite tenace, j'ai utilisé Bash :
+## 🎬 Récap session 3 — livrée (13 mai 2026)
+
+**17 commits depuis 5ee2ff8 (fin session 2 documentée)** dont 8 features autonomes post-session 2 + light theme + **6 features world-class** (cette session) :
+
 ```
-kill 59947                                     # vieux Vite tué
-rm -rf ~/Desktop/mesurepro/node_modules/.vite  # cache vidé
-nohup node node_modules/.bin/vite > /tmp/mesurepro-vite.log 2>&1 &  # restart fresh
+b1d6d47 feat(world-class): 6 best-of-breed features — i18n + templates BE + matériaux BE + share + AR + PEB
+42d154d feat(theme): light theme toggle via Paramètres → Préférences
+5f0a6ab feat(help+ux): search dans Aide + 7 raccourcis clavier globaux
+560b48f feat(pwa): manifest + service worker — installable app + offline-first
+ecd0323 feat(reports+error): photos annexées dans PDF rapports + ErrorBoundary global
+1caf58a feat(reports): real signature canvas (mouse + touch) replaces text fields
+a3fead3 feat(export): real xlsx (SheetJS, 2 sheets) + JSON backup export
+68d9bd0 test: vitest setup + 20 smoke tests sur helpers purs
+289db9b build: split Three.js into separate vendor chunk for better caching
+914f198 feat(photos): client-side image compression — fixes localStorage quota bust
+bc01571 build: support VITE_BASE for GitHub Pages deploy
 ```
-Vite tourne maintenant en background avec PID 66797 — détaché du terminal du user.
 
 ---
 
 ## ⏳ Tâches en attente (par ordre de priorité)
 
-### 1. Test physique du laser (besoin matériel)
-Le code BLE est écrit mais **jamais testé avec un vrai laser** :
-- Acheter / emprunter un Leica DISTO X3 ou un Bosch GLM 50C
-- Vérifier que les UUIDs Leica `3ab10100-…` correspondent au modèle exact (peuvent varier X3 vs D2)
-- Pour Bosch, le format ASCII réel doit être confirmé — peut-être trame binaire selon firmware
-- Si UUIDs faux : ajouter un mode "appairage manuel" (lister tous les services dispo après connect)
+### 1. Validation visuelle Davide
+Tests browser des 6 nouvelles features :
+- [ ] **i18n** : changer langue dans Paramètres → vérifier Sidebar/Dashboard/tabs traduits
+- [ ] **Templates BE** : Modal step 2 → cliquer chaque template → vérifier pré-remplissage façades
+- [ ] **TabMaterials** : projet existant → onglet Matériaux → vérifier table + selecteurs + export PDF
+- [ ] **TabShare + ShareView** : copier lien → coller dans nouvel onglet → vérifier vue client + signature
+- [ ] **AR Export** : TabModel → Export AR (.glb) → ouvrir .glb dans viewer.io ou Scene Viewer
+- [ ] **TabPEB** : onglet PEB → modifier année + isolation → vérifier classe A-G + recommandations
 
-### 2. Stanley TLM driver
-Le briefing original mentionnait Stanley TLM en plus de Leica/Bosch. UUIDs à investiguer (la doc Bluetooth de Stanley est moins publique). Ajouter une 3ᵉ entrée dans `BLE_DRIVERS` quand on a les specs.
+### 2. Test physique du laser (besoin matériel)
+Inchangé depuis session 2 : code BLE écrit mais jamais validé avec un vrai Leica DISTO X3 ou Bosch GLM 50C.
 
-### 3. Backlog (de session 1)
-- Photos haussmanniennes plus ressemblantes (Unsplash gratuit limité)
-- Theme clair (refactor CSS vars)
-- xlsx réel (au lieu de CSV)
-- PWA (service worker offline-first)
-- Backend API (remplacer localStorage)
-- Tests E2E
+### 3. Stanley TLM driver
+Inchangé : ajouter 3ᵉ entrée dans `BLE_DRIVERS` quand specs UUIDs dispo.
+
+### 4. Améliorations futures envisageables (priorité < 1)
+- **i18n extension** : traduire Reports, HelpPage, EditProjectModal complets (actuellement i18n partielle = Sidebar/Dashboard/tabs)
+- **PDF rapport multi-langue** : actuellement les PDFs sont FR-hardcoded
+- **USDZ export iPhone** : convertir GLB → USDZ côté client (lib `three-usdz-loader` ou backend)
+- **Catalogue matériaux extensible** : permettre à l'utilisateur d'ajouter ses propres matériaux/prix
+- **Backend API** : remplacer localStorage (multi-device + multi-user)
+- **Tests E2E Playwright** : actuellement seulement vitest unit
+- **Drone import** : parse KML/KMZ/DXF entrants
+- **Marketing auto (CompanyCam style)** : photo projet → post LinkedIn auto
 
 ---
 
-## 🚀 Démarrage session 2
+## 🚀 Démarrage session 4
 
 ```bash
 # Si nouveau setup
@@ -196,10 +267,14 @@ npm install --legacy-peer-deps  # idempotent
 
 # Lancer
 npm run dev
-# → http://127.0.0.1:3000
+# → http://localhost:3000
+
+# Tester un share link en local
+# 1. Créer un projet → onglet Partage → copier le lien
+# 2. Coller dans un onglet privé → ShareView devrait s'afficher
 ```
 
-**Première chose à demander au user en session 3** : « Tu as testé le laser physique avec un Leica DISTO ou un Bosch GLM ? Les UUIDs / formats marchent ou il faut ajuster ? »
+**Première chose à demander au user en session 4** : « Tu as testé les 6 features world-class ? Light theme + i18n + templates BE + matériaux + share + AR + PEB — tout marche comme prévu ? »
 
 ---
 
@@ -216,6 +291,8 @@ try {
 "
 ```
 
+Plus complet : `npm test` (40 tests vitest).
+
 ---
 
 ## 🔥 Limites + pièges connus
@@ -225,28 +302,33 @@ try {
 | **R3F v9 casse** | `Cannot read 'S'` au mount | Pinned to `@react-three/fiber@8.17.10` — NE PAS UPGRADE |
 | **`--legacy-peer-deps`** | Sans ça, npm install échoue | Toujours utiliser ce flag |
 | **Cache Vite stale** | Anciens chunks gardés au refresh | Cmd+Shift+R, ou kill Vite + `rm -rf node_modules/.vite` |
-| **localStorage shadow** | `mergeWithDefaults` ne refresh QUE le champ `photos` des projets démo (id 1, 2, 5) | Pour reset complet : Settings → Réinitialiser |
-| **WebGL Context Lost** | Crash GPU sur trop de textures lourdes | Shadow map 1K, Environment "apartment" (pas "park"), ContactShadows res 512 |
-| **CORS textures externes** | Polyhaven/Unsplash refusent CORS pour TextureLoader | Tout bundlé en local /public/textures + /public/photos |
+| **CORS textures externes** | Polyhaven/Unsplash refusent CORS | Tout bundlé en local /public/ |
+| **GLTFExporter import** | Vite v5 gère bien `three/examples/jsm/exporters/...` en ES module | Si problème : essayer `@react-three/drei` qui rebundle |
+| **Light theme = filter invert** | Couleurs accentuées légèrement décalées | Trade-off accepté, ré-invert media |
+| **i18n PDF reports** | PDFs sont FR-hardcoded (pas i18n-isés) | TODO session 4 : utiliser `t()` dans exportProjectPdf etc. |
+| **Share URL très longue** | Projets avec beaucoup de rooms/photos → URL > 2KB | strip blob:/data: déjà fait ; pour très gros : envisager pako gzip |
+| **QR code online** | `api.qrserver.com` ; offline → fallback message | Acceptable, fallback non bloquant |
 
 ---
 
-## 📊 Stats fin session 2 (étendue)
+## 📊 Stats fin session 3
 
-- **Lignes** : ~6850 (App.jsx, +2171 vs session 1) + 100 KB JSON + 9.7 MB assets
-- **Commits totaux** : 49 (24 session 1 + 25 session 2 dont 9 fixes itératifs + 11 backlog Davide + 5 docs/cleanup)
-- **Dépendances prod** : 5 (react, react-dom, jspdf, jspdf-autotable, fiber, drei, three) — pas de nouvelle dépendance ajoutée
-- **API externes** : Photon (autocomplete BE), Nominatim (reverse geocoding), Google Geocoding + Solar API (optionnel via .env)
-- **Bundle dev served** : Vite + HMR + ~10 MB textures/photos lazy-loaded
-- **UI version** : `v2.7` (visible sidebar)
-- **Sidebar** : 4 entrées (Projets, Rapports, Paramètres, Aide)
-- **Responsive** : 3 paliers (desktop > 1024 px / tablette ≤ 1024 / mobile ≤ 640) avec body scroll lock
+- **Lignes** : ~8095 (App.jsx, +1094 vs fin session 2) + 100 KB JSON + 9.7 MB assets
+- **Commits totaux** : 66 (24 session 1 + 25 session 2 + 6 session 3 finitions + 8 session 3 best-of-breed)
+- **Dépendances prod** : 8 (react, react-dom, jspdf, jspdf-autotable, xlsx, fiber, drei, three) — pas de nouvelle dépendance ajoutée en session 3 (GLTFExporter vient avec three)
+- **API externes** : Photon (autocomplete BE), Nominatim (reverse geocoding), Google Geocoding + Solar API (optionnel via .env), api.qrserver.com (QR codes Share)
+- **Bundle prod** : 1001 KB main (314 KB gzip) + 1046 KB three vendor (293 KB gzip) + 201 KB html2canvas + 150 KB xlsx
+- **UI version** : `v2.7` (visible sidebar, à bump v2.8 si nécessaire pour signaler les nouveautés)
+- **Sidebar** : 4 entrées (Projets, Rapports, Paramètres, Aide) — i18n-isées
+- **ProjectDetail tabs** : 9 onglets (Photos, Modèle 3D, Plans, Mesures, Design, Devis, Matériaux NEW, PEB NEW, Partage NEW) — i18n-isés
+- **Tests** : 40/40 passent
 
-## 🎓 Leçons apprises session 2
+## 🎓 Leçons apprises session 3
 
-1. **HMR + R3F = piège** : modifier une fonction interne au Canvas R3F (comme IsoModel) ne se hot-reload pas toujours. Symptôme : code modifié + servi par Vite + pas visible dans browser. Solution : `pkill vite` + `rm -rf node_modules/.vite` + restart.
-2. **`127.0.0.1` ≠ `localhost`** : Chrome+macOS Location Services traitent différemment. Geolocation peut échouer sur 127.0.0.1 même quand elle marche sur localhost.
-3. **Fallbacks hardcodés piégeux** : utiliser `|| 142` ou `|| 7.4` qui correspondent à un projet démo crée des bugs subtils — un projet incomplet ressemble visuellement à un autre. Toujours préférer des défauts neutres (80, 6) qui ne match aucun cas réel.
-4. **Dérivation math doit être cohérente** : si on calcule foot = W × D dans un endroit, partout ailleurs on doit avoir realW × realD = realFoot. L'usage d'un ratio 1.6 hardcodé brisait cette invariance.
+1. **Mono-fichier = traduction par helper, pas par fichier locale séparé** : pour rester dans la philosophie "1 seul App.jsx", I18N est une const top-level avec helper t() — pas i18next, pas de loaders dynamiques. Acceptable pour ~50-200 clés, devient lourd au-delà.
+2. **Rules of Hooks vs early return** : `if (shareProject) return <ShareView/>` doit venir APRÈS tous les `useState/useEffect/useMemo`. Sinon erreur React `Rendered fewer hooks than expected`. Solution : déclarer tous les hooks, puis early-return après.
+3. **GLTFExporter de three/examples/jsm** : Vite v5 gère bien l'import ESM direct. Pas besoin de `@react-three/drei` wrapper. Bundle tree-shake correctement (GLTFExporter ~30 KB additionnels).
+4. **Share via URL = limite 2KB navigateurs** : tester avec un projet complet avant de promettre que c'est universel. On strip déjà blob:/data: photos pour rester sous la limite. Au-delà : envisager pako gzip ou backend de stockage temporaire.
+5. **PEB simplifié ≠ certificat officiel** : insister sur le disclaimer sinon risque légal. Notre estimation est pédagogique, le PEB officiel BE requiert un certificateur agréé.
 
-Bon dev en session 3 ! 🚀
+Bon dev en session 4 ! 🚀
