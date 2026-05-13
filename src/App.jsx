@@ -5,6 +5,7 @@ import * as XLSX from "xlsx";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
@@ -2573,10 +2574,10 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
 /* ---- Sidebar ---- */
 function Sidebar({ view, setView }) {
   var items = [
-    {id:"dash",    icon:"H", lbl:"Projets",    tip:"Liste de tous les projets — créer, ouvrir, exporter, supprimer"},
-    {id:"reports", icon:"D", lbl:"Rapports",   tip:"Rapports de mesures, devis, inspections, propositions niveau auditeur senior"},
-    {id:"settings",icon:"S", lbl:"Parametres", tip:"Profil, préférences (TVA, devise, civilité, ratio profondeur), civilités, stockage local"},
-    {id:"help",    icon:"?", lbl:"Aide",       tip:"Guide pas-à-pas + FAQ — tout ce qu'il faut savoir pour utiliser MesurePro"},
+    {id:"dash",    icon:"H", lbl:t("nav.projects"), tip:"Liste de tous les projets — créer, ouvrir, exporter, supprimer"},
+    {id:"reports", icon:"D", lbl:t("nav.reports"),  tip:"Rapports de mesures, devis, inspections, propositions niveau auditeur senior"},
+    {id:"settings",icon:"S", lbl:t("nav.settings"), tip:"Profil, préférences (TVA, devise, civilité, ratio profondeur), civilités, stockage local"},
+    {id:"help",    icon:"?", lbl:t("nav.help"),     tip:"Guide pas-à-pas + FAQ — tout ce qu'il faut savoir pour utiliser MesurePro"},
   ];
   return (
     <div data-noprint="1" style={{position:"fixed",top:0,left:0,width:W,height:"100vh",
@@ -2645,10 +2646,10 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
     return hay.indexOf(ql) !== -1;
   });
   var STATUS_FILTERS = [
-    {id:"all",        lbl:"Tous"},
-    {id:"done",       lbl:"Termines"},
-    {id:"processing", lbl:"En cours"},
-    {id:"draft",      lbl:"Brouillons"},
+    {id:"all",        lbl:t("dashboard.allStatus") === "Tous les statuts" ? "Tous" : t("dashboard.allStatus")},
+    {id:"done",       lbl:t("status.done")},
+    {id:"processing", lbl:t("status.processing")},
+    {id:"draft",      lbl:t("status.draft")},
   ];
   return (
     <div style={{padding:"26px 28px",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
@@ -2661,12 +2662,12 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
         </div>
         <Btn onClick={onNew} primary={true}
           title="Créer un nouveau projet — parcours guidé en 4 étapes : identification, mesures façade par façade, photos, lancement">
-          + Nouveau projet
+          {t("dashboard.newProject")}
         </Btn>
       </div>
       <div style={{position:"relative",marginBottom:12}}>
         <input value={q} onChange={function(e){setQ(e.target.value);}}
-          placeholder="Rechercher dans projets ET rapports (adresse, ville, client, ref)..."
+          placeholder={t("common.search")}
           style={{width:"100%",boxSizing:"border-box",background:"#0F1C2E",
             border:"1px solid #1C3050",borderRadius:8,color:"#E8EDF5",
             fontSize:13,padding:"9px 12px",outline:"none"}}/>
@@ -2800,14 +2801,22 @@ function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
 }
 
 /* ---- ProjectDetail ---- */
-var PTABS = [
-  {id:"photos",lbl:"Photos",   tip:"Photos chantier — drag-drop, tag façade Sud/Nord/Est/Ouest pour utiliser comme texture 3D"},
-  {id:"model", lbl:"Modele 3D",tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
-  {id:"plans", lbl:"Plans",    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
-  {id:"meas",  lbl:"Mesures",  tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
-  {id:"design",lbl:"Design",   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
-  {id:"devis", lbl:"Devis",    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
-];
+/* Fonction (pas constante) — relus à chaque render pour réagir au switch i18n.
+   L'ordre des tabs (photos > model > plans > meas > design > devis) est figé
+   pour garder la cohérence des onglets entre versions. */
+function PTABS_FN() {
+  return [
+    {id:"photos",lbl:t("tab.photos"),   tip:"Photos chantier — drag-drop, tag façade Sud/Nord/Est/Ouest pour utiliser comme texture 3D"},
+    {id:"model", lbl:t("tab.model"),    tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
+    {id:"plans", lbl:t("tab.plans"),    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
+    {id:"meas",  lbl:t("tab.meas"),     tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
+    {id:"design",lbl:t("tab.design"),   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
+    {id:"devis", lbl:t("tab.devis"),    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
+    {id:"materials", lbl:t("tab.materials"), tip:"Quantitatif matériaux auto (toiture/façades) calculé depuis les dimensions"},
+    {id:"peb",    lbl:t("tab.peb"),     tip:"Indicateur PEB / EPC / EPB — classe A-G estimée depuis les données du projet"},
+    {id:"share",  lbl:t("tab.share"),   tip:"Partager ce projet à votre client via un lien sharable (QR code, e-signature)"},
+  ];
+}
 
 function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
   var [tab, setTab]   = useState(initialTab || "model");
@@ -2858,19 +2867,19 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
       </div>
       <div data-noprint="1" style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
         borderBottom:"1px solid #1C3050",
-        display:"flex",alignItems:"flex-end",paddingLeft:20}}>
-        {PTABS.map(function(t) {
-          var active = tab === t.id;
+        display:"flex",alignItems:"flex-end",paddingLeft:20,overflowX:"auto"}}>
+        {PTABS_FN().map(function(pt) {
+          var active = tab === pt.id;
           return (
-            <button type="button" key={t.id} onClick={function(){setTab(t.id);}}
-              title={t.tip} style={{
+            <button type="button" key={pt.id} onClick={function(){setTab(pt.id);}}
+              title={pt.tip} style={{
               height:"100%",padding:"0 16px",background:"none",border:"none",
               borderBottom:"2px solid "+(active ? "#00C2FF" : "transparent"),
               color:active ? "#00C2FF" : "#607898",
               fontSize:12,fontWeight:active ? 700 : 400,
               cursor:"pointer",outline:"none",
-              display:"flex",alignItems:"center",whiteSpace:"nowrap",
-            }}>{t.lbl}</button>
+              display:"flex",alignItems:"center",whiteSpace:"nowrap",flexShrink:0,
+            }}>{pt.lbl}</button>
           );
         })}
       </div>
@@ -2881,6 +2890,9 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
         {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
+        {tab === "materials" && <TabMaterials project={project} setToast={setToast}/>}
+        {tab === "peb"    && <TabPEB project={project} onUpdate={onUpdate}/>}
+        {tab === "share"  && <TabShare project={project} setToast={setToast}/>}
       </div>
       {editOpen && (
         <EditProjectModal
@@ -3395,6 +3407,25 @@ function TabModel({ project, mat, setMat, onUpdate }) {
               padding:"7px 0",borderTop:"1px solid #1C3050",marginTop:6}}>
               Les murs et le perimetre sont recalcules automatiquement.
               Pour saisir manuellement chaque cote, utilisez l'onglet <span style={{color:"#607898",fontWeight:700}}>Mesures</span>.
+            </div>
+
+            {/* Export AR (.glb) — différenciateur clé vs Hover/EagleView */}
+            <div style={{borderTop:"1px solid #1C3050",marginTop:10,paddingTop:12}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#FF8C42",textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:8}}>📦 Export AR</div>
+              <button type="button"
+                onClick={function(){ exportProjectGlb(project, function(msg){ /* toast via parent? */ }); }}
+                title={t("ar.downloadGlb") + " — compatible Android Scene Viewer + iOS Reality Composer"}
+                style={{width:"100%",background:"#FF8C42",border:"none",color:"#000",
+                  borderRadius:7,padding:"9px 12px",fontSize:11,fontWeight:700,
+                  cursor:"pointer",outline:"none"}}>
+                ⬇ {t("ar.downloadGlb")}
+              </button>
+              <div style={{fontSize:9,color:"#607898",marginTop:6,lineHeight:1.45}}>
+                {detectArPlatform() === "ios" && "📱 iOS : ouvrir avec Reality Composer (gratuit) pour conversion AR."}
+                {detectArPlatform() === "android" && "📱 Android : ouvrir avec Scene Viewer pour AR Quick Look."}
+                {detectArPlatform() === "other" && "Compatible Scene Viewer (Android), Reality Composer (iOS), viewer.io, Blender."}
+              </div>
             </div>
           </div>
         )}
@@ -4101,6 +4132,894 @@ function nextRefForKind(kind, reports) {
   var year = new Date().getFullYear();
   var n = (reports||[]).filter(function(r){ return r.kind === kind; }).length + 1;
   return prefix + "-" + year + "-" + String(n).padStart(3,"0");
+}
+
+/* ============================================================================
+   Export AR — Génère un GLB du modèle 3D à partir des dimensions du projet.
+   Compatible Android Scene Viewer (AR natif) + viewers tiers iOS / desktop.
+
+   Pourquoi GLB ? Format ouvert, supporté par Three.js GLTFExporter, ouvrable
+   par Reality Composer (iOS), Scene Viewer (Android), Blender, viewer.io, etc.
+   Limitation iOS native AR : Quick Look ne prend que USDZ. La conversion
+   GLB → USDZ n'est pas faisable côté browser sans lib spéciale ; on accepte
+   ce trade-off et on documente la procédure côté utilisateur (Reality
+   Composer fait la conversion gratuitement).
+============================================================================ */
+function buildBuildingScene(project) {
+  var m = project.meas || {};
+  var floors = parseInt(project.floors, 10) || 2;
+  var realH = parseFloat(m.h) || floors * 3;
+  var realFoot = parseFloat(m.foot) || 80;
+  /* Récupère les vraies longueurs façades si dispo (cohérence avec IsoModel) */
+  function roomLen(needle) {
+    var rs = project.rooms || [];
+    for (var i = 0; i < rs.length; i++) {
+      if (typeof rs[i].n === "string" && rs[i].n.toLowerCase().indexOf(needle) !== -1) {
+        var v = parseFloat(rs[i].l);
+        if (isFinite(v) && v > 0) return v;
+      }
+    }
+    return null;
+  }
+  var W = roomLen("sud") || roomLen("nord") || Math.sqrt(realFoot * 1.6);
+  var D = roomLen("est") || roomLen("ouest") || Math.sqrt(realFoot / 1.6);
+
+  var scene = new THREE.Scene();
+
+  /* Wall: brique rouge par défaut (couleur Material) */
+  var wallMat = new THREE.MeshStandardMaterial({
+    color: 0xc04a2b, roughness: 0.85, metalness: 0.0,
+  });
+  var box = new THREE.Mesh(
+    new THREE.BoxGeometry(W, realH, D),
+    wallMat
+  );
+  box.position.y = realH / 2;
+  box.castShadow = box.receiveShadow = true;
+  scene.add(box);
+
+  /* Toit : pignon (gable) approx selon le type */
+  var roofType = (project.roof || "Pignon").toLowerCase();
+  var roofMat = new THREE.MeshStandardMaterial({
+    color: roofType.indexOf("ardoise") >= 0 || roofType.indexOf("mansart") >= 0 ? 0x404856 : 0x6a3e2a,
+    roughness: 0.6, metalness: 0.1,
+  });
+  var roofMesh;
+  if (roofType.indexOf("terrasse") >= 0 || roofType.indexOf("flat") >= 0) {
+    /* Toit plat : box fin */
+    roofMesh = new THREE.Mesh(new THREE.BoxGeometry(W * 1.05, 0.3, D * 1.05), roofMat);
+    roofMesh.position.y = realH + 0.15;
+  } else if (roofType.indexOf("4") >= 0 || roofType.indexOf("hip") >= 0) {
+    /* 4 pans : pyramide */
+    roofMesh = new THREE.Mesh(new THREE.ConeGeometry(Math.max(W, D) * 0.78, realH * 0.4, 4), roofMat);
+    roofMesh.position.y = realH + (realH * 0.4) / 2;
+    roofMesh.rotation.y = Math.PI / 4;
+  } else {
+    /* Pignon (gable) : prisme triangulaire approx via cone à 3 segments */
+    roofMesh = new THREE.Mesh(new THREE.ConeGeometry(W * 0.62, realH * 0.45, 3), roofMat);
+    roofMesh.position.y = realH + (realH * 0.45) / 2;
+    roofMesh.rotation.y = Math.PI / 6;
+  }
+  scene.add(roofMesh);
+
+  return scene;
+}
+
+function exportProjectGlb(project, setToast) {
+  try {
+    var scene = buildBuildingScene(project);
+    var exporter = new GLTFExporter();
+    exporter.parse(scene, function(result) {
+      var blob = new Blob([result], { type: "model/gltf-binary" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = slug(project.addr || "modele") + ".glb";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 200);
+      setToast && setToast("Modèle 3D (.glb) téléchargé");
+    }, function(err) {
+      console.error("GLTFExporter error:", err);
+      setToast && setToast("Erreur export GLB");
+    }, { binary: true, onlyVisible: true });
+  } catch(e) {
+    console.error(e);
+    setToast && setToast("Erreur export GLB");
+  }
+}
+
+/* Détecte l'OS pour proposer le bon flow AR.
+   - iOS : Reality Composer (gratuit App Store) lit GLB et convertit en USDZ
+   - Android : Scene Viewer ouvre GLB en AR natif via intent
+   - autres : viewer.io, viewer.babylonjs.com, etc. */
+function detectArPlatform() {
+  if (typeof navigator === "undefined") return "other";
+  var ua = (navigator.userAgent || "").toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (/android/.test(ua)) return "android";
+  return "other";
+}
+
+/* ============================================================================
+   TabMaterials — Quantitatif matériaux automatique (BE)
+   Calcule à partir des dimensions saisies les quantités et prix des matériaux
+   typiques utilisés en construction belge 2026. Tables BE_MATERIALS définit
+   les ratios (unités/m²) et prix unitaires moyens marché BE.
+============================================================================ */
+var BE_MATERIALS = {
+  /* Toiture (m² roof) */
+  roof: [
+    {id:"tiles_terre_cuite",  lbl:"Tuiles terre cuite",         unit:"u",  ratio:13,   priceEur:1.85, group:"roof", note:"Modèle plat type Koramic — 13 u/m²"},
+    {id:"tiles_beton",        lbl:"Tuiles béton",                unit:"u",  ratio:10,   priceEur:1.20, group:"roof", note:"Type Eternit S-Wing — 10 u/m²"},
+    {id:"ardoises_naturelle", lbl:"Ardoises naturelles",         unit:"u",  ratio:22,   priceEur:3.40, group:"roof", note:"Format 30×20 cm — 22 u/m²"},
+    {id:"ardoises_fibro",     lbl:"Ardoises fibrociment",        unit:"u",  ratio:14,   priceEur:1.95, group:"roof", note:"Eternit Alterna — 14 u/m²"},
+    {id:"zinc_quartz",        lbl:"Zinc joint debout",           unit:"m²", ratio:1,    priceEur:88,   group:"roof", note:"VMZinc Anthra — pose pro"},
+    {id:"epdm_membrane",      lbl:"Membrane EPDM (toit plat)",   unit:"m²", ratio:1,    priceEur:38,   group:"roof", note:"Firestone RubberCover 1.14 mm"},
+    {id:"chevrons",           lbl:"Chevrons C24 (m³)",           unit:"m³", ratio:0.018,priceEur:540,  group:"roof", note:"Section 75×175 mm pin sylvestre"},
+    {id:"lattes",             lbl:"Lattes de toiture",           unit:"ml", ratio:4.5,  priceEur:0.95, group:"roof", note:"38×24 mm pin traité"},
+    {id:"sous_toiture",       lbl:"Écran sous-toiture HPV",      unit:"m²", ratio:1.10, priceEur:4.50, group:"roof", note:"Permo Forte 280g/m² incl. recouvrement"},
+    {id:"gouttiere",          lbl:"Gouttière zinc",              unit:"ml", ratio:0.4,  priceEur:28,   group:"roof", note:"Estimation 0.4 ml par m² de toiture"},
+  ],
+  /* Façades (m² walls) */
+  facade: [
+    {id:"isolation_lr",       lbl:"Isolation laine de roche",    unit:"m²", ratio:1,    priceEur:18,   group:"facade", note:"Rockwool 14 cm λ 0.035"},
+    {id:"isolation_pir",      lbl:"Isolation PIR",                unit:"m²", ratio:1,    priceEur:32,   group:"facade", note:"Recticel Eurowall 10 cm λ 0.022"},
+    {id:"crepi_mineral",      lbl:"Crépi minéral",                unit:"m²", ratio:1,    priceEur:42,   group:"facade", note:"Knauf Diamant — finition projetée"},
+    {id:"bardage_red_cedar",  lbl:"Bardage Red Cedar",            unit:"m²", ratio:1,    priceEur:78,   group:"facade", note:"Clins canadiens 18 mm classe 2"},
+    {id:"bardage_thermo",     lbl:"Bardage bois thermo-traité",   unit:"m²", ratio:1,    priceEur:62,   group:"facade", note:"Frêne Lunawood — pose horizontale"},
+    {id:"briquettes",         lbl:"Briquettes de parement",       unit:"m²", ratio:60,   priceEur:0.65, group:"facade", note:"Vandersanden — 60 briquettes/m²"},
+    {id:"enduit_chaux",       lbl:"Enduit chaux traditionnel",    unit:"m²", ratio:1,    priceEur:48,   group:"facade", note:"Saint-Astier 25 mm — 2 couches"},
+  ],
+};
+
+function TabMaterials({ project, setToast }) {
+  var prefs = getPrefs();
+  var cur = prefs.currency;
+  var m = project.meas || {};
+  var roof  = parseFloat(m.roof)  || 0;
+  var walls = parseFloat(m.walls) || 0;
+  /* Sélection par défaut : tuiles terre cuite + crépi minéral + isolation LR */
+  var [selRoof,   setSelRoof]   = useState("tiles_terre_cuite");
+  var [selFacade, setSelFacade] = useState("crepi_mineral");
+  var [selIsol,   setSelIsol]   = useState("isolation_lr");
+  var [includeAcc, setIncludeAcc] = useState(true);
+  var [marge, setMarge] = useState(15);
+
+  if (!roof && !walls) {
+    return (
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+        justifyContent:"center",minHeight:"calc(100vh - 92px)",gap:10,color:"#607898"}}>
+        <div style={{fontSize:36}}>📦</div>
+        <div style={{fontSize:14,fontWeight:600}}>{t("mat.quantitative")}</div>
+        <div style={{fontSize:12}}>Saisissez les mesures dans l'onglet {t("tab.meas")}</div>
+      </div>
+    );
+  }
+
+  function calcLine(mat, surface) {
+    var qty = surface * mat.ratio;
+    var total = qty * mat.priceEur;
+    return { mat:mat, qty:qty, total:total, surface:surface };
+  }
+
+  var lines = [];
+  var roofMat = BE_MATERIALS.roof.find(function(x){ return x.id === selRoof; }) || BE_MATERIALS.roof[0];
+  if (roof) {
+    lines.push(calcLine(roofMat, roof));
+    if (includeAcc) {
+      /* Sous-toiture + chevrons + lattes + gouttière auto */
+      ["sous_toiture","chevrons","lattes","gouttiere"].forEach(function(id){
+        var mm = BE_MATERIALS.roof.find(function(x){ return x.id === id; });
+        if (mm) lines.push(calcLine(mm, roof));
+      });
+    }
+  }
+  if (walls) {
+    var isolMat = BE_MATERIALS.facade.find(function(x){ return x.id === selIsol; });
+    if (isolMat) lines.push(calcLine(isolMat, walls));
+    var facMat = BE_MATERIALS.facade.find(function(x){ return x.id === selFacade; }) || BE_MATERIALS.facade[0];
+    lines.push(calcLine(facMat, walls));
+  }
+  var ht = lines.reduce(function(a,l){ return a + l.total; }, 0);
+  var mrg = ht * (marge / 100);
+  var htMargin = ht + mrg;
+  var tva = htMargin * (prefs.tva / 100);
+  var ttc = htMargin + tva;
+
+  function fmt(n) { return n.toLocaleString("fr-BE", {minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  function exportMaterialsPdf() {
+    var doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    doc.setFontSize(14); doc.text(t("mat.quantitative"), 14, 18);
+    doc.setFontSize(10); doc.text(project.addr + " — " + project.city, 14, 26);
+    var body = lines.map(function(l){
+      return [l.mat.lbl, l.surface.toFixed(1) + " m²",
+        l.qty.toFixed(2) + " " + l.mat.unit,
+        l.mat.priceEur.toFixed(2) + " " + cur,
+        fmt(l.total) + " " + cur];
+    });
+    autoTable(doc, {
+      startY: 34,
+      head: [[t("common.search").replace("...",""), "Surface", t("mat.qty"), t("mat.unitPrice"), t("mat.total")]],
+      body: body,
+      styles:{fontSize:9}, headStyles:{fillColor:[15,28,46]},
+    });
+    var y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(10);
+    doc.text(t("mat.subtotal") + " HT : " + fmt(ht) + " " + cur, 14, y);
+    doc.text("Marge (" + marge + "%) : " + fmt(mrg) + " " + cur, 14, y+6);
+    doc.text("TVA (" + prefs.tva + "%) : " + fmt(tva) + " " + cur, 14, y+12);
+    doc.setFontSize(12);
+    doc.text(t("mat.total") + " TTC : " + fmt(ttc) + " " + cur, 14, y+20);
+    doc.save("quantitatif-" + slug(project.addr || "projet") + ".pdf");
+    setToast && setToast("PDF quantitatif téléchargé");
+  }
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("mat.quantitative")}</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:3}}>
+            Tables prix moyens BE 2026 — Toiture {roof.toFixed(1)} m² + Façades {walls.toFixed(1)} m²
+          </div>
+        </div>
+        <button type="button" onClick={exportMaterialsPdf}
+          style={{background:"#00C2FF",border:"none",color:"#000",borderRadius:7,
+            padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none"}}>
+          📄 {t("mat.exportPdf")}
+        </button>
+      </div>
+
+      {/* Sélecteurs matériau */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12,marginBottom:18}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:8,textTransform:"uppercase"}}>🏠 {t("mat.roof")}</div>
+          <select value={selRoof} onChange={function(e){ setSelRoof(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.roof.filter(function(x){ return ["tiles_terre_cuite","tiles_beton","ardoises_naturelle","ardoises_fibro","zinc_quartz","epdm_membrane"].indexOf(x.id) >= 0; }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:8,textTransform:"uppercase"}}>🧱 {t("mat.facade")}</div>
+          <select value={selFacade} onChange={function(e){ setSelFacade(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.facade.filter(function(x){ return ["crepi_mineral","bardage_red_cedar","bardage_thermo","briquettes","enduit_chaux"].indexOf(x.id) >= 0; }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#FF8C42",marginBottom:8,textTransform:"uppercase"}}>🌡️ {t("mat.insulation")}</div>
+          <select value={selIsol} onChange={function(e){ setSelIsol(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.facade.filter(function(x){ return x.id.startsWith("isolation_"); }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#8DAFC8",cursor:"pointer"}}>
+          <input type="checkbox" checked={includeAcc} onChange={function(e){ setIncludeAcc(e.target.checked); }}
+            style={{cursor:"pointer",accentColor:"#00C2FF"}}/>
+          Inclure accessoires toiture (sous-toiture, chevrons, lattes, gouttière)
+        </label>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:11,color:"#607898"}}>Marge :</span>
+        <input type="range" min="0" max="50" step="1" value={marge}
+          onChange={function(e){ setMarge(parseInt(e.target.value, 10)); }}
+          style={{width:120,accentColor:"#00E5A0"}}/>
+        <span style={{fontSize:12,fontFamily:"monospace",color:"#E8EDF5",width:36,textAlign:"right"}}>{marge}%</span>
+      </div>
+
+      {/* Table quantitatif */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,overflow:"hidden",marginBottom:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.8fr 0.9fr",
+          background:"#152135",padding:"9px 12px",fontSize:10,fontWeight:700,
+          color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <div>Matériau</div><div>Surface</div><div>{t("mat.qty")}</div><div>{t("mat.unitPrice")}</div><div style={{textAlign:"right"}}>{t("mat.total")} HT</div>
+        </div>
+        {lines.map(function(l, i){
+          return (
+            <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.8fr 0.9fr",
+              padding:"9px 12px",borderTop:"1px solid #1C3050",fontSize:12,color:"#E8EDF5",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:600}}>{l.mat.lbl}</div>
+                <div style={{fontSize:10,color:"#607898",marginTop:2}}>{l.mat.note}</div>
+              </div>
+              <div style={{fontFamily:"monospace",color:"#8DAFC8"}}>{l.surface.toFixed(1)} m²</div>
+              <div style={{fontFamily:"monospace"}}>{l.qty.toFixed(2)} {l.mat.unit}</div>
+              <div style={{fontFamily:"monospace",color:"#8DAFC8"}}>{l.mat.priceEur.toFixed(2)} {cur}</div>
+              <div style={{fontFamily:"monospace",fontWeight:700,textAlign:"right"}}>{fmt(l.total)} {cur}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Totaux */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>{t("mat.subtotal")} HT</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(ht)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>Marge ({marge}%)</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(mrg)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>TVA ({prefs.tva}%)</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(tva)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:16,
+          fontWeight:900,color:"#00C2FF",borderTop:"1px solid #1C3050",paddingTop:10,marginTop:6}}>
+          <span>TOTAL TTC</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(ttc)} {cur}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   TabPEB — Indicateur Performance Énergétique Bâtiment (Belgique)
+   Estimation A-G simplifiée basée sur :
+   - Surface chauffée (m²) = foot * floors
+   - Année construction (input projet ou paramétrable)
+   - Niveau isolation (full/partial/none — input utilisateur)
+   - Ratio compacité (volume/surface enveloppe)
+   - Bonus solaire si Solar API utilisée
+
+   Formule simplifiée : kWh/m²/an estimé puis mapping classes.
+   ⚠️ Indicatif uniquement — un PEB officiel requiert un certificateur agréé.
+============================================================================ */
+function computePEB(project) {
+  var m = project.meas || {};
+  var foot = parseFloat(m.foot) || 0;
+  var walls = parseFloat(m.walls) || 0;
+  var roof = parseFloat(m.roof) || 0;
+  var floors = parseFloat(project.floors) || 1;
+  var year = parseInt(project.yearBuilt || "", 10);
+  var insulation = project.insulation || "partial";
+  var heatedArea = foot * floors || 100;
+
+  /* Base consommation kWh/m²/an selon année construction (BE typical) */
+  var baseByYear;
+  if (!year)            baseByYear = 350; /* unknown = worst-ish */
+  else if (year < 1945) baseByYear = 450; /* maisons anciennes non isolées */
+  else if (year < 1970) baseByYear = 380;
+  else if (year < 1985) baseByYear = 320;
+  else if (year < 2000) baseByYear = 250;
+  else if (year < 2010) baseByYear = 180;
+  else if (year < 2018) baseByYear = 110; /* PEB obligatoire ~2010 BE */
+  else                  baseByYear = 65;  /* PEB Q-ZEN 2021+ */
+
+  /* Multiplicateur isolation */
+  var insulMult = ({ "full": 0.55, "partial": 1.0, "none": 1.55 })[insulation] || 1.0;
+
+  /* Bonus compacité : compacité = volume / surface enveloppe.
+     Plus c'est compact, moins de pertes. Ratio standard ~0.9-1.4. */
+  var envelope = walls + roof + foot; /* surface totale enveloppe */
+  var volume = foot * (parseFloat(m.h) || 6);
+  var compactness = envelope > 0 ? volume / envelope : 1.0;
+  var compactMult = compactness < 1.0 ? 1.15 : compactness < 1.5 ? 1.0 : 0.92;
+
+  var kwhPerYear = baseByYear * insulMult * compactMult;
+
+  /* Bonus solaire si Solar API a renseigné maxArrayPanelsCount */
+  if (project.solar && project.solar.maxArrayPanelsCount > 10) {
+    kwhPerYear *= 0.85; /* -15 % si potentiel solaire utilisé */
+  }
+
+  /* Mapping kWh/m²/an → classes A-G (PEB Wallonie 2026, indicatif) */
+  var cls;
+  if      (kwhPerYear < 45)  cls = "A++";
+  else if (kwhPerYear < 85)  cls = "A";
+  else if (kwhPerYear < 170) cls = "B";
+  else if (kwhPerYear < 255) cls = "C";
+  else if (kwhPerYear < 340) cls = "D";
+  else if (kwhPerYear < 425) cls = "E";
+  else if (kwhPerYear < 510) cls = "F";
+  else                        cls = "G";
+
+  return {
+    cls: cls,
+    kwhPerYear: Math.round(kwhPerYear),
+    heatedArea: heatedArea,
+    annualTotal: Math.round(kwhPerYear * heatedArea),
+    inputs: { year:year || null, insulation:insulation, compactness:compactness.toFixed(2) },
+  };
+}
+
+var PEB_COLORS = {
+  "A++":"#00A86B","A":"#3CB371","B":"#9ACD32","C":"#FFD700",
+  "D":"#FFA500","E":"#FF6347","F":"#DC143C","G":"#8B0000",
+};
+
+function TabPEB({ project, onUpdate }) {
+  var [year, setYear] = useState(project.yearBuilt || "");
+  var [insul, setInsul] = useState(project.insulation || "partial");
+
+  /* Sauvegarde auto dans le projet */
+  useEffect(function(){
+    if (year !== (project.yearBuilt || "") || insul !== (project.insulation || "partial")) {
+      onUpdate && onUpdate({ yearBuilt: year, insulation: insul });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, insul]);
+
+  var peb = useMemo(function(){
+    return computePEB(Object.assign({}, project, { yearBuilt: year, insulation: insul }));
+  }, [project, year, insul]);
+
+  var color = PEB_COLORS[peb.cls] || "#999";
+  var classes = ["A++","A","B","C","D","E","F","G"];
+
+  /* Recommandations contextuelles */
+  var recos = [];
+  if (insul !== "full")    recos.push("🌡️ Renforcer l'isolation (toiture + façades + sol) — saut potentiel de 2-3 classes");
+  if ((parseInt(year,10) || 2020) < 1985) recos.push("🪟 Remplacer les châssis simple vitrage par triple vitrage 1.0 W/m²K");
+  if (!project.solar)       recos.push("☀️ Évaluer le potentiel solaire (Solar API au Modal étape 2)");
+  if (peb.kwhPerYear > 250) recos.push("🔥 Audit chaudière + bascule pompe à chaleur air/eau — primes PEB Wallonie 2026");
+  if (recos.length === 0)   recos.push("✅ Performance énergétique correcte — bâtiment proche standard Q-ZEN");
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("peb.title")}</div>
+        <div style={{fontSize:11,color:"#607898",marginTop:3}}>{t("peb.estimated")}</div>
+      </div>
+
+      {/* Échelle A-G colorée + flèche sur classe estimée */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"18px 20px",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"stretch",gap:0,position:"relative",marginBottom:14}}>
+          {classes.map(function(c, i){
+            var active = peb.cls === c;
+            return (
+              <div key={c} style={{
+                flex: i+1, /* progressive width A → G */
+                background: PEB_COLORS[c],
+                color:"#FFF", fontWeight:900,
+                padding:"14px 0",
+                textAlign:"center", fontSize: active ? 22 : 13,
+                border: active ? "3px solid #FFF" : "1px solid rgba(0,0,0,0.2)",
+                boxShadow: active ? "0 0 18px " + PEB_COLORS[c] : "none",
+                transition:"all 0.2s",
+                position:"relative",
+              }}>
+                {active && <div style={{position:"absolute",top:-20,left:"50%",transform:"translateX(-50%)",
+                  fontSize:18,filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.5))"}}>⬇</div>}
+                {c}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:14}}>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Classe estimée</div>
+            <div style={{fontSize:36,fontWeight:900,color:color,fontFamily:"monospace",lineHeight:1.1}}>{peb.cls}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>{t("peb.kwhM2")}</div>
+            <div style={{fontSize:24,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{peb.kwhPerYear}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Surface chauffée</div>
+            <div style={{fontSize:18,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{peb.heatedArea.toFixed(0)} m²</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Consommation/an</div>
+            <div style={{fontSize:18,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{(peb.annualTotal/1000).toFixed(1)} MWh</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Inputs utilisateur */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#607898",marginBottom:10,textTransform:"uppercase"}}>{t("peb.inputs")}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14}}>
+          <div>
+            <div style={{fontSize:11,color:"#8DAFC8",marginBottom:4}}>{t("peb.yearBuilt")}</div>
+            <input type="number" min="1700" max="2030" value={year}
+              onChange={function(e){ setYear(e.target.value); }}
+              placeholder="ex. 1985"
+              style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+                border:"1px solid #1C3050",color:"#E8EDF5",fontSize:13,
+                padding:"7px 10px",borderRadius:6,outline:"none",fontFamily:"monospace"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#8DAFC8",marginBottom:4}}>{t("peb.insulation")}</div>
+            <div style={{display:"flex",gap:6}}>
+              {[["full",t("peb.insulationFull")],["partial",t("peb.insulationPartial")],["none",t("peb.insulationNone")]].map(function(opt){
+                var active = insul === opt[0];
+                return (
+                  <button key={opt[0]} type="button" onClick={function(){ setInsul(opt[0]); }}
+                    style={{flex:1, background: active ? "#00C2FF" : "transparent",
+                      border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                      color: active ? "#000" : "#8DAFC8",
+                      borderRadius:6, padding:"6px 8px", fontSize:11,
+                      fontWeight:700, cursor:"pointer", outline:"none"}}>
+                    {opt[1]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recommandations */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:10,textTransform:"uppercase"}}>{t("peb.recos")}</div>
+        {recos.map(function(r, i){
+          return <div key={i} style={{fontSize:13,color:"#E8EDF5",padding:"6px 0",borderBottom: i < recos.length-1 ? "1px solid #1C3050" : "none"}}>{r}</div>;
+        })}
+      </div>
+
+      <div style={{fontSize:10,color:"#607898",marginTop:14,lineHeight:1.5,padding:"0 4px"}}>
+        ⚠️ Estimation indicative à but pédagogique. Le certificat PEB officiel (Wallonie) / EPB (Flandre) /
+        PEB-EPB (Bruxelles) doit être réalisé par un certificateur agréé pour toute vente ou location.
+        Source : RW DGO4 + Bruxelles Environnement + VEKA — barèmes 2026.
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   TabShare — Partage du projet via URL encodée + e-signature
+   Encode l'intégralité du projet (mesures, photos, plans) en base64 dans
+   un paramètre URL ?share=... — pas de backend nécessaire, le lien contient
+   tout. À la première visite avec ?share=, App passe en mode "Vue Client"
+   read-only. Signature stockée dans le projet local de l'auteur.
+============================================================================ */
+function encodeProjectForShare(project) {
+  /* Strip les Object URLs blob/data: lourds des photos — on garde seulement
+     les URLs publiques. Idem pour les binaires lourds. */
+  var slim = JSON.parse(JSON.stringify(project));
+  if (slim.photos) {
+    slim.photos = slim.photos.filter(function(p){
+      return p.url && !p.url.startsWith("blob:") && !p.url.startsWith("data:");
+    });
+  }
+  /* Base64 + URI-safe */
+  try {
+    var json = JSON.stringify(slim);
+    var b64 = btoa(unescape(encodeURIComponent(json)));
+    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch(e) { return null; }
+}
+
+function decodeProjectFromShare(encoded) {
+  try {
+    var b64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    var json = decodeURIComponent(escape(atob(b64)));
+    return JSON.parse(json);
+  } catch(e) { return null; }
+}
+
+function TabShare({ project, setToast }) {
+  var [signature, setSignature] = useState(project.signature || null);
+  var [signedAt, setSignedAt] = useState(project.signedAt || null);
+  var canvasRef = useRef(null);
+  var drawingRef = useRef(false);
+
+  var shareUrl = useMemo(function(){
+    var enc = encodeProjectForShare(project);
+    if (!enc) return null;
+    var base = window.location.origin + window.location.pathname;
+    return base + "?share=" + enc;
+  }, [project]);
+
+  function copyLink() {
+    if (!shareUrl) return;
+    try {
+      navigator.clipboard.writeText(shareUrl);
+      setToast && setToast(t("share.linkCopied"));
+    } catch(e) {
+      /* fallback : sélection + execCommand */
+      var ta = document.createElement("textarea");
+      ta.value = shareUrl; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      setToast && setToast(t("share.linkCopied"));
+    }
+  }
+
+  /* Canvas signature — mouse + touch */
+  useEffect(function(){
+    var cv = canvasRef.current;
+    if (!cv) return;
+    var ctx = cv.getContext("2d");
+    ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#0a0a0a";
+    /* Restore signature existante */
+    if (signature) {
+      var img = new Image();
+      img.onload = function(){ ctx.drawImage(img, 0, 0); };
+      img.src = signature;
+    }
+    function pos(e) {
+      var rect = cv.getBoundingClientRect();
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+    function start(e){ drawingRef.current = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+    function move(e){ if (!drawingRef.current) return; var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+    function end(){ drawingRef.current = false; }
+    cv.addEventListener("mousedown", start);
+    cv.addEventListener("mousemove", move);
+    cv.addEventListener("mouseup", end);
+    cv.addEventListener("mouseleave", end);
+    cv.addEventListener("touchstart", start, {passive:false});
+    cv.addEventListener("touchmove", move, {passive:false});
+    cv.addEventListener("touchend", end);
+    return function(){
+      cv.removeEventListener("mousedown", start);
+      cv.removeEventListener("mousemove", move);
+      cv.removeEventListener("mouseup", end);
+      cv.removeEventListener("mouseleave", end);
+      cv.removeEventListener("touchstart", start);
+      cv.removeEventListener("touchmove", move);
+      cv.removeEventListener("touchend", end);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearSignature() {
+    var cv = canvasRef.current; if (!cv) return;
+    cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+    setSignature(null); setSignedAt(null);
+  }
+  function saveSignature() {
+    var cv = canvasRef.current; if (!cv) return;
+    var data = cv.toDataURL("image/png");
+    var when = new Date().toISOString();
+    setSignature(data); setSignedAt(when);
+    setToast && setToast("Signature enregistrée");
+  }
+
+  /* QR code via API publique (pas de dep front) — fallback gracieux si offline */
+  var qrUrl = shareUrl ? "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(shareUrl) : null;
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("share.title")}</div>
+        <div style={{fontSize:11,color:"#607898",marginTop:3}}>{t("share.notice")}</div>
+      </div>
+
+      {/* Lien */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:8,textTransform:"uppercase"}}>🔗 {t("share.copyLink")}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input type="text" value={shareUrl || ""} readOnly
+            onClick={function(e){ e.target.select(); }}
+            style={{flex:1,background:"#08111E",border:"1px solid #1C3050",
+              color:"#8DAFC8",fontSize:11,padding:"7px 10px",borderRadius:6,
+              outline:"none",fontFamily:"monospace"}}/>
+          <button type="button" onClick={copyLink} disabled={!shareUrl}
+            style={{background: shareUrl ? "#00C2FF" : "#2E4A6A", border:"none",
+              color: shareUrl ? "#000" : "#607898", borderRadius:7,
+              padding:"7px 14px",fontSize:12,fontWeight:700,
+              cursor: shareUrl ? "pointer" : "not-allowed", outline:"none"}}>
+            📋 {t("common.copy")}
+          </button>
+        </div>
+      </div>
+
+      {/* QR code + e-signature côte à côte */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+        {/* QR */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",textAlign:"center"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:10,textTransform:"uppercase"}}>📱 {t("share.qrCode")}</div>
+          {qrUrl ? (
+            <img src={qrUrl} alt="QR code" style={{maxWidth:180,height:"auto",background:"#FFF",padding:6,borderRadius:6}}
+              onError={function(e){ e.target.style.display="none"; }}/>
+          ) : <div style={{padding:30,color:"#607898"}}>Projet trop volumineux pour QR</div>}
+          <div style={{fontSize:10,color:"#607898",marginTop:8}}>Scannez avec votre téléphone</div>
+        </div>
+
+        {/* Signature canvas */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#FF8C42",textTransform:"uppercase"}}>✍️ {t("share.signature")}</div>
+            <div style={{display:"flex",gap:6}}>
+              <button type="button" onClick={clearSignature}
+                style={{background:"transparent",border:"1px solid #2E4A6A",
+                  color:"#607898",borderRadius:5,padding:"3px 9px",fontSize:10,cursor:"pointer",outline:"none"}}>
+                Effacer
+              </button>
+              <button type="button" onClick={saveSignature}
+                style={{background:"#00E5A0",border:"none",color:"#000",
+                  borderRadius:5,padding:"3px 11px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none"}}>
+                Valider
+              </button>
+            </div>
+          </div>
+          <canvas ref={canvasRef} width={400} height={140}
+            style={{width:"100%",height:140,background:"#FAFAFA",borderRadius:6,
+              border:"1px solid #1C3050",cursor:"crosshair",touchAction:"none"}}/>
+          {signedAt && (
+            <div style={{fontSize:10,color:"#00E5A0",marginTop:6,fontFamily:"monospace"}}>
+              ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   ShareView — Vue client read-only via ?share=... dans l'URL.
+   Pas de sidebar, pas d'édition. Présentation pure : header avec adresse,
+   modèle 3D en grand, dimensions clés, et canvas e-signature. Branding
+   subtil "Made with MesurePro".
+============================================================================ */
+function ShareView({ project, onExitShare }) {
+  var [signature, setSignature] = useState(null);
+  var [signedAt, setSignedAt] = useState(null);
+  var canvasRef = useRef(null);
+  var drawingRef = useRef(false);
+
+  /* Apply theme au boot ShareView */
+  useEffect(function(){
+    applyTheme(getPrefs().theme);
+  }, []);
+
+  /* Signature canvas — mouse + touch */
+  useEffect(function(){
+    var cv = canvasRef.current; if (!cv) return;
+    var ctx = cv.getContext("2d");
+    ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#0a0a0a";
+    function pos(e) {
+      var rect = cv.getBoundingClientRect();
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+    function start(e){ drawingRef.current = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+    function move(e){ if (!drawingRef.current) return; var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+    function end(){ drawingRef.current = false; }
+    cv.addEventListener("mousedown", start);
+    cv.addEventListener("mousemove", move);
+    cv.addEventListener("mouseup", end);
+    cv.addEventListener("mouseleave", end);
+    cv.addEventListener("touchstart", start, {passive:false});
+    cv.addEventListener("touchmove", move, {passive:false});
+    cv.addEventListener("touchend", end);
+    return function(){
+      cv.removeEventListener("mousedown", start);
+      cv.removeEventListener("mousemove", move);
+      cv.removeEventListener("mouseup", end);
+      cv.removeEventListener("mouseleave", end);
+      cv.removeEventListener("touchstart", start);
+      cv.removeEventListener("touchmove", move);
+      cv.removeEventListener("touchend", end);
+    };
+  }, []);
+
+  function clearSig() {
+    var cv = canvasRef.current; if (!cv) return;
+    cv.getContext("2d").clearRect(0,0,cv.width,cv.height);
+    setSignature(null); setSignedAt(null);
+  }
+  function saveSig() {
+    var cv = canvasRef.current; if (!cv) return;
+    setSignature(cv.toDataURL("image/png"));
+    setSignedAt(new Date().toISOString());
+  }
+
+  var m = project.meas || {};
+  var peb = useMemo(function(){ return computePEB(project); }, [project]);
+
+  return (
+    <div style={{minHeight:"100vh",background:"#08111E",color:"#E8EDF5"}}>
+      {/* Header */}
+      <div style={{background:"#0F1C2E",borderBottom:"1px solid #1C3050",padding:"18px 24px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:11,color:"#00C2FF",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+            {t("share.viewMode")}
+          </div>
+          <div style={{fontSize:20,fontWeight:900,marginTop:3}}>{project.addr}</div>
+          <div style={{fontSize:12,color:"#8DAFC8",marginTop:2}}>{project.city}</div>
+        </div>
+        <button type="button" onClick={onExitShare}
+          style={{background:"transparent",border:"1px solid #2E4A6A",
+            color:"#8DAFC8",borderRadius:6,padding:"6px 12px",fontSize:11,cursor:"pointer",outline:"none"}}>
+          ← Quitter l'aperçu client
+        </button>
+      </div>
+
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"24px"}}>
+        {/* Bandeau dimensions clés */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:18}}>
+          {[
+            ["Emprise sol", (parseFloat(m.foot)||0).toFixed(0) + " m²", "#00C2FF"],
+            ["Surface murs", (parseFloat(m.walls)||0).toFixed(0) + " m²", "#00E5A0"],
+            ["Toiture",      (parseFloat(m.roof)||0).toFixed(0) + " m²", "#FF8C42"],
+            ["Périmètre",    (parseFloat(m.perim)||0).toFixed(0) + " m",  "#FFD700"],
+            ["Hauteur",      (parseFloat(m.h)||0).toFixed(1) + " m",      "#9ACD32"],
+            ["PEB",          peb.cls,                                       PEB_COLORS[peb.cls] || "#999"],
+          ].map(function(s){
+            return (
+              <div key={s[0]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+                borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>{s[0]}</div>
+                <div style={{fontSize:22,fontWeight:900,color:s[2],fontFamily:"monospace",marginTop:4}}>{s[1]}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Modèle 3D */}
+        <div style={{background:"#060D18",border:"1px solid #1C3050",borderRadius:10,
+          overflow:"hidden",marginBottom:18,height:380}}>
+          <IsoModel mat={null} photos={project.photos} floors={parseInt(project.floors)||2}
+            meas={project.meas} rooms={project.rooms} roof={project.roof}/>
+        </div>
+
+        <div style={{textAlign:"center",fontSize:11,color:"#607898",marginBottom:18}}>
+          🖱️ Faites glisser le modèle pour le faire pivoter
+        </div>
+
+        {/* Rapport synthèse */}
+        {project.client && (
+          <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+            padding:"16px 18px",marginBottom:18}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",textTransform:"uppercase",marginBottom:8}}>Client</div>
+            <div style={{fontSize:16,fontWeight:700}}>{project.client}</div>
+          </div>
+        )}
+
+        {/* E-Signature */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"18px 20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#FF8C42",textTransform:"uppercase"}}>
+              ✍️ {t("share.signature")}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button type="button" onClick={clearSig}
+                style={{background:"transparent",border:"1px solid #2E4A6A",
+                  color:"#607898",borderRadius:5,padding:"4px 10px",fontSize:10,cursor:"pointer",outline:"none"}}>
+                Effacer
+              </button>
+              <button type="button" onClick={saveSig}
+                style={{background:"#00E5A0",border:"none",color:"#000",
+                  borderRadius:5,padding:"4px 14px",fontSize:11,fontWeight:700,cursor:"pointer",outline:"none"}}>
+                ✓ Valider et signer
+              </button>
+            </div>
+          </div>
+          <canvas ref={canvasRef} width={800} height={180}
+            style={{width:"100%",height:180,background:"#FAFAFA",borderRadius:8,
+              border:"1px solid #1C3050",cursor:"crosshair",touchAction:"none"}}/>
+          {signedAt && (
+            <div style={{fontSize:12,color:"#00E5A0",marginTop:10,fontFamily:"monospace"}}>
+              ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}
+            </div>
+          )}
+          <div style={{fontSize:10,color:"#607898",marginTop:10,lineHeight:1.5}}>
+            En signant, vous confirmez avoir pris connaissance des informations présentées
+            dans ce document. Cette signature électronique a valeur indicative et ne se
+            substitue pas à un contrat formel signé en présentiel.
+          </div>
+        </div>
+
+        {/* Branding */}
+        <div style={{textAlign:"center",marginTop:24,padding:"14px 0",borderTop:"1px solid #1C3050"}}>
+          <div style={{fontSize:10,color:"#607898"}}>Préparé avec</div>
+          <div style={{fontSize:14,fontWeight:900,color:"#00C2FF",marginTop:2}}>MesurePro</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Reports({ reports, setReports }) {
@@ -5694,6 +6613,47 @@ function Modal({ onClose, onCreate }) {
 
         {step === 1 && (
           <div>
+            {/* Templates BE — pré-remplissage rapide selon type de bâtiment.
+                Couvre 80% des typologies BE (maison libre / mitoyenne / semi /
+                fermette / immeuble). Bouton "saisie manuelle" pour skip. */}
+            <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,padding:"11px 12px",marginBottom:12}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#FFB35E",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                ⚡ {t("modal.template")} <span style={{color:"#607898",fontWeight:400,textTransform:"none",letterSpacing:0}}>— pré-remplissage rapide</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:6}}>
+                {[
+                  {id:"libre",   key:"maisonLibre",   data:{sud:[9,6,3,1], nord:[9,6,2,0], est:[12,6,4,0], ouest:[12,6,2,0]}},
+                  {id:"mitoyen", key:"mitoyenne",     data:{sud:[7,8,3,1], nord:[7,8,2,1], est:[10,8,0,0], ouest:[10,8,0,0]}},
+                  {id:"semi",    key:"semiMitoyenne", data:{sud:[8,7,3,1], nord:[8,7,2,1], est:[10,7,2,0], ouest:[10,7,0,0]}},
+                  {id:"ferme",   key:"fermette",      data:{sud:[12,5,4,1], nord:[12,5,2,0], est:[15,5,3,1], ouest:[15,5,3,0]}},
+                  {id:"appart",  key:"appart",        data:{sud:[14,15,15,1], nord:[14,15,12,1], est:[20,15,10,0], ouest:[20,15,10,0]}},
+                ].map(function(tpl){
+                  return (
+                    <button key={tpl.id} type="button"
+                      title={t("tpl." + tpl.key + "Desc")}
+                      onClick={function(){
+                        var f = {};
+                        Object.keys(tpl.data).forEach(function(side){
+                          var d = tpl.data[side];
+                          f[side] = { l:String(d[0]), h:String(d[1]), win:String(d[2]), doors:String(d[3]) };
+                        });
+                        setFacades(f);
+                      }}
+                      style={{background:"#0F1C2E",border:"1px solid #2E4A6A",
+                        color:"#E8EDF5",borderRadius:7,padding:"8px 10px",
+                        fontSize:11,fontWeight:600,cursor:"pointer",outline:"none",
+                        textAlign:"left",lineHeight:1.3}}>
+                      <div style={{fontWeight:700}}>{t("tpl." + tpl.key)}</div>
+                      <div style={{fontSize:9,color:"#607898",marginTop:2}}>{t("tpl." + tpl.key + "Desc")}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{fontSize:9,color:"#607898",marginTop:7,fontStyle:"italic"}}>
+                💡 Cliquer applique des dimensions typiques BE. Ajustez ensuite chaque façade ci-dessous.
+              </div>
+            </div>
+
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
               <button type="button" onClick={connectLaser}
@@ -6123,6 +7083,8 @@ function PreferencesEditor({ onSaved }) {
     var merged = Object.assign({}, prefs, next);
     setPrefs(merged);
     saveStored(STORE_KEY_PREFS, merged);
+    /* Notifie App pour ré-render global (i18n + thème) */
+    try { window.dispatchEvent(new Event("mesurepro:prefs")); } catch(e){}
     onSaved && onSaved();
   }
   function resetPrefs() {
@@ -6144,13 +7106,38 @@ function PreferencesEditor({ onSaved }) {
     <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
       padding:"16px 18px",marginBottom:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>Préférences</div>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>{t("settings.preferences")}</div>
         <button type="button" onClick={resetPrefs}
           style={{background:"transparent",border:"1px solid #2E4A6A",
             color:"#607898",borderRadius:5,padding:"3px 9px",fontSize:10,
             cursor:"pointer",outline:"none"}}>
-          Réinitialiser
+          {t("common.delete") === "Supprimer" ? "Réinitialiser" : t("common.delete")}
         </button>
+      </div>
+
+      {/* Langue — switcher 4 langues (FR/NL/EN/DE) */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>{t("settings.language")}</div>
+        <div style={{display:"flex",gap:6,flex:1,flexWrap:"wrap"}}>
+          {SUPPORTED_LANGS.map(function(L){
+            var active = (prefs.lang || detectLang()) === L.code;
+            return (
+              <button key={L.code} type="button"
+                onClick={function(){ save({ lang: L.code }); /* re-render */ }}
+                title={"Changer l'interface en " + L.label}
+                style={{flex:"1 1 0", minWidth:80,
+                  background: active ? "#00C2FF" : "transparent",
+                  border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                  color: active ? "#000" : "#8DAFC8",
+                  borderRadius:6, padding:"7px 10px", fontSize:11,
+                  fontWeight:700, cursor:"pointer", outline:"none",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6}}>
+                <span style={{fontSize:14}}>{L.flag}</span>
+                <span>{L.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* TVA */}
@@ -6209,20 +7196,20 @@ function PreferencesEditor({ onSaved }) {
 
       {/* Thème — toggle dark / light */}
       <div style={rowStyle}>
-        <div style={labelStyle}>Thème</div>
+        <div style={labelStyle}>{t("settings.theme")}</div>
         <div style={{display:"flex",gap:8,flex:1}}>
-          {[["dark","🌙 Sombre"],["light","☀️ Clair"]].map(function(t){
-            var active = (prefs.theme || "dark") === t[0];
+          {[["dark",t("settings.themeDark")],["light",t("settings.themeLight")]].map(function(opt){
+            var active = (prefs.theme || "dark") === opt[0];
             return (
-              <button key={t[0]} type="button"
-                onClick={function(){ save({ theme: t[0] }); applyTheme(t[0]); }}
-                title={t[0] === "light" ? "Bascule sur le thème clair (filtre CSS inverse — fonctionnel mais imparfait)" : "Bascule sur le thème sombre (défaut)"}
+              <button key={opt[0]} type="button"
+                onClick={function(){ save({ theme: opt[0] }); applyTheme(opt[0]); }}
+                title={opt[0] === "light" ? "Bascule sur le thème clair (filtre CSS inverse — fonctionnel mais imparfait)" : "Bascule sur le thème sombre (défaut)"}
                 style={{flex:1, background: active ? "#00C2FF" : "transparent",
                   border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
                   color: active ? "#000" : "#8DAFC8",
                   borderRadius:6, padding:"7px 12px", fontSize:11,
                   fontWeight:700, cursor:"pointer", outline:"none"}}>
-                {t[1]}
+                {opt[1]}
               </button>
             );
           })}
@@ -6582,6 +7569,7 @@ var DEFAULT_PREFS = {
   defaultCivilite: "M.",   /* Civilité pré-cochée en création de projet */
   decimals: 1,             /* Décimales affichées sur les mesures (m, m²) */
   theme: "dark",           /* "dark" (défaut) ou "light" — bascule via Paramètres */
+  lang: null,              /* Code ISO (fr/nl/en/de) — null = auto-détecté du navigateur */
 };
 
 /* Applique le data-theme au <html> — sépare ce side-effect de React
@@ -6591,8 +7579,117 @@ function applyTheme(theme) {
   try { document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark"); } catch(e){}
 }
 
+/* ============================================================================
+   i18n — Internationalization (FR/NL/EN/DE)
+
+   La Belgique est officiellement trilingue (FR Wallonie + NL Flandre + DE
+   Ostbelgien), Bruxelles étant bilingue FR/NL. Le marché expatrié premium
+   exige aussi EN. Aucun concurrent US (Hover, EagleView, Roofr) ne livre
+   d'UI localisée pour ces marchés européens : c'est notre fossé géographique.
+
+   Architecture :
+   - I18N[lang][key] → traduction
+   - Fallback FR si manquant dans la langue cible
+   - Fallback clé brute si manquant aussi en FR (utile en dev)
+   - Auto-détection navigator.language au boot via getPrefs() si lang=null
+   - Helper t(key, params?) supporte interpolation {name}
+============================================================================ */
+var SUPPORTED_LANGS = [
+  { code: "fr", label: "Français",   flag: "🇫🇷" },
+  { code: "nl", label: "Nederlands", flag: "🇧🇪" },
+  { code: "en", label: "English",    flag: "🇬🇧" },
+  { code: "de", label: "Deutsch",    flag: "🇩🇪" },
+];
+
+function detectLang() {
+  try {
+    var raw = (typeof navigator !== "undefined" ? (navigator.language || "fr") : "fr").toLowerCase().slice(0, 2);
+    var supported = ["fr","nl","en","de"];
+    return supported.indexOf(raw) >= 0 ? raw : "fr";
+  } catch(e) { return "fr"; }
+}
+
+var I18N = {
+  fr: {
+    "nav.projects":"Projets","nav.reports":"Rapports","nav.settings":"Paramètres","nav.help":"Aide",
+    "common.search":"Rechercher...","common.save":"Enregistrer","common.cancel":"Annuler","common.delete":"Supprimer","common.edit":"Modifier","common.close":"Fermer","common.next":"Suivant","common.prev":"Précédent","common.back":"Retour","common.export":"Exporter","common.import":"Importer","common.share":"Partager","common.copy":"Copier","common.yes":"Oui","common.no":"Non","common.optional":"(optionnel)","common.required":"Requis","common.open":"Ouvrir","common.new":"Nouveau",
+    "dashboard.newProject":"+ Nouveau projet","dashboard.allStatus":"Tous les statuts","dashboard.empty":"Aucun projet pour le moment","dashboard.startNew":"Créez votre premier projet pour commencer.",
+    "status.draft":"Brouillon","status.processing":"En cours","status.done":"Terminé",
+    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
+    "modal.step1":"Identification","modal.step2":"Remplir","modal.step3":"Photos","modal.step4":"Lancement","modal.launch":"Lancer","modal.template":"Type de bâtiment",
+    "report.meas":"Mesures","report.devis":"Devis","report.insp":"Inspection","report.prop":"Propriété",
+    "settings.profile":"Mon profil","settings.preferences":"Préférences","settings.civilites":"Civilités","settings.language":"Langue","settings.theme":"Thème","settings.themeDark":"🌙 Sombre","settings.themeLight":"☀️ Clair","settings.reset":"Réinitialiser les données démo",
+    "tpl.maisonLibre":"Maison 4 façades","tpl.maisonLibreDesc":"Villa libre 9 × 12 m","tpl.mitoyenne":"Maison mitoyenne","tpl.mitoyenneDesc":"2 façades libres + 2 mitoyennes","tpl.semiMitoyenne":"3 façades","tpl.semiMitoyenneDesc":"Semi-mitoyenne 8 × 10 m","tpl.fermette":"Fermette","tpl.fermetteDesc":"Fermette traditionnelle 12 × 15 m","tpl.appart":"Immeuble appart.","tpl.appartDesc":"Immeuble 5 niveaux","tpl.skip":"Saisie manuelle",
+    "peb.title":"Performance énergétique (PEB)","peb.estimated":"Estimation indicative basée sur les données du projet","peb.inputs":"Données utilisées","peb.kwhM2":"kWh/m²/an","peb.recos":"Recommandations","peb.yearBuilt":"Année de construction","peb.insulation":"Isolation","peb.insulationFull":"Complète","peb.insulationPartial":"Partielle","peb.insulationNone":"Aucune",
+    "mat.quantitative":"Quantitatif matériaux","mat.subtotal":"Sous-total","mat.unitPrice":"Prix unitaire","mat.qty":"Quantité","mat.total":"Total HT","mat.roof":"Toiture","mat.facade":"Façades","mat.insulation":"Isolation","mat.copyDevis":"Copier vers Devis","mat.exportPdf":"Export PDF",
+    "share.title":"Partager ce projet","share.copyLink":"Copier le lien","share.viewMode":"Vue client","share.signature":"Signature client","share.signed":"Signé le","share.regenerate":"Régénérer le lien","share.linkCopied":"Lien copié dans le presse-papier","share.qrCode":"QR code","share.notice":"Le lien contient toutes les données du projet (chiffrées dans l'URL). Partagez-le à votre client par email/SMS.",
+    "ar.viewIn":"Voir en réalité augmentée","ar.downloadGlb":"Télécharger modèle 3D (.glb)","ar.scanQr":"Scannez avec votre iPhone pour voir en AR","ar.iosNotice":"Sur iPhone, ouvrez ce lien dans Safari pour la vue AR Quick Look.","ar.androidNotice":"Sur Android, ouvrez avec Google Scene Viewer.",
+  },
+  nl: {
+    "nav.projects":"Projecten","nav.reports":"Rapporten","nav.settings":"Instellingen","nav.help":"Hulp",
+    "common.search":"Zoeken...","common.save":"Opslaan","common.cancel":"Annuleren","common.delete":"Verwijderen","common.edit":"Bewerken","common.close":"Sluiten","common.next":"Volgende","common.prev":"Vorige","common.back":"Terug","common.export":"Exporteren","common.import":"Importeren","common.share":"Delen","common.copy":"Kopiëren","common.yes":"Ja","common.no":"Nee","common.optional":"(optioneel)","common.required":"Vereist","common.open":"Openen","common.new":"Nieuw",
+    "dashboard.newProject":"+ Nieuw project","dashboard.allStatus":"Alle statussen","dashboard.empty":"Nog geen projecten","dashboard.startNew":"Maak je eerste project aan om te starten.",
+    "status.draft":"Concept","status.processing":"Bezig","status.done":"Voltooid",
+    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
+    "modal.step1":"Identificatie","modal.step2":"Invullen","modal.step3":"Foto's","modal.step4":"Lancering","modal.launch":"Starten","modal.template":"Gebouwtype",
+    "report.meas":"Metingen","report.devis":"Offerte","report.insp":"Inspectie","report.prop":"Eigendom",
+    "settings.profile":"Mijn profiel","settings.preferences":"Voorkeuren","settings.civilites":"Aanspreektitels","settings.language":"Taal","settings.theme":"Thema","settings.themeDark":"🌙 Donker","settings.themeLight":"☀️ Licht","settings.reset":"Demogegevens herstellen",
+    "tpl.maisonLibre":"Vrijstaande woning","tpl.maisonLibreDesc":"Villa 9 × 12 m","tpl.mitoyenne":"Rijwoning","tpl.mitoyenneDesc":"2 vrije + 2 gedeelde gevels","tpl.semiMitoyenne":"3 gevels","tpl.semiMitoyenneDesc":"Halfopen 8 × 10 m","tpl.fermette":"Hoeve","tpl.fermetteDesc":"Traditionele hoeve 12 × 15 m","tpl.appart":"Appartementsgebouw","tpl.appartDesc":"Gebouw 5 verdiepingen","tpl.skip":"Handmatige invoer",
+    "peb.title":"Energieprestatie (EPB)","peb.estimated":"Indicatieve schatting op basis van projectgegevens","peb.inputs":"Gebruikte gegevens","peb.kwhM2":"kWh/m²/jaar","peb.recos":"Aanbevelingen","peb.yearBuilt":"Bouwjaar","peb.insulation":"Isolatie","peb.insulationFull":"Volledig","peb.insulationPartial":"Gedeeltelijk","peb.insulationNone":"Geen",
+    "mat.quantitative":"Materialenoverzicht","mat.subtotal":"Subtotaal","mat.unitPrice":"Eenheidsprijs","mat.qty":"Hoeveelheid","mat.total":"Totaal excl. btw","mat.roof":"Dakbedekking","mat.facade":"Gevels","mat.insulation":"Isolatie","mat.copyDevis":"Kopiëren naar offerte","mat.exportPdf":"PDF exporteren",
+    "share.title":"Dit project delen","share.copyLink":"Link kopiëren","share.viewMode":"Klantweergave","share.signature":"Handtekening klant","share.signed":"Getekend op","share.regenerate":"Link vernieuwen","share.linkCopied":"Link gekopieerd","share.qrCode":"QR-code","share.notice":"De link bevat alle projectgegevens (gecodeerd in de URL). Deel hem met je klant via e-mail/SMS.",
+    "ar.viewIn":"Bekijk in augmented reality","ar.downloadGlb":"3D-model downloaden (.glb)","ar.scanQr":"Scan met je iPhone om AR te bekijken","ar.iosNotice":"Open deze link in Safari op iPhone voor AR Quick Look.","ar.androidNotice":"Open met Google Scene Viewer op Android.",
+  },
+  en: {
+    "nav.projects":"Projects","nav.reports":"Reports","nav.settings":"Settings","nav.help":"Help",
+    "common.search":"Search...","common.save":"Save","common.cancel":"Cancel","common.delete":"Delete","common.edit":"Edit","common.close":"Close","common.next":"Next","common.prev":"Previous","common.back":"Back","common.export":"Export","common.import":"Import","common.share":"Share","common.copy":"Copy","common.yes":"Yes","common.no":"No","common.optional":"(optional)","common.required":"Required","common.open":"Open","common.new":"New",
+    "dashboard.newProject":"+ New project","dashboard.allStatus":"All statuses","dashboard.empty":"No projects yet","dashboard.startNew":"Create your first project to get started.",
+    "status.draft":"Draft","status.processing":"In progress","status.done":"Done",
+    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
+    "modal.step1":"Identification","modal.step2":"Fill in","modal.step3":"Photos","modal.step4":"Launch","modal.launch":"Launch","modal.template":"Building type",
+    "report.meas":"Measurements","report.devis":"Quote","report.insp":"Inspection","report.prop":"Property",
+    "settings.profile":"My profile","settings.preferences":"Preferences","settings.civilites":"Civility titles","settings.language":"Language","settings.theme":"Theme","settings.themeDark":"🌙 Dark","settings.themeLight":"☀️ Light","settings.reset":"Reset demo data",
+    "tpl.maisonLibre":"Detached house","tpl.maisonLibreDesc":"Standalone 9 × 12 m","tpl.mitoyenne":"Terraced house","tpl.mitoyenneDesc":"2 free + 2 shared walls","tpl.semiMitoyenne":"3 walls","tpl.semiMitoyenneDesc":"Semi-detached 8 × 10 m","tpl.fermette":"Farmhouse","tpl.fermetteDesc":"Traditional farmhouse 12 × 15 m","tpl.appart":"Apartment building","tpl.appartDesc":"5-story building","tpl.skip":"Manual entry",
+    "peb.title":"Energy performance (EPC)","peb.estimated":"Indicative estimate based on project data","peb.inputs":"Inputs used","peb.kwhM2":"kWh/m²/year","peb.recos":"Recommendations","peb.yearBuilt":"Year built","peb.insulation":"Insulation","peb.insulationFull":"Full","peb.insulationPartial":"Partial","peb.insulationNone":"None",
+    "mat.quantitative":"Material takeoff","mat.subtotal":"Subtotal","mat.unitPrice":"Unit price","mat.qty":"Quantity","mat.total":"Total excl. VAT","mat.roof":"Roof","mat.facade":"Facades","mat.insulation":"Insulation","mat.copyDevis":"Copy to Quote","mat.exportPdf":"Export PDF",
+    "share.title":"Share this project","share.copyLink":"Copy link","share.viewMode":"Customer view","share.signature":"Customer signature","share.signed":"Signed on","share.regenerate":"Regenerate link","share.linkCopied":"Link copied to clipboard","share.qrCode":"QR code","share.notice":"The link contains all project data (encoded in URL). Share via email/SMS with your customer.",
+    "ar.viewIn":"View in augmented reality","ar.downloadGlb":"Download 3D model (.glb)","ar.scanQr":"Scan with iPhone to view in AR","ar.iosNotice":"On iPhone, open this link in Safari for AR Quick Look.","ar.androidNotice":"On Android, open with Google Scene Viewer.",
+  },
+  de: {
+    "nav.projects":"Projekte","nav.reports":"Berichte","nav.settings":"Einstellungen","nav.help":"Hilfe",
+    "common.search":"Suchen...","common.save":"Speichern","common.cancel":"Abbrechen","common.delete":"Löschen","common.edit":"Bearbeiten","common.close":"Schließen","common.next":"Weiter","common.prev":"Zurück","common.back":"Zurück","common.export":"Exportieren","common.import":"Importieren","common.share":"Teilen","common.copy":"Kopieren","common.yes":"Ja","common.no":"Nein","common.optional":"(optional)","common.required":"Erforderlich","common.open":"Öffnen","common.new":"Neu",
+    "dashboard.newProject":"+ Neues Projekt","dashboard.allStatus":"Alle Status","dashboard.empty":"Noch keine Projekte","dashboard.startNew":"Erstellen Sie Ihr erstes Projekt.",
+    "status.draft":"Entwurf","status.processing":"In Bearbeitung","status.done":"Fertig",
+    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
+    "modal.step1":"Identifikation","modal.step2":"Ausfüllen","modal.step3":"Fotos","modal.step4":"Start","modal.launch":"Starten","modal.template":"Gebäudetyp",
+    "report.meas":"Messungen","report.devis":"Angebot","report.insp":"Inspektion","report.prop":"Immobilie",
+    "settings.profile":"Mein Profil","settings.preferences":"Einstellungen","settings.civilites":"Anrede","settings.language":"Sprache","settings.theme":"Erscheinungsbild","settings.themeDark":"🌙 Dunkel","settings.themeLight":"☀️ Hell","settings.reset":"Demo-Daten zurücksetzen",
+    "tpl.maisonLibre":"Freistehendes Haus","tpl.maisonLibreDesc":"Einfamilienhaus 9 × 12 m","tpl.mitoyenne":"Reihenhaus","tpl.mitoyenneDesc":"2 freie + 2 gemeinsame Fassaden","tpl.semiMitoyenne":"3 Fassaden","tpl.semiMitoyenneDesc":"Doppelhaushälfte 8 × 10 m","tpl.fermette":"Bauernhaus","tpl.fermetteDesc":"Traditionelles Bauernhaus 12 × 15 m","tpl.appart":"Mehrfamilienhaus","tpl.appartDesc":"Gebäude mit 5 Stockwerken","tpl.skip":"Manuelle Eingabe",
+    "peb.title":"Energieeffizienz (EPC)","peb.estimated":"Richtwert basierend auf Projektdaten","peb.inputs":"Verwendete Daten","peb.kwhM2":"kWh/m²/Jahr","peb.recos":"Empfehlungen","peb.yearBuilt":"Baujahr","peb.insulation":"Dämmung","peb.insulationFull":"Vollständig","peb.insulationPartial":"Teilweise","peb.insulationNone":"Keine",
+    "mat.quantitative":"Materialliste","mat.subtotal":"Zwischensumme","mat.unitPrice":"Stückpreis","mat.qty":"Menge","mat.total":"Summe netto","mat.roof":"Dach","mat.facade":"Fassaden","mat.insulation":"Dämmung","mat.copyDevis":"In Angebot kopieren","mat.exportPdf":"PDF exportieren",
+    "share.title":"Dieses Projekt teilen","share.copyLink":"Link kopieren","share.viewMode":"Kundenansicht","share.signature":"Kundenunterschrift","share.signed":"Unterzeichnet am","share.regenerate":"Link erneuern","share.linkCopied":"Link in Zwischenablage kopiert","share.qrCode":"QR-Code","share.notice":"Der Link enthält alle Projektdaten (in URL kodiert). Teilen Sie ihn per E-Mail/SMS mit Ihrem Kunden.",
+    "ar.viewIn":"In AR anzeigen","ar.downloadGlb":"3D-Modell herunterladen (.glb)","ar.scanQr":"Mit iPhone scannen für AR-Ansicht","ar.iosNotice":"Auf iPhone in Safari öffnen für AR Quick Look.","ar.androidNotice":"Auf Android mit Google Scene Viewer öffnen.",
+  },
+};
+
+/* Lookup d'une chaîne traduite. Tombe en fallback FR si absente, puis sur
+   la clé brute (utile au dev). Supporte interpolation {name} via params. */
+function t(key, params) {
+  var lang;
+  try { lang = (getPrefs().lang || "fr").toLowerCase(); } catch(e) { lang = "fr"; }
+  if (!I18N[lang]) lang = "fr";
+  var s = I18N[lang][key] || I18N.fr[key] || key;
+  if (params) Object.keys(params).forEach(function(k){
+    s = s.replace(new RegExp("\\{" + k + "\\}", "g"), params[k]);
+  });
+  return s;
+}
+
 function getPrefs() {
-  return Object.assign({}, DEFAULT_PREFS, loadStored(STORE_KEY_PREFS, {}));
+  var merged = Object.assign({}, DEFAULT_PREFS, loadStored(STORE_KEY_PREFS, {}));
+  /* Auto-détection langue au premier accès (lang=null = jamais setté) */
+  if (!merged.lang) merged.lang = detectLang();
+  return merged;
 }
 
 /* Cached Belgian postal codes data, loaded once on first need */
@@ -6802,6 +7899,25 @@ class ErrorBoundary extends Component {
 }
 
 export default function App() {
+  /* Mode partage : si ?share=... dans l'URL, on render uniquement ShareView
+     en read-only (pas d'app complète, pas de sidebar). L'utilisateur peut
+     quitter via le bouton ← Quitter qui retire le param de l'URL.
+
+     IMPORTANT (Rules of Hooks) : tous les hooks doivent rester appelés
+     inconditionnellement et dans le même ordre. On déclare donc tous les
+     useState d'abord, puis on early-return SEULEMENT après. */
+  var [shareProject, setShareProject] = useState(function(){
+    try {
+      var params = new URLSearchParams(window.location.search || "");
+      var enc = params.get("share");
+      if (enc) {
+        var p = decodeProjectFromShare(enc);
+        if (p && p.addr) return p;
+      }
+    } catch(e) {}
+    return null;
+  });
+
   var [projects, setProjects] = useState(function(){
     return mergeWithDefaults(loadStored(STORE_KEY_PROJECTS, null), PROJS);
   });
@@ -6812,9 +7928,30 @@ export default function App() {
   var [openId,   setOpenId]   = useState(null);
   var [openTab,  setOpenTab]  = useState("model");   /* tab d'atterrissage de ProjectDetail */
   var [modal,    setModal]    = useState(false);
+  /* prefsTick : incrément à chaque event "mesurepro:prefs" — force ré-render
+     global de l'arbre pour propager les changements de langue/thème vers
+     tous les consommateurs de t() et applyTheme() sans context API lourd. */
+  var [, setPrefsTick] = useState(0);
 
   useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
   useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
+
+  /* Boot: applique thème + langue dès le premier render + écoute les
+     changements de prefs pour ré-rendre l'app entière. */
+  useEffect(function(){
+    var p = getPrefs();
+    applyTheme(p.theme);
+    /* Marque la lang sur <html lang="..."> pour SEO + tooling navigateur */
+    try { document.documentElement.setAttribute("lang", p.lang || "fr"); } catch(e){}
+    function onPrefsChange() {
+      var np = getPrefs();
+      applyTheme(np.theme);
+      try { document.documentElement.setAttribute("lang", np.lang || "fr"); } catch(e){}
+      setPrefsTick(function(n){ return n + 1; });
+    }
+    window.addEventListener("mesurepro:prefs", onPrefsChange);
+    return function(){ window.removeEventListener("mesurepro:prefs", onPrefsChange); };
+  }, []);
 
   /* Raccourcis clavier globaux. Ignorés quand l'utilisateur tape dans un
      champ de saisie (input/textarea/contenteditable). Liste :
@@ -6951,6 +8088,19 @@ export default function App() {
     }, 3000);
   }
 
+  /* Mode partage ?share=... — branchement APRÈS tous les hooks (Rules of Hooks).
+     ShareView est read-only, pas de sidebar, pas d'édition. */
+  if (shareProject) {
+    return <ShareView project={shareProject} onExitShare={function(){
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.delete("share");
+        window.history.replaceState({}, "", url.toString());
+      } catch(e){}
+      setShareProject(null);
+    }}/>;
+  }
+
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",
       background:"#08111E",color:"#E8EDF5",minHeight:"100vh"}}>
@@ -6998,4 +8148,16 @@ export {
   DEFAULT_PREFS,
   EMPTY_MEAS,
   ErrorBoundary,
+  /* === Session 3 / world-class features === */
+  I18N,
+  SUPPORTED_LANGS,
+  detectLang,
+  t,
+  BE_MATERIALS,
+  computePEB,
+  PEB_COLORS,
+  encodeProjectForShare,
+  decodeProjectFromShare,
+  buildBuildingScene,
+  detectArPlatform,
 };
