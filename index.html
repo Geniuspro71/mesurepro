@@ -2,8 +2,16 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MesurePro — Clone Hover</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#00C2FF" />
+    <meta name="description" content="MesurePro — Application professionnelle de mesure immobilière 3D : modèle WebGL temps réel, plans architecte, rapports auditeur senior, laser Bluetooth." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="MesurePro" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="apple-touch-icon" href="favicon.svg" />
+    <title>MesurePro — Mesure immobilière 3D</title>
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       html, body { height: 100%; }
@@ -21,6 +29,27 @@
       /* iOS Safari : fontSize >= 16 px sur les inputs évite le zoom auto au focus */
       input, select, textarea { font-size: 16px; }
       @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ============= LIGHT THEME — toggle via Paramètres → Préférences =============
+         Approche pragmatique : CSS filter inverse les couleurs sur tout l'arbre,
+         puis re-inverse sur les médias (img/video/canvas/SVG image) pour qu'ils
+         restent en couleurs naturelles. Permet un thème clair fonctionnel sans
+         refactorer 200+ inline styles inline.
+         Trade-off : les couleurs accentuées peuvent paraître légèrement décalées
+         vs un vrai light theme. Pour le bouton de bascule, voir Settings →
+         Préférences. */
+      html[data-theme="light"] {
+        filter: invert(0.92) hue-rotate(180deg);
+        background: #F5F2ED;
+      }
+      html[data-theme="light"] img,
+      html[data-theme="light"] video,
+      html[data-theme="light"] canvas,
+      html[data-theme="light"] svg image,
+      html[data-theme="light"] picture {
+        filter: invert(1) hue-rotate(180deg);
+      }
+      html { transition: filter 0.2s ease; }
 
       /* ============= RESPONSIVE — règle non-négo backlog item 8 =============
          3 paliers : ordinateur (>1024 px) inchangé, tablette (≤1024 px),
@@ -96,7 +125,8 @@
         table, tr, td, th { page-break-inside: avoid; }
       }
     </style>
-    <script type="module" crossorigin src="/mesurepro/assets/index-CPAoXwCR.js"></script>
+    <script type="module" crossorigin src="/mesurepro/assets/index-r06bPu7t.js"></script>
+    <link rel="modulepreload" crossorigin href="/mesurepro/assets/three-CP3drIXv.js">
   </head>
   <body>
     <div id="root"></div>

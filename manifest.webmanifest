@@ -1,0 +1,35 @@
+{
+  "name": "MesurePro — Mesure immobilière 3D",
+  "short_name": "MesurePro",
+  "description": "Application professionnelle de mesure immobilière 3D : intake guidé, modèle WebGL temps réel, plans d'élévation architecte, rapports niveau auditeur senior, laser BLE Leica/Bosch/Stanley.",
+  "start_url": "/mesurepro/",
+  "scope": "/mesurepro/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#08111E",
+  "theme_color": "#00C2FF",
+  "lang": "fr-BE",
+  "categories": ["productivity", "business", "utilities"],
+  "icons": [
+    {
+      "src": "/mesurepro/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nouveau projet",
+      "short_name": "Nouveau",
+      "description": "Créer un nouveau projet en 4 étapes guidées",
+      "url": "/mesurepro/?action=new"
+    },
+    {
+      "name": "Aide",
+      "short_name": "Aide",
+      "description": "Guide pas-à-pas + FAQ",
+      "url": "/mesurepro/?view=help"
+    }
+  ]
+}
