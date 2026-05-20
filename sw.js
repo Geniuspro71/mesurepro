@@ -11,7 +11,7 @@
    versions sont remplacées automatiquement — pas de purge manuelle à faire.
 */
 
-const VERSION = "mesurepro-v3.1-phase-B-wizard-noscroll";
+const VERSION = "mesurepro-v3.2-phase-B-refonte-artifact";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
 self.addEventListener("install", function(event){
