@@ -32,6 +32,19 @@ import {
   interiorArea,
   interiorIsValidated,
   interiorCount,
+  /* === Phase B — Module Extérieur === */
+  FACADE_SIDES,
+  FACADE_MATERIALS,
+  FACADE_CONDITIONS,
+  emptyExterior,
+  emptyFacade,
+  facadeBruteArea,
+  facadeOpeningsArea,
+  facadeNetArea,
+  exteriorTotalBrute,
+  exteriorTotalNet,
+  exteriorCount,
+  roofPitchFromFacades,
 } from "./App.jsx";
 
 describe("slug()", () => {
@@ -541,5 +554,155 @@ describe("levelArea / interiorArea / interiorIsValidated / interiorCount", () =>
   it("interiorCount sur projet vide", () => {
     expect(interiorCount({})).toEqual({ levels: 0, rooms: 0, validated: 0 });
     expect(interiorCount(null)).toEqual({ levels: 0, rooms: 0, validated: 0 });
+  });
+});
+
+/* =============================================================
+   Phase B — Module Extérieur (façades détaillées — 2026-05-20)
+   ============================================================= */
+
+describe("Phase B — constantes", () => {
+  it("FACADE_SIDES contient 4 côtés (sud/est/nord/ouest)", () => {
+    expect(FACADE_SIDES).toHaveLength(4);
+    expect(FACADE_SIDES.map(s => s.id)).toEqual(["sud", "est", "nord", "ouest"]);
+    FACADE_SIDES.forEach(s => expect(s).toHaveProperty("short"));
+  });
+
+  it("FACADE_MATERIALS contient 7 types", () => {
+    expect(FACADE_MATERIALS).toHaveLength(7);
+    const ids = FACADE_MATERIALS.map(m => m.id);
+    expect(ids).toContain("enduit");
+    expect(ids).toContain("brique");
+    expect(ids).toContain("autre");
+  });
+
+  it("FACADE_CONDITIONS contient 3 niveaux avec couleur", () => {
+    expect(FACADE_CONDITIONS).toHaveLength(3);
+    expect(FACADE_CONDITIONS.map(c => c.id)).toEqual(["bon", "moyen", "mauvais"]);
+    FACADE_CONDITIONS.forEach(c => expect(c).toHaveProperty("color"));
+  });
+});
+
+describe("emptyExterior / emptyFacade", () => {
+  it("emptyExterior() produit 4 façades", () => {
+    const e = emptyExterior();
+    expect(e.facades).toHaveLength(4);
+    expect(e.facades.map(f => f.side)).toEqual(["sud", "est", "nord", "ouest"]);
+  });
+
+  it("emptyFacade('sud') retourne une façade sud vide non validée", () => {
+    const f = emptyFacade("sud");
+    expect(f.side).toBe("sud");
+    expect(f.widthTotal).toBe("");
+    expect(f.heightLeft).toBe("");
+    expect(f.heightRight).toBe("");
+    expect(f.hasPignon).toBe(false);
+    expect(f.hasDevers).toBe(false);
+    expect(f.validated).toBe(false);
+    expect(typeof f.id).toBe("string");
+  });
+
+  it("emptyFacade(type inconnu) fallback sud", () => {
+    const f = emptyFacade("xxx");
+    expect(f.side).toBe("sud");
+  });
+
+  it("4 emptyFacade ont des ids différents", () => {
+    const ids = ["sud", "est", "nord", "ouest"].map(s => emptyFacade(s).id);
+    expect(new Set(ids).size).toBe(4);
+  });
+});
+
+describe("facadeBruteArea / facadeOpeningsArea / facadeNetArea", () => {
+  function mkF(p) { return Object.assign(emptyFacade("sud"), p); }
+
+  it("façade sans dimensions → 0", () => {
+    expect(facadeBruteArea(mkF({}))).toBe(0);
+    expect(facadeBruteArea(null)).toBe(0);
+  });
+
+  it("rectangle simple : 10 × 5 = 50", () => {
+    expect(facadeBruteArea(mkF({ widthTotal: "10", heightLeft: "5" }))).toBe(50);
+  });
+
+  it("hauteurs asymétriques 10 × (4+6)/2 = 50", () => {
+    expect(facadeBruteArea(mkF({ widthTotal: "10", heightLeft: "4", heightRight: "6" }))).toBe(50);
+  });
+
+  it("pignon ajoute triangle : 10 × 5 + 10 × (8-5)/2 = 65", () => {
+    expect(facadeBruteArea(mkF({
+      widthTotal: "10", heightLeft: "5", heightRight: "5",
+      hasPignon: true, heightCorniche: "5", heightFaitage: "8"
+    }))).toBe(65);
+  });
+
+  it("facadeOpeningsArea somme portes+fenêtres+baies", () => {
+    expect(facadeOpeningsArea(mkF({ surfDoors: "2", surfWindows: "3.5", surfBays: "4" }))).toBe(9.5);
+  });
+
+  it("facadeNetArea = brute - ouvertures, jamais négatif", () => {
+    const f = mkF({ widthTotal: "10", heightLeft: "5", surfWindows: "8" });
+    expect(facadeNetArea(f)).toBe(42);
+  });
+
+  it("facadeNetArea avec ouvertures > brute → 0", () => {
+    const f = mkF({ widthTotal: "10", heightLeft: "5", surfWindows: "100" });
+    expect(facadeNetArea(f)).toBe(0);
+  });
+});
+
+describe("exteriorTotalBrute / exteriorTotalNet / exteriorCount / roofPitchFromFacades", () => {
+  function mkProj(facades) { return { exterior: { facades } }; }
+  function mkF(p) { return Object.assign(emptyFacade("sud"), p); }
+
+  it("totaux à 0 sur projet vide", () => {
+    expect(exteriorTotalBrute({})).toBe(0);
+    expect(exteriorTotalBrute(null)).toBe(0);
+    expect(exteriorTotalNet({})).toBe(0);
+  });
+
+  it("exteriorTotalBrute somme les 4 façades", () => {
+    const p = mkProj([
+      mkF({ widthTotal: "10", heightLeft: "5" }), // 50
+      mkF({ widthTotal: "8", heightLeft: "5" }),  // 40
+      mkF({ widthTotal: "10", heightLeft: "5" }), // 50
+      mkF({ widthTotal: "8", heightLeft: "5" })   // 40
+    ]);
+    expect(exteriorTotalBrute(p)).toBe(180);
+  });
+
+  it("exteriorCount retourne {total, validated}", () => {
+    const p = mkProj([
+      mkF({ validated: true }),
+      mkF({ validated: true }),
+      mkF({ validated: false }),
+      mkF({ validated: false })
+    ]);
+    expect(exteriorCount(p)).toEqual({ total: 4, validated: 2 });
+    expect(exteriorCount({})).toEqual({ total: 0, validated: 0 });
+  });
+
+  it("roofPitchFromFacades null si pas de pignon", () => {
+    const p = mkProj([mkF({ widthTotal: "10", heightLeft: "5" })]);
+    expect(roofPitchFromFacades(p)).toBeNull();
+  });
+
+  it("roofPitchFromFacades calcule l'angle depuis pignon (10m large, +3m de rise → atan(3/5) ≈ 31°)", () => {
+    const p = mkProj([mkF({
+      widthTotal: "10", heightLeft: "5", heightCorniche: "5",
+      hasPignon: true, heightFaitage: "8"
+    })]);
+    const pitch = roofPitchFromFacades(p);
+    expect(pitch).not.toBeNull();
+    expect(pitch).toBeGreaterThan(30);
+    expect(pitch).toBeLessThan(32);
+  });
+
+  it("roofPitchFromFacades null si faîtage ≤ corniche", () => {
+    const p = mkProj([mkF({
+      widthTotal: "10", heightLeft: "5", heightCorniche: "5",
+      hasPignon: true, heightFaitage: "5"
+    })]);
+    expect(roofPitchFromFacades(p)).toBeNull();
   });
 });

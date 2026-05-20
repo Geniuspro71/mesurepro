@@ -11,7 +11,7 @@
    versions sont remplacées automatiquement — pas de purge manuelle à faire.
 */
 
-const VERSION = "mesurepro-v3.0-phase-A-photo-ux";
+const VERSION = "mesurepro-v3.1-phase-B-wizard-noscroll";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
 self.addEventListener("install", function(event){

@@ -2810,6 +2810,7 @@ function PTABS_FN() {
     {id:"model", lbl:t("tab.model"),    tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
     {id:"plans", lbl:t("tab.plans"),    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
     {id:"meas",  lbl:t("tab.meas"),     tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
+    {id:"exterior", lbl:t("tab.exterior"), tip:"Relevé extérieur détaillé — 4 façades (Sud/Est/Nord/Ouest) avec hauteurs L/R, corniche, pignon+faîtage, matériau, état, ouvertures + ElevationDiagram SVG live"},
     {id:"interior", lbl:t("tab.interior"), tip:"Relevé intérieur — niveaux (cave/RDC/étages/combles) et pièces (salon/cuisine/SDB/chambre…) avec photo, L×l×h, surface auto, validation"},
     {id:"design",lbl:t("tab.design"),   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
     {id:"devis", lbl:t("tab.devis"),    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
@@ -2889,6 +2890,7 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
         {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
         {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
+        {tab === "exterior" && <TabExterior project={project} onUpdate={onUpdate}/>}
         {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
         {tab === "design"   && <TabDesign   project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
@@ -7617,8 +7619,9 @@ var I18N = {
     "common.search":"Rechercher...","common.save":"Enregistrer","common.cancel":"Annuler","common.delete":"Supprimer","common.edit":"Modifier","common.close":"Fermer","common.next":"Suivant","common.prev":"Précédent","common.back":"Retour","common.export":"Exporter","common.import":"Importer","common.share":"Partager","common.copy":"Copier","common.yes":"Oui","common.no":"Non","common.optional":"(optionnel)","common.required":"Requis","common.open":"Ouvrir","common.new":"Nouveau",
     "dashboard.newProject":"+ Nouveau projet","dashboard.allStatus":"Tous les statuts","dashboard.empty":"Aucun projet pour le moment","dashboard.startNew":"Créez votre premier projet pour commencer.",
     "status.draft":"Brouillon","status.processing":"En cours","status.done":"Terminé",
-    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.interior":"Intérieur","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
+    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.exterior":"Extérieur","tab.interior":"Intérieur","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
     "int.title":"Relevé intérieur","int.empty":"Aucun niveau pour le moment","int.addLevel":"+ Ajouter un niveau","int.addRoom":"+ Ajouter une pièce","int.totalArea":"Surface totale","int.totalRooms":"pièces","int.score":"Validées","int.backLevels":"← Niveaux","int.length":"Longueur (m)","int.width":"Largeur (m)","int.height":"Hauteur (m)","int.area":"Surface (m²)","int.areaAuto":"Surface calculée","int.volume":"Volume","int.remarks":"Remarques / anomalies","int.photo":"Photo de la pièce","int.photoTake":"Choisir une photo","int.photoOk":"Photo OK","int.validate":"Valider la pièce","int.validated":"✓ Validée","int.delete":"Supprimer","int.confirmDelete":"Supprimer définitivement ?","int.pickLevel":"Choisir le type de niveau","int.pickRoom":"Choisir le type de pièce","int.requiredHint":"Photo + surface + hauteur requises pour valider",
+    "ext.title":"Relevé extérieur — 4 façades","ext.facade.sud":"Sud","ext.facade.est":"Est","ext.facade.nord":"Nord","ext.facade.ouest":"Ouest","ext.facadeDetail":"Saisie temps réel + ElevationDiagram SVG live","ext.notFilled":"Non renseignée","ext.brute":"brute","ext.net":"nette","ext.validated":"validées","ext.validatedBadge":"✓ Validée","ext.backList":"← Façades","ext.pitch":"Pente toiture","ext.dimensions":"Dimensions principales","ext.widthTotal":"Largeur totale (m)","ext.heightLeft":"Hauteur gauche (m)","ext.heightLeftHelp":"Sol → corniche côté gauche","ext.heightRight":"Hauteur droite (m)","ext.heightRightHelp":"Sol → corniche côté droit","ext.heightCorniche":"Hauteur corniche (m)","ext.heightCornicheHelp":"Ligne de gouttière","ext.hasPignon":"Cette façade montre le pignon (faîtage visible)","ext.heightFaitage":"Hauteur faîtage (m)","ext.heightFaitageHelp":"Sol → sommet du toit","ext.openings":"Ouvertures","ext.doors":"Portes","ext.windows":"Fenêtres","ext.bays":"Baies vitrées","ext.surface":"Surface (m²)","ext.materialState":"Matériau & état","ext.material":"Matériau","ext.mat.enduit":"Enduit / Crépi","ext.mat.brique":"Brique","ext.mat.pierre":"Pierre","ext.mat.bardage":"Bardage","ext.mat.beton":"Béton","ext.mat.verre":"Vitrage","ext.mat.autre":"Autre","ext.condition":"État général","ext.cond.bon":"Bon","ext.cond.moyen":"Moyen","ext.cond.mauvais":"Mauvais","ext.hasDevers":"Dévers / aplomb non vertical","ext.remarks":"Remarques & anomalies","ext.requiredHint":"Largeur + hauteur gauche requises pour valider cette façade","ext.validate":"✓ Valider cette façade","ext.saisirDim":"Saisir les dimensions →",
     "modal.step1":"Identification","modal.step2":"Remplir","modal.step3":"Photos","modal.step4":"Lancement","modal.launch":"Lancer","modal.template":"Type de bâtiment",
     "report.meas":"Mesures","report.devis":"Devis","report.insp":"Inspection","report.prop":"Propriété",
     "settings.profile":"Mon profil","settings.preferences":"Préférences","settings.civilites":"Civilités","settings.language":"Langue","settings.theme":"Thème","settings.themeDark":"🌙 Sombre","settings.themeLight":"☀️ Clair","settings.reset":"Réinitialiser les données démo",
@@ -7633,8 +7636,9 @@ var I18N = {
     "common.search":"Zoeken...","common.save":"Opslaan","common.cancel":"Annuleren","common.delete":"Verwijderen","common.edit":"Bewerken","common.close":"Sluiten","common.next":"Volgende","common.prev":"Vorige","common.back":"Terug","common.export":"Exporteren","common.import":"Importeren","common.share":"Delen","common.copy":"Kopiëren","common.yes":"Ja","common.no":"Nee","common.optional":"(optioneel)","common.required":"Vereist","common.open":"Openen","common.new":"Nieuw",
     "dashboard.newProject":"+ Nieuw project","dashboard.allStatus":"Alle statussen","dashboard.empty":"Nog geen projecten","dashboard.startNew":"Maak je eerste project aan om te starten.",
     "status.draft":"Concept","status.processing":"Bezig","status.done":"Voltooid",
-    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.interior":"Binnen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
+    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.exterior":"Buiten","tab.interior":"Binnen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
     "int.title":"Binnenmeting","int.empty":"Nog geen niveaus","int.addLevel":"+ Niveau toevoegen","int.addRoom":"+ Kamer toevoegen","int.totalArea":"Totale oppervlakte","int.totalRooms":"kamers","int.score":"Gevalideerd","int.backLevels":"← Niveaus","int.length":"Lengte (m)","int.width":"Breedte (m)","int.height":"Hoogte (m)","int.area":"Oppervlakte (m²)","int.areaAuto":"Berekende oppervlakte","int.volume":"Volume","int.remarks":"Opmerkingen","int.photo":"Foto van de kamer","int.photoTake":"Foto kiezen","int.photoOk":"Foto OK","int.validate":"Kamer valideren","int.validated":"✓ Gevalideerd","int.delete":"Verwijderen","int.confirmDelete":"Definitief verwijderen?","int.pickLevel":"Kies het type niveau","int.pickRoom":"Kies het type kamer","int.requiredHint":"Foto + oppervlakte + hoogte vereist voor validatie",
+    "ext.title":"Buitenmeting — 4 gevels","ext.facade.sud":"Zuid","ext.facade.est":"Oost","ext.facade.nord":"Noord","ext.facade.ouest":"West","ext.facadeDetail":"Real-time invoer + ElevationDiagram SVG live","ext.notFilled":"Niet ingevuld","ext.brute":"bruto","ext.net":"netto","ext.validated":"gevalideerd","ext.validatedBadge":"✓ Gevalideerd","ext.backList":"← Gevels","ext.pitch":"Dakhelling","ext.dimensions":"Hoofdafmetingen","ext.widthTotal":"Totale breedte (m)","ext.heightLeft":"Hoogte links (m)","ext.heightLeftHelp":"Grond → kroonlijst links","ext.heightRight":"Hoogte rechts (m)","ext.heightRightHelp":"Grond → kroonlijst rechts","ext.heightCorniche":"Kroonlijst hoogte (m)","ext.heightCornicheHelp":"Goothoogte","ext.hasPignon":"Deze gevel toont de topgevel (nokhoogte zichtbaar)","ext.heightFaitage":"Noklijn hoogte (m)","ext.heightFaitageHelp":"Grond → daktop","ext.openings":"Openingen","ext.doors":"Deuren","ext.windows":"Ramen","ext.bays":"Glaspuien","ext.surface":"Oppervlak (m²)","ext.materialState":"Materiaal & staat","ext.material":"Materiaal","ext.mat.enduit":"Bepleistering","ext.mat.brique":"Baksteen","ext.mat.pierre":"Natuursteen","ext.mat.bardage":"Houten/metalen bekleding","ext.mat.beton":"Beton","ext.mat.verre":"Glasgevel","ext.mat.autre":"Anders","ext.condition":"Algemene staat","ext.cond.bon":"Goed","ext.cond.moyen":"Matig","ext.cond.mauvais":"Slecht","ext.hasDevers":"Scheefstand / niet verticaal","ext.remarks":"Opmerkingen","ext.requiredHint":"Breedte + hoogte links vereist voor validatie","ext.validate":"✓ Gevel valideren","ext.saisirDim":"Vul de afmetingen in →",
     "modal.step1":"Identificatie","modal.step2":"Invullen","modal.step3":"Foto's","modal.step4":"Lancering","modal.launch":"Starten","modal.template":"Gebouwtype",
     "report.meas":"Metingen","report.devis":"Offerte","report.insp":"Inspectie","report.prop":"Eigendom",
     "settings.profile":"Mijn profiel","settings.preferences":"Voorkeuren","settings.civilites":"Aanspreektitels","settings.language":"Taal","settings.theme":"Thema","settings.themeDark":"🌙 Donker","settings.themeLight":"☀️ Licht","settings.reset":"Demogegevens herstellen",
@@ -7649,8 +7653,9 @@ var I18N = {
     "common.search":"Search...","common.save":"Save","common.cancel":"Cancel","common.delete":"Delete","common.edit":"Edit","common.close":"Close","common.next":"Next","common.prev":"Previous","common.back":"Back","common.export":"Export","common.import":"Import","common.share":"Share","common.copy":"Copy","common.yes":"Yes","common.no":"No","common.optional":"(optional)","common.required":"Required","common.open":"Open","common.new":"New",
     "dashboard.newProject":"+ New project","dashboard.allStatus":"All statuses","dashboard.empty":"No projects yet","dashboard.startNew":"Create your first project to get started.",
     "status.draft":"Draft","status.processing":"In progress","status.done":"Done",
-    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.interior":"Interior","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
+    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.exterior":"Exterior","tab.interior":"Interior","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
     "int.title":"Interior survey","int.empty":"No levels yet","int.addLevel":"+ Add level","int.addRoom":"+ Add room","int.totalArea":"Total area","int.totalRooms":"rooms","int.score":"Validated","int.backLevels":"← Levels","int.length":"Length (m)","int.width":"Width (m)","int.height":"Height (m)","int.area":"Area (m²)","int.areaAuto":"Computed area","int.volume":"Volume","int.remarks":"Remarks / issues","int.photo":"Room photo","int.photoTake":"Choose photo","int.photoOk":"Photo OK","int.validate":"Validate room","int.validated":"✓ Validated","int.delete":"Delete","int.confirmDelete":"Delete permanently?","int.pickLevel":"Choose level type","int.pickRoom":"Choose room type","int.requiredHint":"Photo + area + height required to validate",
+    "ext.title":"Exterior survey — 4 facades","ext.facade.sud":"South","ext.facade.est":"East","ext.facade.nord":"North","ext.facade.ouest":"West","ext.facadeDetail":"Real-time input + ElevationDiagram SVG live","ext.notFilled":"Not filled in","ext.brute":"gross","ext.net":"net","ext.validated":"validated","ext.validatedBadge":"✓ Validated","ext.backList":"← Facades","ext.pitch":"Roof pitch","ext.dimensions":"Main dimensions","ext.widthTotal":"Total width (m)","ext.heightLeft":"Left height (m)","ext.heightLeftHelp":"Ground → eave on left","ext.heightRight":"Right height (m)","ext.heightRightHelp":"Ground → eave on right","ext.heightCorniche":"Eave height (m)","ext.heightCornicheHelp":"Gutter line","ext.hasPignon":"This facade shows the gable (ridge visible)","ext.heightFaitage":"Ridge height (m)","ext.heightFaitageHelp":"Ground → top of roof","ext.openings":"Openings","ext.doors":"Doors","ext.windows":"Windows","ext.bays":"Bay windows","ext.surface":"Surface (m²)","ext.materialState":"Material & state","ext.material":"Material","ext.mat.enduit":"Render / plaster","ext.mat.brique":"Brick","ext.mat.pierre":"Natural stone","ext.mat.bardage":"Wood/metal cladding","ext.mat.beton":"Concrete","ext.mat.verre":"Curtain wall","ext.mat.autre":"Other","ext.condition":"Overall state","ext.cond.bon":"Good","ext.cond.moyen":"Average","ext.cond.mauvais":"Poor","ext.hasDevers":"Tilt / not vertical","ext.remarks":"Remarks","ext.requiredHint":"Width + left height required to validate","ext.validate":"✓ Validate this facade","ext.saisirDim":"Enter dimensions →",
     "modal.step1":"Identification","modal.step2":"Fill in","modal.step3":"Photos","modal.step4":"Launch","modal.launch":"Launch","modal.template":"Building type",
     "report.meas":"Measurements","report.devis":"Quote","report.insp":"Inspection","report.prop":"Property",
     "settings.profile":"My profile","settings.preferences":"Preferences","settings.civilites":"Civility titles","settings.language":"Language","settings.theme":"Theme","settings.themeDark":"🌙 Dark","settings.themeLight":"☀️ Light","settings.reset":"Reset demo data",
@@ -7665,8 +7670,9 @@ var I18N = {
     "common.search":"Suchen...","common.save":"Speichern","common.cancel":"Abbrechen","common.delete":"Löschen","common.edit":"Bearbeiten","common.close":"Schließen","common.next":"Weiter","common.prev":"Zurück","common.back":"Zurück","common.export":"Exportieren","common.import":"Importieren","common.share":"Teilen","common.copy":"Kopieren","common.yes":"Ja","common.no":"Nein","common.optional":"(optional)","common.required":"Erforderlich","common.open":"Öffnen","common.new":"Neu",
     "dashboard.newProject":"+ Neues Projekt","dashboard.allStatus":"Alle Status","dashboard.empty":"Noch keine Projekte","dashboard.startNew":"Erstellen Sie Ihr erstes Projekt.",
     "status.draft":"Entwurf","status.processing":"In Bearbeitung","status.done":"Fertig",
-    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.interior":"Innen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
+    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.exterior":"Außen","tab.interior":"Innen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
     "int.title":"Innenaufmaß","int.empty":"Noch keine Etagen","int.addLevel":"+ Etage hinzufügen","int.addRoom":"+ Raum hinzufügen","int.totalArea":"Gesamtfläche","int.totalRooms":"Räume","int.score":"Validiert","int.backLevels":"← Etagen","int.length":"Länge (m)","int.width":"Breite (m)","int.height":"Höhe (m)","int.area":"Fläche (m²)","int.areaAuto":"Berechnete Fläche","int.volume":"Volumen","int.remarks":"Anmerkungen","int.photo":"Raumfoto","int.photoTake":"Foto wählen","int.photoOk":"Foto OK","int.validate":"Raum validieren","int.validated":"✓ Validiert","int.delete":"Löschen","int.confirmDelete":"Endgültig löschen?","int.pickLevel":"Etagentyp wählen","int.pickRoom":"Raumtyp wählen","int.requiredHint":"Foto + Fläche + Höhe erforderlich für Validierung",
+    "ext.title":"Außenaufmaß — 4 Fassaden","ext.facade.sud":"Süd","ext.facade.est":"Ost","ext.facade.nord":"Nord","ext.facade.ouest":"West","ext.facadeDetail":"Echtzeit-Eingabe + ElevationDiagram SVG live","ext.notFilled":"Nicht ausgefüllt","ext.brute":"brutto","ext.net":"netto","ext.validated":"validiert","ext.validatedBadge":"✓ Validiert","ext.backList":"← Fassaden","ext.pitch":"Dachneigung","ext.dimensions":"Hauptabmessungen","ext.widthTotal":"Gesamtbreite (m)","ext.heightLeft":"Höhe links (m)","ext.heightLeftHelp":"Boden → Traufe links","ext.heightRight":"Höhe rechts (m)","ext.heightRightHelp":"Boden → Traufe rechts","ext.heightCorniche":"Traufhöhe (m)","ext.heightCornicheHelp":"Rinnenhöhe","ext.hasPignon":"Diese Fassade zeigt den Giebel (Firsthöhe sichtbar)","ext.heightFaitage":"Firsthöhe (m)","ext.heightFaitageHelp":"Boden → Dachfirst","ext.openings":"Öffnungen","ext.doors":"Türen","ext.windows":"Fenster","ext.bays":"Fenstererker","ext.surface":"Fläche (m²)","ext.materialState":"Material & Zustand","ext.material":"Material","ext.mat.enduit":"Putz","ext.mat.brique":"Ziegel","ext.mat.pierre":"Naturstein","ext.mat.bardage":"Holz-/Metallverkleidung","ext.mat.beton":"Beton","ext.mat.verre":"Glasfassade","ext.mat.autre":"Andere","ext.condition":"Allgemeiner Zustand","ext.cond.bon":"Gut","ext.cond.moyen":"Mittel","ext.cond.mauvais":"Schlecht","ext.hasDevers":"Schiefstellung / nicht senkrecht","ext.remarks":"Anmerkungen","ext.requiredHint":"Breite + Höhe links erforderlich für Validierung","ext.validate":"✓ Fassade validieren","ext.saisirDim":"Abmessungen eingeben →",
     "modal.step1":"Identifikation","modal.step2":"Ausfüllen","modal.step3":"Fotos","modal.step4":"Start","modal.launch":"Starten","modal.template":"Gebäudetyp",
     "report.meas":"Messungen","report.devis":"Angebot","report.insp":"Inspektion","report.prop":"Immobilie",
     "settings.profile":"Mein Profil","settings.preferences":"Einstellungen","settings.civilites":"Anrede","settings.language":"Sprache","settings.theme":"Erscheinungsbild","settings.themeDark":"🌙 Dunkel","settings.themeLight":"☀️ Hell","settings.reset":"Demo-Daten zurücksetzen",
@@ -8631,6 +8637,465 @@ function TabInterior({ project, onUpdate }) {
   );
 }
 
+/* =============================================================
+   Phase B — Module Extérieur (façades détaillées + ElevationDiagramLive)
+   4 façades (Sud/Est/Nord/Ouest) avec hauteurs L/R, corniche, pignon+faîtage,
+   matériau, état (Bon/Moyen/Mauvais), dévers, remarques, ouvertures.
+   SVG en preview live pendant la saisie + calcul surface brute/nette auto.
+   ============================================================= */
+
+const FACADE_SIDES = [
+  { id:"sud",   short:"S" },
+  { id:"est",   short:"E" },
+  { id:"nord",  short:"N" },
+  { id:"ouest", short:"O" }
+];
+
+const FACADE_MATERIALS = [
+  { id:"enduit"   },
+  { id:"brique"   },
+  { id:"pierre"   },
+  { id:"bardage"  },
+  { id:"beton"    },
+  { id:"verre"    },
+  { id:"autre"    }
+];
+
+const FACADE_CONDITIONS = [
+  { id:"bon",     color:"#00E5A0" },
+  { id:"moyen",   color:"#F5C400" },
+  { id:"mauvais", color:"#FF4757" }
+];
+
+function uidExterior() {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function emptyFacade(side) {
+  var s = FACADE_SIDES.find(function(x){ return x.id === side; }) || FACADE_SIDES[0];
+  return {
+    id: uidExterior(),
+    side: s.id,
+    widthTotal: "", heightLeft: "", heightRight: "",
+    heightCorniche: "", hasPignon: false, heightFaitage: "",
+    doors: "", surfDoors: "",
+    windows: "", surfWindows: "",
+    bays: "", surfBays: "",
+    material: "", condition: "", hasDevers: false,
+    remarks: "", hasPhoto: false, photoUrl: null,
+    validated: false
+  };
+}
+
+function emptyExterior() {
+  return { facades: FACADE_SIDES.map(function(s){ return emptyFacade(s.id); }) };
+}
+
+function facadeBruteArea(facade) {
+  if (!facade) return 0;
+  var w = parseFloat(facade.widthTotal);
+  var hL = parseFloat(facade.heightLeft);
+  var hR = parseFloat(facade.heightRight);
+  if (!isFinite(w) || w <= 0) return 0;
+  var hLeft = isFinite(hL) && hL > 0 ? hL : 0;
+  var hRight = isFinite(hR) && hR > 0 ? hR : hLeft;
+  var hAvg = (hLeft + hRight) / 2;
+  if (hAvg <= 0) return 0;
+  var area = w * hAvg;
+  if (facade.hasPignon) {
+    var hF = parseFloat(facade.heightFaitage);
+    var hC = parseFloat(facade.heightCorniche);
+    if (!isFinite(hC) || hC <= 0) hC = hAvg;
+    if (isFinite(hF) && hF > hC) {
+      area += w * (hF - hC) / 2;
+    }
+  }
+  return Math.round(area * 100) / 100;
+}
+
+function facadeOpeningsArea(facade) {
+  if (!facade) return 0;
+  return (parseFloat(facade.surfDoors) || 0)
+       + (parseFloat(facade.surfWindows) || 0)
+       + (parseFloat(facade.surfBays) || 0);
+}
+
+function facadeNetArea(facade) {
+  var brute = facadeBruteArea(facade);
+  if (brute <= 0) return 0;
+  var ops = facadeOpeningsArea(facade);
+  return Math.max(0, Math.round((brute - ops) * 100) / 100);
+}
+
+function exteriorTotalBrute(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return 0;
+  return project.exterior.facades.reduce(function(sum, f){ return sum + facadeBruteArea(f); }, 0);
+}
+
+function exteriorTotalNet(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return 0;
+  return project.exterior.facades.reduce(function(sum, f){ return sum + facadeNetArea(f); }, 0);
+}
+
+function exteriorCount(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return { total: 0, validated: 0 };
+  var facades = project.exterior.facades;
+  var validated = facades.filter(function(f){ return f.validated; }).length;
+  return { total: facades.length, validated: validated };
+}
+
+function roofPitchFromFacades(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return null;
+  var pignon = project.exterior.facades.find(function(f){ return f.hasPignon; });
+  if (!pignon) return null;
+  var w = parseFloat(pignon.widthTotal);
+  var hF = parseFloat(pignon.heightFaitage);
+  var hC = parseFloat(pignon.heightCorniche);
+  if (!isFinite(hC) || hC <= 0) hC = parseFloat(pignon.heightLeft);
+  if (!isFinite(w) || w <= 0 || !isFinite(hF) || !isFinite(hC) || hF <= hC) return null;
+  var halfW = w / 2;
+  var rise = hF - hC;
+  var angle = Math.atan(rise / halfW) * 180 / Math.PI;
+  return Math.round(angle * 10) / 10;
+}
+
+function ElevationDiagramLive(props) {
+  var widthTotal = parseFloat(props.widthTotal) || 0;
+  var heightLeft = parseFloat(props.heightLeft) || 0;
+  var heightRight = parseFloat(props.heightRight) || 0;
+  var heightCorniche = parseFloat(props.heightCorniche) || 0;
+  var heightFaitage = parseFloat(props.heightFaitage) || 0;
+  var hasPignon = !!props.hasPignon;
+  var W = 320, H = 200;
+  var ml = 50, mr = 36, mb = 36, mt = 16;
+  var dH = H - mt - mb;
+  var hMax = Math.max(heightLeft, heightRight, heightFaitage, 1);
+  var yFor = function(h){ return H - mb - (h / hMax) * dH; };
+  var x1 = ml, x2 = W - mr, xMid = (x1 + x2) / 2;
+  var yL = heightLeft > 0 ? yFor(heightLeft) : H - mb - dH * 0.6;
+  var yR = heightRight > 0 ? yFor(heightRight) : yL;
+  var yGround = H - mb;
+  var yF = (hasPignon && heightFaitage > 0) ? yFor(heightFaitage) : null;
+  var hasAnyData = widthTotal > 0 || heightLeft > 0 || heightRight > 0 || heightFaitage > 0;
+  return (
+    <svg width="100%" viewBox={"0 0 " + W + " " + H} style={{display:"block", borderRadius:8, background:"#0A1828", marginBottom:12}}>
+      <line x1={x1 - 12} y1={yGround} x2={x2 + 12} y2={yGround} stroke="#1C3050" strokeWidth={2} />
+      <line x1={x1} y1={yL} x2={x1} y2={yGround} stroke="#E8EDF5" strokeWidth={2} />
+      <line x1={x2} y1={yR} x2={x2} y2={yGround} stroke="#E8EDF5" strokeWidth={2} />
+      <line x1={x1} y1={yL} x2={x2} y2={yR} stroke="#00C2FF" strokeWidth={1.5} strokeDasharray="5,3" />
+      {hasPignon && yF !== null ? <line x1={x1} y1={yL} x2={xMid} y2={yF} stroke="#F5C400" strokeWidth={2} /> : null}
+      {hasPignon && yF !== null ? <line x1={x2} y1={yR} x2={xMid} y2={yF} stroke="#F5C400" strokeWidth={2} /> : null}
+      {hasPignon && yF !== null ? <circle cx={xMid} cy={yF} r={3} fill="#F5C400" /> : null}
+      {hasPignon && yF !== null && heightFaitage > 0 ? <text x={xMid + 6} y={yF - 4} fill="#F5C400" fontSize={10} fontFamily="monospace">hF={heightFaitage}m</text> : null}
+      <line x1={x1} y1={yGround + 18} x2={x2} y2={yGround + 18} stroke="#F5C400" strokeWidth={1} />
+      <line x1={x1} y1={yGround + 14} x2={x1} y2={yGround + 22} stroke="#F5C400" strokeWidth={1} />
+      <line x1={x2} y1={yGround + 14} x2={x2} y2={yGround + 22} stroke="#F5C400" strokeWidth={1} />
+      {widthTotal > 0 ? <text x={xMid} y={yGround + 30} fill="#F5C400" fontSize={11} textAnchor="middle" fontFamily="monospace">{widthTotal}m</text> : null}
+      {heightLeft > 0 ? <line x1={x1 - 14} y1={yL} x2={x1 - 14} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightLeft > 0 ? <line x1={x1 - 18} y1={yL} x2={x1 - 10} y2={yL} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightLeft > 0 ? <line x1={x1 - 18} y1={yGround} x2={x1 - 10} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightLeft > 0 ? <text x={x1 - 20} y={(yL + yGround) / 2 + 4} fill="#00E5A0" fontSize={10} textAnchor="end" fontFamily="monospace">{heightLeft}m</text> : null}
+      {heightRight > 0 ? <line x1={x2 + 14} y1={yR} x2={x2 + 14} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightRight > 0 ? <line x1={x2 + 10} y1={yR} x2={x2 + 18} y2={yR} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightRight > 0 ? <line x1={x2 + 10} y1={yGround} x2={x2 + 18} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
+      {heightRight > 0 ? <text x={x2 + 20} y={(yR + yGround) / 2 + 4} fill="#00E5A0" fontSize={10} textAnchor="start" fontFamily="monospace">{heightRight}m</text> : null}
+      {!hasAnyData ? <text x={xMid} y={H / 2 + 4} fill="#607898" fontSize={11} textAnchor="middle" fontFamily="monospace">{t("ext.saisirDim")}</text> : null}
+    </svg>
+  );
+}
+
+function TabExterior({ project, onUpdate }) {
+  var exterior = project.exterior || emptyExterior();
+  var [view, setView] = useState("list");        // 'list' | 'wizard'
+  var [facId, setFacId] = useState(null);
+  var [step, setStep] = useState(0);             // 0..3 wizard
+
+  useEffect(function(){
+    if (!project.exterior || !project.exterior.facades || project.exterior.facades.length === 0) {
+      onUpdate({ exterior: emptyExterior() });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  var facades = exterior.facades || [];
+  var selFacade = facades.find(function(f){ return f.id === facId; });
+  var totalBrute = exteriorTotalBrute(project);
+  var stats = exteriorCount(project);
+  var pitch = roofPitchFromFacades(project);
+  var TOTAL_STEPS = 4;
+
+  function updateFacade(field, value) {
+    var patch = {}; patch[field] = value;
+    updateFacadePatch(patch);
+  }
+  function updateFacadePatch(patch) {
+    /* MAJ multi-champs en 1 seul setState — évite que 2 u() consécutifs s'écrasent
+       à cause du closure stale React (React batche les setState mais l'état
+       intermédiaire reste celui d'avant le 1er appel). */
+    var next = {
+      facades: facades.map(function(f){
+        return f.id === facId ? Object.assign({}, f, patch) : f;
+      })
+    };
+    onUpdate({ exterior: next });
+  }
+
+  function startEdit(id) { setFacId(id); setStep(0); setView("wizard"); }
+  function back() { setView("list"); setFacId(null); setStep(0); }
+
+  /* ─── Styles non-négociables : ZÉRO SCROLL, viewport-fit absolute ─── */
+  var WRAP = { display:"flex", flexDirection:"column", height:"calc(100vh - 92px)", overflow:"hidden", background:"#08111E" };
+  var HEAD = { padding:"14px 20px", borderBottom:"1px solid #1C3050", flexShrink:0, background:"#0F1C2E" };
+  var BODY = { flex:1, padding:"18px 20px", overflow:"hidden", display:"flex", flexDirection:"column", gap:12, minHeight:0 };
+  var FOOT = { padding:"12px 20px", borderTop:"1px solid #1C3050", flexShrink:0, display:"flex", gap:10, background:"#0F1C2E" };
+  var H1 = { fontSize:17, fontWeight:800, color:"#E8EDF5", marginBottom:2 };
+  var H2 = { fontSize:14, fontWeight:700, color:"#E8EDF5" };
+  var MUT = { fontSize:12, color:"#607898" };
+  var INP = { width:"100%", boxSizing:"border-box", background:"#0A1828", border:"1px solid #1C3050", borderRadius:6, color:"#E8EDF5", fontSize:16, padding:"10px 12px", outline:"none" };
+  var LBL = { fontSize:11, fontWeight:700, color:"#607898", letterSpacing:1.2, textTransform:"uppercase", marginBottom:4, display:"block" };
+
+  /* ─── VUE LIST : grid 4 façades, tient dans viewport ─── */
+  if (view === "list") {
+    return (
+      <div style={WRAP}>
+        <div style={HEAD}>
+          <div style={H1}>🏛️ {t("ext.title")}</div>
+          <div style={MUT}>
+            {stats.validated}/{stats.total} {t("ext.validated")}
+            {totalBrute > 0 ? " · " + totalBrute.toFixed(1) + " m²" : ""}
+            {pitch !== null ? " · " + t("ext.pitch") + " " + pitch + "°" : ""}
+          </div>
+        </div>
+        <div style={Object.assign({}, BODY, { padding:"16px 20px" })}>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gridTemplateRows:"1fr 1fr", gap:12, flex:1, minHeight:0}}>
+            {facades.map(function(f){
+              var sideInfo = FACADE_SIDES.find(function(s){ return s.id === f.side; }) || FACADE_SIDES[0];
+              var br = facadeBruteArea(f);
+              return (
+                <div key={f.id} style={{
+                  background: f.validated ? "rgba(0,229,160,0.06)" : "#0F1C2E",
+                  border: "1px solid " + (f.validated ? "#00E5A0" : "#1C3050"),
+                  borderRadius:10, padding:14, cursor:"pointer",
+                  display:"flex", flexDirection:"column", justifyContent:"space-between",
+                  minHeight:0, overflow:"hidden"
+                }} onClick={function(){ startEdit(f.id); }}>
+                  <div>
+                    <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
+                      <span style={{background:"#152135", color:"#00C2FF", padding:"3px 8px", borderRadius:5, fontSize:11, fontWeight:800}}>{sideInfo.short}</span>
+                      <div style={H2}>{t("ext.facade." + f.side)}</div>
+                      {f.validated ? <span style={{marginLeft:"auto", color:"#00E5A0"}}>✓</span> : null}
+                    </div>
+                    <div style={Object.assign({}, MUT, { fontFamily:"monospace" })}>
+                      {f.widthTotal && f.heightLeft ? f.widthTotal + "×" + f.heightLeft + "m" : t("ext.notFilled")}
+                    </div>
+                  </div>
+                  {br > 0 ? <div style={{fontFamily:"monospace", fontSize:13, fontWeight:700, color:"#00C2FF"}}>{br.toFixed(1)} m²</div> : <div style={{fontSize:11, color:"#607898"}}>{t("common.new")} →</div>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── VUE WIZARD 4 étapes : chacune tient dans viewport ─── */
+  if (view === "wizard" && selFacade) {
+    var u = function(field, value){ updateFacade(field, value); };
+    var sideInfo = FACADE_SIDES.find(function(s){ return s.id === selFacade.side; }) || FACADE_SIDES[0];
+    var canNext = true;
+    if (step === 0) canNext = parseFloat(selFacade.widthTotal) > 0 && parseFloat(selFacade.heightLeft) > 0;
+    if (step === 1 && selFacade.hasPignon) canNext = parseFloat(selFacade.heightFaitage) > 0;
+
+    return (
+      <div style={WRAP}>
+        {/* HEAD : breadcrumb + barre progression 4 étapes */}
+        <div style={HEAD}>
+          <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:10}}>
+            <span style={{background:"#152135", color:"#00C2FF", padding:"4px 10px", borderRadius:5, fontSize:11, fontWeight:800}}>{sideInfo.short}</span>
+            <div style={H2}>{t("ext.facade." + selFacade.side)}</div>
+            <div style={{marginLeft:"auto", fontFamily:"monospace", fontSize:11, color:"#607898"}}>{step + 1}/{TOTAL_STEPS}</div>
+          </div>
+          <div style={{display:"flex", gap:4}}>
+            {[0,1,2,3].map(function(i){
+              return <div key={i} style={{flex:1, height:3, borderRadius:2, background: i <= step ? "#00C2FF" : "#1C3050"}} />;
+            })}
+          </div>
+        </div>
+
+        {/* BODY : 1 step à la fois, NO SCROLL */}
+        <div style={BODY}>
+          {step === 0 ? (
+            <>
+              <div>
+                <div style={H2}>📏 {t("ext.dimensions")}</div>
+                <div style={MUT}>Tape les 2 mesures principales — le schéma se met à jour en direct</div>
+              </div>
+              <div style={{flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                <ElevationDiagramLive
+                  widthTotal={selFacade.widthTotal}
+                  heightLeft={selFacade.heightLeft}
+                  heightRight={selFacade.heightLeft}
+                  heightFaitage={selFacade.heightFaitage}
+                  hasPignon={selFacade.hasPignon}
+                />
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, flexShrink:0}}>
+                <div>
+                  <label style={LBL}>{t("ext.widthTotal")}</label>
+                  <input type="number" inputMode="decimal" step="0.01" value={selFacade.widthTotal} onChange={function(e){ u("widthTotal", e.target.value); }} placeholder="0.00" style={INP} autoFocus />
+                </div>
+                <div>
+                  <label style={LBL}>{t("ext.heightLeft")}</label>
+                  <input type="number" inputMode="decimal" step="0.01" value={selFacade.heightLeft} onChange={function(e){ updateFacadePatch({ heightLeft: e.target.value, heightRight: e.target.value }); }} placeholder="0.00" style={INP} />
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          {step === 1 ? (
+            <>
+              <div>
+                <div style={H2}>▲ Pignon visible ?</div>
+                <div style={MUT}>Coche si tu vois le sommet du toit depuis cette façade</div>
+              </div>
+              <div style={{flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                <ElevationDiagramLive
+                  widthTotal={selFacade.widthTotal}
+                  heightLeft={selFacade.heightLeft}
+                  heightRight={selFacade.heightLeft}
+                  heightFaitage={selFacade.heightFaitage}
+                  hasPignon={selFacade.hasPignon}
+                />
+              </div>
+              <div style={{display:"flex", gap:10, flexShrink:0}}>
+                <button type="button" onClick={function(){ u("hasPignon", false); u("heightFaitage", ""); }} style={{
+                  flex:1, padding:"14px 0",
+                  background: !selFacade.hasPignon ? "rgba(0,194,255,0.18)" : "#0A1828",
+                  border:"1px solid " + (!selFacade.hasPignon ? "#00C2FF" : "#1C3050"),
+                  borderRadius:8, color: !selFacade.hasPignon ? "#00C2FF" : "#607898",
+                  fontSize:14, fontWeight:700, cursor:"pointer"
+                }}>⬜ Mur droit</button>
+                <button type="button" onClick={function(){ u("hasPignon", true); }} style={{
+                  flex:1, padding:"14px 0",
+                  background: selFacade.hasPignon ? "rgba(245,196,0,0.18)" : "#0A1828",
+                  border:"1px solid " + (selFacade.hasPignon ? "#F5C400" : "#1C3050"),
+                  borderRadius:8, color: selFacade.hasPignon ? "#F5C400" : "#607898",
+                  fontSize:14, fontWeight:700, cursor:"pointer"
+                }}>▲ Pignon</button>
+              </div>
+              {selFacade.hasPignon ? (
+                <div style={{flexShrink:0}}>
+                  <label style={LBL}>{t("ext.heightFaitage")} (sol → sommet du toit)</label>
+                  <input type="number" inputMode="decimal" step="0.01" value={selFacade.heightFaitage} onChange={function(e){ u("heightFaitage", e.target.value); }} placeholder="ex: 8.50" style={INP} />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {step === 2 ? (
+            <>
+              <div>
+                <div style={H2}>🧱 Matériau + état</div>
+                <div style={MUT}>Choisis le revêtement + l'état général de cette façade</div>
+              </div>
+              <div style={{flexShrink:0}}>
+                <div style={LBL}>{t("ext.material")}</div>
+                <div style={{display:"grid", gridTemplateColumns:"repeat(2, 1fr)", gap:6}}>
+                  {FACADE_MATERIALS.map(function(m){
+                    var sel = selFacade.material === m.id;
+                    return (
+                      <button key={m.id} type="button" onClick={function(){ u("material", m.id); }} style={{
+                        background: sel ? "rgba(0,194,255,0.18)" : "#0A1828",
+                        border: "1px solid " + (sel ? "#00C2FF" : "#1C3050"),
+                        borderRadius: 6,
+                        color: sel ? "#00C2FF" : "#E8EDF5",
+                        padding: "10px 8px",
+                        fontSize: 12, fontWeight: sel ? 700 : 500,
+                        cursor: "pointer"
+                      }}>{t("ext.mat." + m.id)}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{flexShrink:0, marginTop:6}}>
+                <div style={LBL}>{t("ext.condition")}</div>
+                <div style={{display:"flex", gap:6}}>
+                  {FACADE_CONDITIONS.map(function(c){
+                    var sel = selFacade.condition === c.id;
+                    return (
+                      <button key={c.id} type="button" onClick={function(){ u("condition", c.id); }} style={{
+                        flex: 1, background: sel ? "rgba(255,255,255,0.06)" : "#0A1828",
+                        border: "1px solid " + (sel ? c.color : "#1C3050"),
+                        borderRadius: 6, color: sel ? c.color : "#E8EDF5",
+                        padding: "14px 0", fontSize: 13, fontWeight: 700,
+                        textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer"
+                      }}>{t("ext.cond." + c.id)}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          {step === 3 ? (
+            <>
+              <div>
+                <div style={H2}>✓ Récap façade {t("ext.facade." + selFacade.side)}</div>
+                <div style={MUT}>Vérifie puis valide</div>
+              </div>
+              <div style={{flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center"}}>
+                <ElevationDiagramLive
+                  widthTotal={selFacade.widthTotal}
+                  heightLeft={selFacade.heightLeft}
+                  heightRight={selFacade.heightLeft}
+                  heightFaitage={selFacade.heightFaitage}
+                  hasPignon={selFacade.hasPignon}
+                />
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, flexShrink:0}}>
+                <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:8, padding:12, textAlign:"center"}}>
+                  <div style={{fontFamily:"monospace", fontSize:14, color:"#E8EDF5"}}>{selFacade.widthTotal || "?"}m × {selFacade.heightLeft || "?"}m{selFacade.hasPignon && selFacade.heightFaitage ? " ▲" + selFacade.heightFaitage + "m" : ""}</div>
+                  <div style={Object.assign({}, MUT, { marginTop:4, fontSize:10, letterSpacing:1, textTransform:"uppercase" })}>Dimensions</div>
+                </div>
+                <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.3)", borderRadius:8, padding:12, textAlign:"center"}}>
+                  <div style={{fontFamily:"monospace", fontSize:22, fontWeight:800, color:"#00C2FF"}}>{facadeBruteArea(selFacade).toFixed(1)}</div>
+                  <div style={Object.assign({}, MUT, { fontSize:10, letterSpacing:1, textTransform:"uppercase" })}>m² {t("ext.brute")}</div>
+                </div>
+              </div>
+              {(selFacade.material || selFacade.condition) ? (
+                <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:8, padding:"10px 14px", display:"flex", gap:14, alignItems:"center", flexWrap:"wrap", flexShrink:0}}>
+                  {selFacade.material ? <span style={{color:"#00C2FF", fontSize:13}}>🧱 {t("ext.mat." + selFacade.material)}</span> : null}
+                  {selFacade.condition ? <span style={{color: (FACADE_CONDITIONS.find(function(c){return c.id===selFacade.condition;}) || {}).color, fontSize:13, fontWeight:700, letterSpacing:0.5, textTransform:"uppercase"}}>{t("ext.cond." + selFacade.condition)}</span> : null}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+
+        {/* FOOT : navigation Précédent / Suivant ou Valider */}
+        <div style={FOOT}>
+          {step > 0 ? (
+            <Btn onClick={function(){ setStep(step - 1); }} style={{flex:0, padding:"10px 18px"}}>←</Btn>
+          ) : (
+            <Btn onClick={back} style={{flex:0, padding:"10px 18px"}}>{t("ext.backList")}</Btn>
+          )}
+          {step < TOTAL_STEPS - 1 ? (
+            <Btn primary={canNext} onClick={function(){ if (canNext) setStep(step + 1); }} style={{flex:1, opacity: canNext ? 1 : 0.4}}>{t("common.next")} →</Btn>
+          ) : (
+            <Btn primary={true} onClick={function(){
+              u("validated", true);
+              back();
+            }} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ {t("ext.validate")}</Btn>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 export {
   slug,
   csvEscape,
@@ -8664,4 +9129,17 @@ export {
   interiorArea,
   interiorIsValidated,
   interiorCount,
+  /* === Phase B — Module Extérieur (2026-05-20) === */
+  FACADE_SIDES,
+  FACADE_MATERIALS,
+  FACADE_CONDITIONS,
+  emptyExterior,
+  emptyFacade,
+  facadeBruteArea,
+  facadeOpeningsArea,
+  facadeNetArea,
+  exteriorTotalBrute,
+  exteriorTotalNet,
+  exteriorCount,
+  roofPitchFromFacades,
 };
