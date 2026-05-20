@@ -20,6 +20,18 @@ import {
   encodeProjectForShare,
   decodeProjectFromShare,
   detectArPlatform,
+  /* === Phase A — Module Intérieur === */
+  LEVEL_TYPES,
+  ROOM_TYPES,
+  emptyInterior,
+  emptyLevel,
+  emptyRoom,
+  roomArea,
+  roomVolume,
+  levelArea,
+  interiorArea,
+  interiorIsValidated,
+  interiorCount,
 } from "./App.jsx";
 
 describe("slug()", () => {
@@ -360,5 +372,174 @@ describe("detectArPlatform", () => {
   it("retourne 'ios' / 'android' / 'other'", () => {
     const p = detectArPlatform();
     expect(["ios", "android", "other"]).toContain(p);
+  });
+});
+
+/* =============================================================
+   Phase A — Module Intérieur (mesurepro v1 + JSX merge — 2026-05-20)
+   ============================================================= */
+
+describe("Phase A — constantes", () => {
+  it("LEVEL_TYPES contient 5 niveaux (cave/rdc/etage1/etage2/combles)", () => {
+    expect(LEVEL_TYPES).toHaveLength(5);
+    const ids = LEVEL_TYPES.map(l => l.id);
+    expect(ids).toEqual(["cave", "rdc", "etage1", "etage2", "combles"]);
+    LEVEL_TYPES.forEach(l => {
+      expect(l).toHaveProperty("label");
+      expect(l).toHaveProperty("emoji");
+    });
+  });
+
+  it("ROOM_TYPES contient 10 types de pièces", () => {
+    expect(ROOM_TYPES).toHaveLength(10);
+    const ids = ROOM_TYPES.map(r => r.id);
+    expect(ids).toContain("salon");
+    expect(ids).toContain("cuisine");
+    expect(ids).toContain("chambre");
+    expect(ids).toContain("sdb");
+    expect(ids).toContain("autre");
+  });
+});
+
+describe("emptyInterior / emptyLevel / emptyRoom", () => {
+  it("emptyInterior() retourne {levels: []}", () => {
+    const i = emptyInterior();
+    expect(i).toEqual({ levels: [] });
+  });
+
+  it("emptyLevel('rdc') produit un level rdc vide avec id unique", () => {
+    const l = emptyLevel("rdc");
+    expect(l.type).toBe("rdc");
+    expect(l.label).toBe("Rez-de-chaussée");
+    expect(l.rooms).toEqual([]);
+    expect(typeof l.id).toBe("string");
+    expect(l.id.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("emptyLevel(type inconnu) fallback rdc", () => {
+    const l = emptyLevel("xxx_inconnu");
+    expect(l.type).toBe("rdc");
+  });
+
+  it("emptyRoom('salon') produit une pièce vide non validée", () => {
+    const r = emptyRoom("salon");
+    expect(r.type).toBe("salon");
+    expect(r.label).toBe("Salon");
+    expect(r.length).toBe("");
+    expect(r.width).toBe("");
+    expect(r.height).toBe("");
+    expect(r.area).toBe("");
+    expect(r.hasPhoto).toBe(false);
+    expect(r.photoUrl).toBeNull();
+    expect(r.validated).toBe(false);
+  });
+
+  it("emptyRoom(type inconnu) fallback salon", () => {
+    const r = emptyRoom("zzz_inexistant");
+    expect(r.type).toBe("salon");
+  });
+
+  it("deux emptyLevel produisent des ids différents", () => {
+    const a = emptyLevel("rdc");
+    const b = emptyLevel("rdc");
+    expect(a.id).not.toBe(b.id);
+  });
+});
+
+describe("roomArea / roomVolume", () => {
+  it("roomArea(5, 4) === 20", () => {
+    expect(roomArea(5, 4)).toBe(20);
+  });
+
+  it("roomArea accepte des strings numériques", () => {
+    expect(roomArea("5.5", "3.2")).toBe(17.6);
+  });
+
+  it("roomArea arrondit à 2 décimales", () => {
+    expect(roomArea(3.333, 3.333)).toBe(11.11);
+  });
+
+  it("roomArea(0 ou négatif ou vide) === 0", () => {
+    expect(roomArea(0, 4)).toBe(0);
+    expect(roomArea(-1, 4)).toBe(0);
+    expect(roomArea("", "")).toBe(0);
+    expect(roomArea(null, null)).toBe(0);
+    expect(roomArea(undefined, undefined)).toBe(0);
+    expect(roomArea("abc", "def")).toBe(0);
+  });
+
+  it("roomVolume(20, 2.5) === 50", () => {
+    expect(roomVolume(20, 2.5)).toBe(50);
+  });
+
+  it("roomVolume invalide → 0", () => {
+    expect(roomVolume(0, 2.5)).toBe(0);
+    expect(roomVolume(20, -1)).toBe(0);
+    expect(roomVolume("", "")).toBe(0);
+  });
+});
+
+describe("levelArea / interiorArea / interiorIsValidated / interiorCount", () => {
+  function mkProj(levels) {
+    return { interior: { levels } };
+  }
+  function mkLevel(rooms) {
+    return { id: "L1", type: "rdc", label: "RDC", emoji: "🏠", rooms };
+  }
+  function mkRoom(area, validated) {
+    return { id: "R" + Math.random(), type: "salon", label: "Salon", emoji: "🛋️",
+      length: "", width: "", height: "2.5", area: String(area), hasPhoto: true,
+      photoUrl: "x", remarks: "", validated: !!validated };
+  }
+
+  it("levelArea({rooms:[]}) === 0", () => {
+    expect(levelArea({ rooms: [] })).toBe(0);
+    expect(levelArea(null)).toBe(0);
+    expect(levelArea(undefined)).toBe(0);
+  });
+
+  it("levelArea additionne les surfaces des pièces", () => {
+    const lvl = mkLevel([mkRoom(20), mkRoom(15.5), mkRoom("invalid"), mkRoom(0)]);
+    expect(levelArea(lvl)).toBe(35.5);
+  });
+
+  it("interiorArea(project sans intérieur) === 0", () => {
+    expect(interiorArea({})).toBe(0);
+    expect(interiorArea(null)).toBe(0);
+    expect(interiorArea({ interior: { levels: [] } })).toBe(0);
+  });
+
+  it("interiorArea agrège tous les niveaux", () => {
+    const p = mkProj([
+      mkLevel([mkRoom(20), mkRoom(10)]),
+      mkLevel([mkRoom(30)]),
+    ]);
+    expect(interiorArea(p)).toBe(60);
+  });
+
+  it("interiorIsValidated false si aucune pièce", () => {
+    expect(interiorIsValidated({})).toBe(false);
+    expect(interiorIsValidated(mkProj([]))).toBe(false);
+    expect(interiorIsValidated(mkProj([mkLevel([])]))).toBe(false);
+  });
+
+  it("interiorIsValidated true seulement si toutes les pièces sont validées", () => {
+    const ok = mkProj([mkLevel([mkRoom(20, true), mkRoom(15, true)])]);
+    const partial = mkProj([mkLevel([mkRoom(20, true), mkRoom(15, false)])]);
+    expect(interiorIsValidated(ok)).toBe(true);
+    expect(interiorIsValidated(partial)).toBe(false);
+  });
+
+  it("interiorCount retourne {levels, rooms, validated}", () => {
+    const p = mkProj([
+      mkLevel([mkRoom(20, true), mkRoom(15, false)]),
+      mkLevel([mkRoom(30, true)]),
+    ]);
+    expect(interiorCount(p)).toEqual({ levels: 2, rooms: 3, validated: 2 });
+  });
+
+  it("interiorCount sur projet vide", () => {
+    expect(interiorCount({})).toEqual({ levels: 0, rooms: 0, validated: 0 });
+    expect(interiorCount(null)).toEqual({ levels: 0, rooms: 0, validated: 0 });
   });
 });

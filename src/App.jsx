@@ -2810,6 +2810,7 @@ function PTABS_FN() {
     {id:"model", lbl:t("tab.model"),    tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
     {id:"plans", lbl:t("tab.plans"),    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
     {id:"meas",  lbl:t("tab.meas"),     tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
+    {id:"interior", lbl:t("tab.interior"), tip:"Relevé intérieur — niveaux (cave/RDC/étages/combles) et pièces (salon/cuisine/SDB/chambre…) avec photo, L×l×h, surface auto, validation"},
     {id:"design",lbl:t("tab.design"),   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
     {id:"devis", lbl:t("tab.devis"),    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
     {id:"materials", lbl:t("tab.materials"), tip:"Quantitatif matériaux auto (toiture/façades) calculé depuis les dimensions"},
@@ -2887,8 +2888,9 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
         {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
-        {tab === "meas"   && <TabMeas   project={project} onUpdate={onUpdate}/>}
-        {tab === "design" && <TabDesign project={project} mat={mat} setMat={setMat}/>}
+        {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
+        {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
+        {tab === "design"   && <TabDesign   project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
         {tab === "materials" && <TabMaterials project={project} setToast={setToast}/>}
         {tab === "peb"    && <TabPEB project={project} onUpdate={onUpdate}/>}
@@ -7615,7 +7617,8 @@ var I18N = {
     "common.search":"Rechercher...","common.save":"Enregistrer","common.cancel":"Annuler","common.delete":"Supprimer","common.edit":"Modifier","common.close":"Fermer","common.next":"Suivant","common.prev":"Précédent","common.back":"Retour","common.export":"Exporter","common.import":"Importer","common.share":"Partager","common.copy":"Copier","common.yes":"Oui","common.no":"Non","common.optional":"(optionnel)","common.required":"Requis","common.open":"Ouvrir","common.new":"Nouveau",
     "dashboard.newProject":"+ Nouveau projet","dashboard.allStatus":"Tous les statuts","dashboard.empty":"Aucun projet pour le moment","dashboard.startNew":"Créez votre premier projet pour commencer.",
     "status.draft":"Brouillon","status.processing":"En cours","status.done":"Terminé",
-    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
+    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.interior":"Intérieur","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
+    "int.title":"Relevé intérieur","int.empty":"Aucun niveau pour le moment","int.addLevel":"+ Ajouter un niveau","int.addRoom":"+ Ajouter une pièce","int.totalArea":"Surface totale","int.totalRooms":"pièces","int.score":"Validées","int.backLevels":"← Niveaux","int.length":"Longueur (m)","int.width":"Largeur (m)","int.height":"Hauteur (m)","int.area":"Surface (m²)","int.areaAuto":"Surface calculée","int.volume":"Volume","int.remarks":"Remarques / anomalies","int.photo":"Photo de la pièce","int.photoTake":"Choisir une photo","int.photoOk":"Photo OK","int.validate":"Valider la pièce","int.validated":"✓ Validée","int.delete":"Supprimer","int.confirmDelete":"Supprimer définitivement ?","int.pickLevel":"Choisir le type de niveau","int.pickRoom":"Choisir le type de pièce","int.requiredHint":"Photo + surface + hauteur requises pour valider",
     "modal.step1":"Identification","modal.step2":"Remplir","modal.step3":"Photos","modal.step4":"Lancement","modal.launch":"Lancer","modal.template":"Type de bâtiment",
     "report.meas":"Mesures","report.devis":"Devis","report.insp":"Inspection","report.prop":"Propriété",
     "settings.profile":"Mon profil","settings.preferences":"Préférences","settings.civilites":"Civilités","settings.language":"Langue","settings.theme":"Thème","settings.themeDark":"🌙 Sombre","settings.themeLight":"☀️ Clair","settings.reset":"Réinitialiser les données démo",
@@ -7630,7 +7633,8 @@ var I18N = {
     "common.search":"Zoeken...","common.save":"Opslaan","common.cancel":"Annuleren","common.delete":"Verwijderen","common.edit":"Bewerken","common.close":"Sluiten","common.next":"Volgende","common.prev":"Vorige","common.back":"Terug","common.export":"Exporteren","common.import":"Importeren","common.share":"Delen","common.copy":"Kopiëren","common.yes":"Ja","common.no":"Nee","common.optional":"(optioneel)","common.required":"Vereist","common.open":"Openen","common.new":"Nieuw",
     "dashboard.newProject":"+ Nieuw project","dashboard.allStatus":"Alle statussen","dashboard.empty":"Nog geen projecten","dashboard.startNew":"Maak je eerste project aan om te starten.",
     "status.draft":"Concept","status.processing":"Bezig","status.done":"Voltooid",
-    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
+    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.interior":"Binnen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
+    "int.title":"Binnenmeting","int.empty":"Nog geen niveaus","int.addLevel":"+ Niveau toevoegen","int.addRoom":"+ Kamer toevoegen","int.totalArea":"Totale oppervlakte","int.totalRooms":"kamers","int.score":"Gevalideerd","int.backLevels":"← Niveaus","int.length":"Lengte (m)","int.width":"Breedte (m)","int.height":"Hoogte (m)","int.area":"Oppervlakte (m²)","int.areaAuto":"Berekende oppervlakte","int.volume":"Volume","int.remarks":"Opmerkingen","int.photo":"Foto van de kamer","int.photoTake":"Foto kiezen","int.photoOk":"Foto OK","int.validate":"Kamer valideren","int.validated":"✓ Gevalideerd","int.delete":"Verwijderen","int.confirmDelete":"Definitief verwijderen?","int.pickLevel":"Kies het type niveau","int.pickRoom":"Kies het type kamer","int.requiredHint":"Foto + oppervlakte + hoogte vereist voor validatie",
     "modal.step1":"Identificatie","modal.step2":"Invullen","modal.step3":"Foto's","modal.step4":"Lancering","modal.launch":"Starten","modal.template":"Gebouwtype",
     "report.meas":"Metingen","report.devis":"Offerte","report.insp":"Inspectie","report.prop":"Eigendom",
     "settings.profile":"Mijn profiel","settings.preferences":"Voorkeuren","settings.civilites":"Aanspreektitels","settings.language":"Taal","settings.theme":"Thema","settings.themeDark":"🌙 Donker","settings.themeLight":"☀️ Licht","settings.reset":"Demogegevens herstellen",
@@ -7645,7 +7649,8 @@ var I18N = {
     "common.search":"Search...","common.save":"Save","common.cancel":"Cancel","common.delete":"Delete","common.edit":"Edit","common.close":"Close","common.next":"Next","common.prev":"Previous","common.back":"Back","common.export":"Export","common.import":"Import","common.share":"Share","common.copy":"Copy","common.yes":"Yes","common.no":"No","common.optional":"(optional)","common.required":"Required","common.open":"Open","common.new":"New",
     "dashboard.newProject":"+ New project","dashboard.allStatus":"All statuses","dashboard.empty":"No projects yet","dashboard.startNew":"Create your first project to get started.",
     "status.draft":"Draft","status.processing":"In progress","status.done":"Done",
-    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
+    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.interior":"Interior","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
+    "int.title":"Interior survey","int.empty":"No levels yet","int.addLevel":"+ Add level","int.addRoom":"+ Add room","int.totalArea":"Total area","int.totalRooms":"rooms","int.score":"Validated","int.backLevels":"← Levels","int.length":"Length (m)","int.width":"Width (m)","int.height":"Height (m)","int.area":"Area (m²)","int.areaAuto":"Computed area","int.volume":"Volume","int.remarks":"Remarks / issues","int.photo":"Room photo","int.photoTake":"Choose photo","int.photoOk":"Photo OK","int.validate":"Validate room","int.validated":"✓ Validated","int.delete":"Delete","int.confirmDelete":"Delete permanently?","int.pickLevel":"Choose level type","int.pickRoom":"Choose room type","int.requiredHint":"Photo + area + height required to validate",
     "modal.step1":"Identification","modal.step2":"Fill in","modal.step3":"Photos","modal.step4":"Launch","modal.launch":"Launch","modal.template":"Building type",
     "report.meas":"Measurements","report.devis":"Quote","report.insp":"Inspection","report.prop":"Property",
     "settings.profile":"My profile","settings.preferences":"Preferences","settings.civilites":"Civility titles","settings.language":"Language","settings.theme":"Theme","settings.themeDark":"🌙 Dark","settings.themeLight":"☀️ Light","settings.reset":"Reset demo data",
@@ -7660,7 +7665,8 @@ var I18N = {
     "common.search":"Suchen...","common.save":"Speichern","common.cancel":"Abbrechen","common.delete":"Löschen","common.edit":"Bearbeiten","common.close":"Schließen","common.next":"Weiter","common.prev":"Zurück","common.back":"Zurück","common.export":"Exportieren","common.import":"Importieren","common.share":"Teilen","common.copy":"Kopieren","common.yes":"Ja","common.no":"Nein","common.optional":"(optional)","common.required":"Erforderlich","common.open":"Öffnen","common.new":"Neu",
     "dashboard.newProject":"+ Neues Projekt","dashboard.allStatus":"Alle Status","dashboard.empty":"Noch keine Projekte","dashboard.startNew":"Erstellen Sie Ihr erstes Projekt.",
     "status.draft":"Entwurf","status.processing":"In Bearbeitung","status.done":"Fertig",
-    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
+    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.interior":"Innen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
+    "int.title":"Innenaufmaß","int.empty":"Noch keine Etagen","int.addLevel":"+ Etage hinzufügen","int.addRoom":"+ Raum hinzufügen","int.totalArea":"Gesamtfläche","int.totalRooms":"Räume","int.score":"Validiert","int.backLevels":"← Etagen","int.length":"Länge (m)","int.width":"Breite (m)","int.height":"Höhe (m)","int.area":"Fläche (m²)","int.areaAuto":"Berechnete Fläche","int.volume":"Volumen","int.remarks":"Anmerkungen","int.photo":"Raumfoto","int.photoTake":"Foto wählen","int.photoOk":"Foto OK","int.validate":"Raum validieren","int.validated":"✓ Validiert","int.delete":"Löschen","int.confirmDelete":"Endgültig löschen?","int.pickLevel":"Etagentyp wählen","int.pickRoom":"Raumtyp wählen","int.requiredHint":"Foto + Fläche + Höhe erforderlich für Validierung",
     "modal.step1":"Identifikation","modal.step2":"Ausfüllen","modal.step3":"Fotos","modal.step4":"Start","modal.launch":"Starten","modal.template":"Gebäudetyp",
     "report.meas":"Messungen","report.devis":"Angebot","report.insp":"Inspektion","report.prop":"Immobilie",
     "settings.profile":"Mein Profil","settings.preferences":"Einstellungen","settings.civilites":"Anrede","settings.language":"Sprache","settings.theme":"Erscheinungsbild","settings.themeDark":"🌙 Dunkel","settings.themeLight":"☀️ Hell","settings.reset":"Demo-Daten zurücksetzen",
@@ -8139,6 +8145,482 @@ export default function App() {
    Permet d'importer ces helpers depuis src/App.test.js sans monter le
    composant App. Garder cette liste à jour quand on ajoute des helpers
    testables. */
+
+/* =============================================================
+   Phase A — Module Intérieur (mesurepro v1 + JSX merge — 2026-05-20)
+   Niveaux (cave / RDC / étages / combles) + pièces (salon / cuisine
+   / SDB / chambre / couloir / WC / garage / bureau / buanderie /
+   autre) avec photo, dimensions L×l, surface auto-calculée, hauteur,
+   volume, remarques et validation. Idiome v1 : function declarations,
+   var pour state local, styles inline palette navy/cyan.
+   ============================================================= */
+
+const LEVEL_TYPES = [
+  { id:"cave",    label:"Cave / Sous-sol",   emoji:"⬇️" },
+  { id:"rdc",     label:"Rez-de-chaussée",   emoji:"🏠" },
+  { id:"etage1",  label:"1er Étage",         emoji:"①"       },
+  { id:"etage2",  label:"2ème Étage",        emoji:"②"       },
+  { id:"combles", label:"Combles",           emoji:"🔺" },
+];
+
+const ROOM_TYPES = [
+  { id:"salon",     label:"Salon",         emoji:"🛋️" },
+  { id:"cuisine",   label:"Cuisine",       emoji:"🍳"       },
+  { id:"chambre",   label:"Chambre",       emoji:"🛏️" },
+  { id:"sdb",       label:"Salle de bain", emoji:"🚿"       },
+  { id:"couloir",   label:"Couloir",       emoji:"🚪"       },
+  { id:"wc",        label:"WC",            emoji:"🚽"       },
+  { id:"garage",    label:"Garage",        emoji:"🚗"       },
+  { id:"bureau",    label:"Bureau",        emoji:"💻"       },
+  { id:"buanderie", label:"Buanderie",     emoji:"🧺"       },
+  { id:"autre",     label:"Autre",         emoji:"📦"       },
+];
+
+function uidInterior() {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function emptyInterior() {
+  return { levels: [] };
+}
+
+function emptyLevel(type) {
+  var lt = LEVEL_TYPES.find(function(l){ return l.id === type; }) || LEVEL_TYPES[1];
+  return {
+    id: uidInterior(),
+    type: lt.id,
+    label: lt.label,
+    emoji: lt.emoji,
+    rooms: [],
+  };
+}
+
+function emptyRoom(type) {
+  var rt = ROOM_TYPES.find(function(r){ return r.id === type; }) || ROOM_TYPES[0];
+  return {
+    id: uidInterior(),
+    type: rt.id,
+    label: rt.label,
+    emoji: rt.emoji,
+    length: "",
+    width: "",
+    height: "",
+    area: "",
+    hasPhoto: false,
+    photoUrl: null,
+    remarks: "",
+    validated: false,
+  };
+}
+
+function roomArea(length, width) {
+  var l = parseFloat(length);
+  var w = parseFloat(width);
+  if (!isFinite(l) || !isFinite(w) || l <= 0 || w <= 0) return 0;
+  return Math.round(l * w * 100) / 100;
+}
+
+function roomVolume(area, height) {
+  var a = parseFloat(area);
+  var h = parseFloat(height);
+  if (!isFinite(a) || !isFinite(h) || a <= 0 || h <= 0) return 0;
+  return Math.round(a * h * 100) / 100;
+}
+
+function levelArea(level) {
+  if (!level || !level.rooms) return 0;
+  return level.rooms.reduce(function(sum, r){
+    var a = parseFloat(r.area);
+    return sum + (isFinite(a) && a > 0 ? a : 0);
+  }, 0);
+}
+
+function interiorArea(project) {
+  if (!project || !project.interior || !project.interior.levels) return 0;
+  return project.interior.levels.reduce(function(sum, lvl){
+    return sum + levelArea(lvl);
+  }, 0);
+}
+
+function interiorIsValidated(project) {
+  if (!project || !project.interior || !project.interior.levels) return false;
+  var hasAny = false;
+  for (var i = 0; i < project.interior.levels.length; i++) {
+    var rooms = project.interior.levels[i].rooms || [];
+    for (var j = 0; j < rooms.length; j++) {
+      hasAny = true;
+      if (!rooms[j].validated) return false;
+    }
+  }
+  return hasAny;
+}
+
+function interiorCount(project) {
+  if (!project || !project.interior || !project.interior.levels) {
+    return { levels: 0, rooms: 0, validated: 0 };
+  }
+  var levels = project.interior.levels;
+  var rooms = 0, validated = 0;
+  for (var i = 0; i < levels.length; i++) {
+    var lr = levels[i].rooms || [];
+    rooms += lr.length;
+    for (var j = 0; j < lr.length; j++) if (lr[j].validated) validated++;
+  }
+  return { levels: levels.length, rooms: rooms, validated: validated };
+}
+
+function TabInterior({ project, onUpdate }) {
+  var interior = project.interior || emptyInterior();
+  var [view, setView] = useState("levels");
+  var [lvlId, setLvlId] = useState(null);
+  var [roomId, setRoomId] = useState(null);
+  var [newLvlType, setNewLvlType] = useState(null);
+  var [newRoomType, setNewRoomType] = useState(null);
+
+  var selLevel = interior.levels.find(function(l){ return l.id === lvlId; });
+  var selRoom = selLevel ? selLevel.rooms.find(function(r){ return r.id === roomId; }) : null;
+  var stats = interiorCount(project);
+  var totalArea = interiorArea(project);
+
+  function updateInterior(next) { onUpdate({ interior: next }); }
+
+  function doAddLevel() {
+    if (!newLvlType) return;
+    var nl = emptyLevel(newLvlType);
+    updateInterior({ levels: interior.levels.concat([nl]) });
+    setNewLvlType(null);
+    setLvlId(nl.id);
+    setView("level");
+  }
+
+  function doAddRoom() {
+    if (!newRoomType || !lvlId) return;
+    var nr = emptyRoom(newRoomType);
+    var next = {
+      levels: interior.levels.map(function(l){
+        return l.id === lvlId ? Object.assign({}, l, { rooms: l.rooms.concat([nr]) }) : l;
+      })
+    };
+    updateInterior(next);
+    setNewRoomType(null);
+    setRoomId(nr.id);
+    setView("room");
+  }
+
+  function updateRoomField(field, value) {
+    var next = {
+      levels: interior.levels.map(function(l){
+        if (l.id !== lvlId) return l;
+        return Object.assign({}, l, {
+          rooms: l.rooms.map(function(r){
+            if (r.id !== roomId) return r;
+            var patch = {}; patch[field] = value;
+            return Object.assign({}, r, patch);
+          })
+        });
+      })
+    };
+    updateInterior(next);
+  }
+
+  function doDeleteLevel(id) {
+    if (!window.confirm(t("int.confirmDelete"))) return;
+    updateInterior({ levels: interior.levels.filter(function(l){ return l.id !== id; }) });
+    setLvlId(null);
+    setView("levels");
+  }
+
+  function doDeleteRoom(id) {
+    if (!window.confirm(t("int.confirmDelete"))) return;
+    var next = {
+      levels: interior.levels.map(function(l){
+        if (l.id !== lvlId) return l;
+        return Object.assign({}, l, { rooms: l.rooms.filter(function(r){ return r.id !== id; }) });
+      })
+    };
+    updateInterior(next);
+    setRoomId(null);
+    setView("level");
+  }
+
+  function readPhotoFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var url = ev.target.result;
+      var next = {
+        levels: interior.levels.map(function(l){
+          if (l.id !== lvlId) return l;
+          return Object.assign({}, l, {
+            rooms: l.rooms.map(function(r){
+              return r.id === roomId ? Object.assign({}, r, { photoUrl: url, hasPhoto: true }) : r;
+            })
+          });
+        })
+      };
+      updateInterior(next);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  var P = { padding:"22px 24px", overflowY:"auto", minHeight:"calc(100vh - 92px)" };
+  var CARD = { background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:10, padding:"14px 18px", marginBottom:12, cursor:"pointer", transition:"border-color .15s" };
+  var CARD_OK = Object.assign({}, CARD, { borderColor:"#00E5A0", background:"rgba(0,229,160,0.05)" });
+  var H1 = { fontSize:18, fontWeight:800, color:"#E8EDF5", marginBottom:4 };
+  var H2 = { fontSize:14, fontWeight:700, color:"#E8EDF5", marginBottom:2 };
+  var MUT = { fontSize:12, color:"#607898" };
+  var INP = { width:"100%", boxSizing:"border-box", background:"#0A1828", border:"1px solid #1C3050", borderRadius:6, color:"#E8EDF5", fontSize:13, padding:"8px 10px", outline:"none" };
+  var LBL = { fontSize:11, fontWeight:700, color:"#607898", letterSpacing:1.2, textTransform:"uppercase", marginBottom:4, display:"block" };
+
+  if (view === "levels") {
+    return (
+      <div style={P}>
+        <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid #00C2FF", borderRadius:10, padding:"12px 18px", marginBottom:22, display:"flex", alignItems:"center", gap:14}}>
+          <div style={{fontSize:28}}>🏠</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14, fontWeight:800, color:"#00C2FF", marginBottom:4}}>{t("int.title")}</div>
+            <div style={MUT}>
+              {stats.levels} {stats.levels === 1 ? "niveau" : "niveaux"} · {stats.rooms} {t("int.totalRooms")} · {stats.validated} {t("int.score")} · {totalArea.toFixed(1)} m²
+            </div>
+          </div>
+        </div>
+
+        {interior.levels.length === 0 ? (
+          <div style={{textAlign:"center", padding:"50px 20px"}}>
+            <div style={{fontSize:56, marginBottom:14}}>🏘️</div>
+            <div style={H2}>{t("int.empty")}</div>
+          </div>
+        ) : (
+          interior.levels.map(function(level){
+            var la = levelArea(level);
+            var lvalid = level.rooms.filter(function(r){ return r.validated; }).length;
+            return (
+              <div key={level.id} style={CARD} onClick={function(){ setLvlId(level.id); setView("level"); }}>
+                <div style={{display:"flex", alignItems:"center", gap:12}}>
+                  <div style={{fontSize:26, width:44, textAlign:"center"}}>{level.emoji}</div>
+                  <div style={{flex:1}}>
+                    <div style={H2}>{level.label}</div>
+                    <div style={MUT}>
+                      {level.rooms.length} {t("int.totalRooms")}
+                      {la > 0 ? " · " + la.toFixed(1) + " m²" : ""}
+                      {lvalid > 0 ? " · " + lvalid + " ✓" : ""}
+                    </div>
+                  </div>
+                  <div style={{color:"#00C2FF", fontSize:20}}>›</div>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div style={{marginTop:16}}>
+          <Btn primary={true} onClick={function(){ setNewLvlType(null); setView("addLevel"); }}>{t("int.addLevel")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "addLevel") {
+    return (
+      <div style={P}>
+        <div style={H1}>{t("int.pickLevel")}</div>
+        <div style={Object.assign({}, MUT, { marginBottom:18 })}>{t("int.title")}</div>
+        {LEVEL_TYPES.map(function(lt){
+          var sel = newLvlType === lt.id;
+          return (
+            <div key={lt.id} style={sel ? CARD_OK : CARD} onClick={function(){ setNewLvlType(lt.id); }}>
+              <div style={{display:"flex", alignItems:"center", gap:12}}>
+                <div style={{fontSize:26, width:44, textAlign:"center"}}>{lt.emoji}</div>
+                <div style={Object.assign({}, H2, { color: sel ? "#00E5A0" : "#E8EDF5", flex:1 })}>{lt.label}</div>
+                {sel ? <div style={{color:"#00E5A0", fontSize:22, fontWeight:900}}>✓</div> : null}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{display:"flex", gap:8, marginTop:18}}>
+          <Btn onClick={function(){ setView("levels"); setNewLvlType(null); }}>{t("common.cancel")}</Btn>
+          <Btn primary={!!newLvlType} onClick={doAddLevel}>{t("common.save")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "level" && selLevel) {
+    var la = levelArea(selLevel);
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("levels"); setLvlId(null); }} style={{marginBottom:14}}>{t("int.backLevels")}</Btn>
+        <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:18}}>
+          <div style={{fontSize:34}}>{selLevel.emoji}</div>
+          <div style={{flex:1}}>
+            <div style={H1}>{selLevel.label}</div>
+            <div style={MUT}>{selLevel.rooms.length} {t("int.totalRooms")} · {la.toFixed(1)} m²</div>
+          </div>
+          <Btn sm={true} onClick={function(){ doDeleteLevel(selLevel.id); }} style={{background:"#3a0f12", border:"1px solid #FF4757", color:"#FF4757"}}>{t("int.delete")}</Btn>
+        </div>
+
+        {selLevel.rooms.length === 0 ? (
+          <div style={{textAlign:"center", padding:"40px 20px"}}>
+            <div style={{fontSize:48, marginBottom:10}}>🚪</div>
+            <div style={H2}>{t("int.empty")}</div>
+          </div>
+        ) : (
+          selLevel.rooms.map(function(room){
+            return (
+              <div key={room.id} style={room.validated ? CARD_OK : CARD} onClick={function(){ setRoomId(room.id); setView("room"); }}>
+                <div style={{display:"flex", alignItems:"center", gap:12}}>
+                  <div style={{fontSize:22, width:44, textAlign:"center"}}>{room.emoji}</div>
+                  <div style={{flex:1}}>
+                    <div style={H2}>{room.label}</div>
+                    <div style={Object.assign({}, MUT, { fontFamily:"monospace" })}>
+                      {room.area ? room.area + " m²" : "—"}
+                      {room.height ? " · h " + room.height + " m" : ""}
+                    </div>
+                  </div>
+                  <div style={{color: room.validated ? "#00E5A0" : "#00C2FF", fontSize:20}}>{room.validated ? "✓" : "›"}</div>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div style={{marginTop:16}}>
+          <Btn primary={true} onClick={function(){ setNewRoomType(null); setView("addRoom"); }}>{t("int.addRoom")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "addRoom" && selLevel) {
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("level"); setNewRoomType(null); }} style={{marginBottom:14}}>{"← " + selLevel.label}</Btn>
+        <div style={H1}>{t("int.pickRoom")}</div>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10, marginTop:14}}>
+          {ROOM_TYPES.map(function(rt){
+            var sel = newRoomType === rt.id;
+            return (
+              <div key={rt.id} style={Object.assign({}, sel ? CARD_OK : CARD, { textAlign:"center", padding:"16px 8px", marginBottom:0 })} onClick={function(){ setNewRoomType(rt.id); }}>
+                <div style={{fontSize:28, marginBottom:6}}>{rt.emoji}</div>
+                <div style={{fontSize:12, fontWeight:700, color: sel ? "#00E5A0" : "#E8EDF5"}}>{rt.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex", gap:8, marginTop:18}}>
+          <Btn onClick={function(){ setView("level"); setNewRoomType(null); }}>{t("common.cancel")}</Btn>
+          <Btn primary={!!newRoomType} onClick={doAddRoom}>{t("common.save")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "room" && selLevel && selRoom) {
+    var autoA = roomArea(selRoom.length, selRoom.width);
+    var vol = roomVolume(selRoom.area, selRoom.height);
+    var canValidate = selRoom.hasPhoto && parseFloat(selRoom.area) > 0 && parseFloat(selRoom.height) > 0;
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("level"); setRoomId(null); }} style={{marginBottom:14}}>{"← " + selLevel.label}</Btn>
+        <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:18}}>
+          <div style={{fontSize:34}}>{selRoom.emoji}</div>
+          <div style={{flex:1}}>
+            <div style={H1}>{selRoom.label}</div>
+            <div style={MUT}>{selLevel.label}</div>
+          </div>
+          {selRoom.validated ? <span style={{background:"rgba(0,229,160,0.18)", color:"#00E5A0", padding:"4px 10px", borderRadius:6, fontSize:11, fontWeight:700}}>{t("int.validated")}</span> : null}
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <label style={LBL}>{t("int.photo")}</label>
+          {selRoom.photoUrl ? (
+            <div style={{position:"relative", borderRadius:8, overflow:"hidden", background:"#0A1828"}}>
+              <img src={selRoom.photoUrl} alt="" style={{width:"100%", height:200, objectFit:"cover", display:"block"}} />
+              <span style={{position:"absolute", top:8, right:8, background:"rgba(0,229,160,0.9)", color:"#08111E", padding:"3px 8px", borderRadius:5, fontSize:11, fontWeight:700}}>{t("int.photoOk")}</span>
+            </div>
+          ) : (
+            <div style={{background:"#0A1828", border:"2px dashed #1C3050", borderRadius:8, padding:"30px 20px", textAlign:"center"}}>
+              <div style={{fontSize:36, marginBottom:6}}>📸</div>
+              <div style={Object.assign({}, MUT, { marginBottom:10 })}>{t("int.photoTake")}</div>
+            </div>
+          )}
+          <input type="file" accept="image/*" capture="environment" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{display:"block", marginTop:8, color:"#607898", fontSize:12}} />
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={LBL}>{t("int.length")}</label>
+            <input type="number" step="0.01" value={selRoom.length} onChange={function(e){
+              var v = e.target.value;
+              updateRoomField("length", v);
+              var au = roomArea(v, selRoom.width);
+              if (au > 0) updateRoomField("area", au.toFixed(2));
+            }} style={INP} placeholder="0.00" />
+          </div>
+          <div>
+            <label style={LBL}>{t("int.width")}</label>
+            <input type="number" step="0.01" value={selRoom.width} onChange={function(e){
+              var v = e.target.value;
+              updateRoomField("width", v);
+              var au = roomArea(selRoom.length, v);
+              if (au > 0) updateRoomField("area", au.toFixed(2));
+            }} style={INP} placeholder="0.00" />
+          </div>
+        </div>
+        {autoA > 0 ? (
+          <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.3)", borderRadius:8, padding:"10px 14px", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+            <span style={MUT}>{t("int.areaAuto")}</span>
+            <span style={{fontFamily:"monospace", fontSize:18, fontWeight:700, color:"#00C2FF"}}>{autoA.toFixed(2)} m²</span>
+          </div>
+        ) : null}
+
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={LBL}>{t("int.area")} *</label>
+            <input type="number" step="0.01" value={selRoom.area} onChange={function(e){ updateRoomField("area", e.target.value); }} style={INP} placeholder="0.00" />
+          </div>
+          <div>
+            <label style={LBL}>{t("int.height")} *</label>
+            <input type="number" step="0.01" value={selRoom.height} onChange={function(e){ updateRoomField("height", e.target.value); }} style={INP} placeholder="2.50" />
+          </div>
+        </div>
+        {vol > 0 ? (
+          <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:8, padding:"10px 14px", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+            <span style={MUT}>{t("int.volume")}</span>
+            <span style={{fontFamily:"monospace", fontSize:16, fontWeight:700, color:"#E8EDF5"}}>{vol.toFixed(2)} m³</span>
+          </div>
+        ) : null}
+
+        <div style={{marginBottom:16}}>
+          <label style={LBL}>{t("int.remarks")}</label>
+          <textarea value={selRoom.remarks} onChange={function(e){ updateRoomField("remarks", e.target.value); }} style={Object.assign({}, INP, { minHeight:60, fontFamily:"inherit", resize:"vertical" })} placeholder="..." />
+        </div>
+
+        {!canValidate ? (
+          <div style={{background:"rgba(255,140,66,0.10)", border:"1px solid #FF8C42", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:"#FF8C42"}}>{t("int.requiredHint")}</div>
+        ) : null}
+
+        <div style={{display:"flex", gap:8}}>
+          <Btn onClick={function(){ doDeleteRoom(selRoom.id); }} style={{background:"#3a0f12", border:"1px solid #FF4757", color:"#FF4757"}}>{t("int.delete")}</Btn>
+          <Btn primary={canValidate} onClick={function(){
+            if (!canValidate) return;
+            updateRoomField("validated", true);
+            setView("level");
+            setRoomId(null);
+          }}>{t("int.validate")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={P}>
+      <div style={H1}>{t("int.title")}</div>
+      <Btn primary={true} onClick={function(){ setLvlId(null); setRoomId(null); setView("levels"); }}>{t("int.backLevels")}</Btn>
+    </div>
+  );
+}
+
 export {
   slug,
   csvEscape,
@@ -8160,4 +8642,16 @@ export {
   decodeProjectFromShare,
   buildBuildingScene,
   detectArPlatform,
+  /* === Phase A — Module Intérieur (2026-05-20) === */
+  LEVEL_TYPES,
+  ROOM_TYPES,
+  emptyInterior,
+  emptyLevel,
+  emptyRoom,
+  roomArea,
+  roomVolume,
+  levelArea,
+  interiorArea,
+  interiorIsValidated,
+  interiorCount,
 };
