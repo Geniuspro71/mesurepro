@@ -11,7 +11,7 @@
    versions sont remplacées automatiquement — pas de purge manuelle à faire.
 */
 
-const VERSION = "mesurepro-v2.7-3";
+const VERSION = "mesurepro-v2.8-phase-A";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
 self.addEventListener("install", function(event){
