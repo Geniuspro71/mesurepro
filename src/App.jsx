@@ -8533,18 +8533,28 @@ function TabInterior({ project, onUpdate }) {
 
         <div style={{marginBottom:16}}>
           <label style={LBL}>{t("int.photo")}</label>
+          <input id={"int-cam-" + selRoom.id} type="file" accept="image/*" capture="environment" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
+          <input id={"int-gal-" + selRoom.id} type="file" accept="image/*" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
           {selRoom.photoUrl ? (
             <div style={{position:"relative", borderRadius:8, overflow:"hidden", background:"#0A1828"}}>
               <img src={selRoom.photoUrl} alt="" style={{width:"100%", height:200, objectFit:"cover", display:"block"}} />
               <span style={{position:"absolute", top:8, right:8, background:"rgba(0,229,160,0.9)", color:"#08111E", padding:"3px 8px", borderRadius:5, fontSize:11, fontWeight:700}}>{t("int.photoOk")}</span>
+              <div style={{display:"flex", gap:6, padding:8, background:"rgba(0,0,0,0.7)"}}>
+                <label htmlFor={"int-cam-" + selRoom.id} style={{flex:1, background:"#00C2FF", color:"#000", borderRadius:6, padding:"9px 0", fontSize:13, fontWeight:800, cursor:"pointer", textAlign:"center", userSelect:"none"}}>📷 Reprendre</label>
+                <label htmlFor={"int-gal-" + selRoom.id} style={{flex:1, background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", borderRadius:6, padding:"9px 0", fontSize:13, fontWeight:700, cursor:"pointer", textAlign:"center", userSelect:"none"}}>🖼 Galerie</label>
+              </div>
             </div>
           ) : (
-            <div style={{background:"#0A1828", border:"2px dashed #1C3050", borderRadius:8, padding:"30px 20px", textAlign:"center"}}>
-              <div style={{fontSize:36, marginBottom:6}}>📸</div>
-              <div style={Object.assign({}, MUT, { marginBottom:10 })}>{t("int.photoTake")}</div>
+            <div style={{background:"#0A1828", border:"2px dashed #00C2FF", borderRadius:10, padding:"26px 20px", textAlign:"center"}}>
+              <div style={{fontSize:44, marginBottom:10}}>📸</div>
+              <div style={{fontSize:13, color:"#E8EDF5", marginBottom:14}}>{t("int.photoTake")}</div>
+              <div style={{display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap"}}>
+                <label htmlFor={"int-cam-" + selRoom.id} style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:"#00C2FF", color:"#000", borderRadius:8, padding:"11px 22px", fontSize:14, fontWeight:800, cursor:"pointer", userSelect:"none", letterSpacing:0.3}}>📷 Caméra</label>
+                <label htmlFor={"int-gal-" + selRoom.id} style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", borderRadius:8, padding:"11px 22px", fontSize:14, fontWeight:700, cursor:"pointer", userSelect:"none", letterSpacing:0.3}}>🖼 Galerie</label>
+              </div>
+              <div style={{fontSize:10, color:"#607898", marginTop:12, letterSpacing:0.5}}>📷 Caméra ouvre directement l'appareil sur iPhone · 🖼 Galerie sur Mac/PC</div>
             </div>
           )}
-          <input type="file" accept="image/*" capture="environment" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{display:"block", marginTop:8, color:"#607898", fontSize:12}} />
         </div>
 
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
