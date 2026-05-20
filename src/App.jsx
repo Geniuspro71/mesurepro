@@ -2810,7 +2810,7 @@ function PTABS_FN() {
     {id:"model", lbl:t("tab.model"),    tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
     {id:"plans", lbl:t("tab.plans"),    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
     {id:"meas",  lbl:t("tab.meas"),     tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
-    {id:"exterior", lbl:t("tab.exterior"), tip:"Relevé extérieur détaillé — 4 façades (Sud/Est/Nord/Ouest) avec hauteurs L/R, corniche, pignon+faîtage, matériau, état, ouvertures + ElevationDiagram SVG live"},
+    {id:"exterior", lbl:t("tab.exterior"), tip:"PhotoWalk — Prends 6 photos guidées du tour de ta maison, l'app calcule auto les mesures (façades + toiture) depuis emprise + nb étages. UX type Hover.to (zéro saisie technique)"},
     {id:"interior", lbl:t("tab.interior"), tip:"Relevé intérieur — niveaux (cave/RDC/étages/combles) et pièces (salon/cuisine/SDB/chambre…) avec photo, L×l×h, surface auto, validation"},
     {id:"design",lbl:t("tab.design"),   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
     {id:"devis", lbl:t("tab.devis"),    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
@@ -2890,7 +2890,7 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
         {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
         {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
-        {tab === "exterior" && <TabExterior project={project} onUpdate={onUpdate}/>}
+        {tab === "exterior" && <TabExteriorWalk project={project} onUpdate={onUpdate}/>}
         {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
         {tab === "design"   && <TabDesign   project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
@@ -9366,6 +9366,226 @@ function TabExterior({ project, onUpdate }) {
       </div>
     </div>
   );
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PhotoWalk Guide — pivot UX 2025 (à la Hover.to)
+   2026-05-20 : 6 photos guidées + auto-estimation depuis emprise+étages
+   Remplace le wizard manuel pour onglet Extérieur
+   ═══════════════════════════════════════════════════════════════════ */
+
+const WALK_SLOTS = [
+  { id:"face_av",    label:"Face avant",          emoji:"🏠", desc:"Côté entrée principale" },
+  { id:"angle_g_av", label:"Angle gauche-avant",  emoji:"↖️", desc:"3/4 avant gauche" },
+  { id:"cote_g",     label:"Côté gauche",         emoji:"⬅️", desc:"Profil gauche complet" },
+  { id:"face_ar",    label:"Face arrière",        emoji:"🏡", desc:"Côté jardin / cour" },
+  { id:"cote_d",     label:"Côté droit",          emoji:"➡️", desc:"Profil droit complet" },
+  { id:"angle_d_av", label:"Angle droit-avant",   emoji:"↗️", desc:"3/4 avant droit" }
+];
+
+function estimateWalkMetrics(project) {
+  var emp = parseFloat(project && project.meas && project.meas.foot) || 0;
+  var floors = parseInt(project && project.floors) || 1;
+  var H = floors * 2.5 + 1;
+  var s = emp > 0 ? Math.sqrt(emp) : 8;
+  var W = s, D = s;
+  var perim = 2 * (W + D);
+  return {
+    H: Math.round(H * 10) / 10,
+    W: Math.round(W * 10) / 10,
+    D: Math.round(D * 10) / 10,
+    perim: Math.round(perim * 10) / 10,
+    surfMurs: Math.round(perim * H),
+    surfToit: Math.round(W * D * 1.15),
+    empriseM2: Math.round(W * D)
+  };
+}
+
+function emptyWalkPhotos() {
+  return WALK_SLOTS.map(function(s){ return Object.assign({}, s, { photoUrl: null }); });
+}
+
+function TabExteriorWalk({ project, onUpdate }) {
+  var exterior = project.exterior || emptyExterior();
+  var walkPhotos = (exterior.walkPhotos && Array.isArray(exterior.walkPhotos) && exterior.walkPhotos.length === 6) ? exterior.walkPhotos : emptyWalkPhotos();
+  var [step, setStep] = useState(0);
+
+  useEffect(function(){
+    if (!project.exterior || !Array.isArray(project.exterior.walkPhotos)) {
+      onUpdate({ exterior: Object.assign({}, exterior, { walkPhotos: emptyWalkPhotos() }) });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function setPhoto(slotId, url) {
+    var newWalk = walkPhotos.map(function(s){ return s.id === slotId ? Object.assign({}, s, { photoUrl: url }) : s; });
+    onUpdate({ exterior: Object.assign({}, exterior, { walkPhotos: newWalk }) });
+  }
+  function readFile(file, onLoaded) {
+    if (!file) return;
+    var r = new FileReader();
+    r.onload = function(e){ onLoaded(e.target.result); };
+    r.readAsDataURL(file);
+  }
+
+  var taken = walkPhotos.filter(function(s){ return s.photoUrl; }).length;
+  var ready = taken >= 4;
+  var est = estimateWalkMetrics(project);
+
+  var WRAP = { display:"flex", flexDirection:"column", height:"calc(100vh - 92px)", overflow:"hidden", background:"#08111E" };
+  var HEAD = { padding:"14px 20px", borderBottom:"1px solid #1C3050", flexShrink:0, background:"#0F1C2E" };
+  var BODY = { flex:1, padding:"14px 20px", overflow:"hidden", display:"flex", flexDirection:"column", gap:10, minHeight:0 };
+  var FOOT = { padding:"10px 18px", borderTop:"1px solid #1C3050", flexShrink:0, display:"flex", gap:8, background:"#0F1C2E", alignItems:"center" };
+  var H1 = { fontSize:17, fontWeight:800, color:"#E8EDF5", marginBottom:2 };
+  var MUT = { fontSize:12, color:"#607898" };
+
+  if (step === 0) {
+    return (
+      <div style={WRAP}>
+        <div style={HEAD}>
+          <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <div style={{fontSize:24}}>📸</div>
+            <div style={{flex:1}}>
+              <div style={H1}>Prends 6 photos de ta maison</div>
+              <div style={MUT}>Fais le tour avec ton iPhone — l'app calcule les mesures pour toi</div>
+            </div>
+            <div style={{fontFamily:"monospace", fontSize:16, fontWeight:800, color: ready ? "#00E5A0" : "#00C2FF", padding:"4px 10px", borderRadius:6, background: ready ? "rgba(0,229,160,0.10)" : "rgba(0,194,255,0.10)"}}>{taken}/6</div>
+          </div>
+        </div>
+        <div style={BODY}>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gridTemplateRows:"1fr 1fr", gap:8, flex:1, minHeight:0}}>
+            {walkPhotos.map(function(slot){
+              var inputId = "walk-" + slot.id;
+              return (
+                <label key={slot.id} htmlFor={inputId} style={{
+                  position:"relative",
+                  background:"#0A1828",
+                  border: "2px " + (slot.photoUrl ? "solid #00E5A0" : "dashed #1C3050"),
+                  borderRadius:10, cursor:"pointer", overflow:"hidden",
+                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+                  gap:4, minHeight:0, transition:"border-color 0.15s"
+                }}>
+                  <input id={inputId} type="file" accept="image/*" capture="environment" onChange={function(e){ readFile(e.target.files[0], function(url){ setPhoto(slot.id, url); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
+                  {slot.photoUrl ? (
+                    <span style={{position:"absolute", inset:0}}>
+                      <img src={slot.photoUrl} alt="" style={{position:"absolute", top:0, left:0, width:"100%", height:"100%", objectFit:"cover"}} />
+                      <span style={{position:"absolute", inset:0, background:"linear-gradient(to top, rgba(0,0,0,0.75), transparent 45%)", display:"block"}}/>
+                      <span style={{position:"absolute", top:6, right:6, background:"rgba(0,229,160,0.95)", color:"#000", padding:"3px 9px", borderRadius:5, fontSize:11, fontWeight:800}}>✓</span>
+                      <span style={{position:"absolute", bottom:8, left:10, right:10, color:"#fff", fontSize:11, fontWeight:700}}>{slot.emoji} {slot.label}</span>
+                      <span style={{position:"absolute", bottom:8, right:10, background:"rgba(0,194,255,0.9)", color:"#000", padding:"2px 7px", borderRadius:4, fontSize:9, fontWeight:800}}>↻</span>
+                    </span>
+                  ) : (
+                    <span style={{display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
+                      <span style={{fontSize:36}}>{slot.emoji}</span>
+                      <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>{slot.label}</span>
+                      <span style={{fontSize:10, color:"#607898", textAlign:"center", padding:"0 8px"}}>{slot.desc}</span>
+                      <span style={{marginTop:6, background:"#00C2FF", color:"#000", padding:"6px 14px", borderRadius:6, fontSize:11, fontWeight:800}}>📷 Prendre</span>
+                    </span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <div style={FOOT}>
+          <div style={{flex:1, fontSize:11, color: ready ? "#00E5A0" : "#607898", textAlign:"center"}}>
+            {ready ? "✓ Photos suffisantes — appuie pour calculer les mesures" : "Minimum 4 photos · " + (4 - taken) + " restante(s)"}
+          </div>
+          <Btn primary={ready} onClick={function(){ if(ready) setStep(1); }} style={{flex:0, padding:"12px 20px", opacity: ready ? 1 : 0.4}}>📐 Calculer →</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 1) {
+    return (
+      <div style={WRAP}>
+        <div style={HEAD}>
+          <div style={H1}>📐 Mesures estimées automatiquement</div>
+          <div style={MUT}>Depuis tes {taken} photos + emprise sol + nb étages du projet</div>
+        </div>
+        <div style={BODY}>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, flexShrink:0}}>
+            <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.35)", borderRadius:9, padding:14, textAlign:"center"}}>
+              <div style={{fontFamily:"monospace", fontSize:26, fontWeight:800, color:"#00C2FF"}}>{est.surfMurs}</div>
+              <div style={{fontSize:11, color:"#8DAFC8", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>m² murs</div>
+              <div style={{fontSize:10, color:"#607898", marginTop:2}}>périmètre × hauteur</div>
+            </div>
+            <div style={{background:"rgba(245,196,0,0.08)", border:"1px solid rgba(245,196,0,0.35)", borderRadius:9, padding:14, textAlign:"center"}}>
+              <div style={{fontFamily:"monospace", fontSize:26, fontWeight:800, color:"#F5C400"}}>{est.surfToit}</div>
+              <div style={{fontSize:11, color:"#D8BC88", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>m² toiture</div>
+              <div style={{fontSize:10, color:"#607898", marginTop:2}}>emprise + 15 % pente</div>
+            </div>
+          </div>
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, flexShrink:0}}>
+            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
+              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.W} × {est.D} m</div>
+              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Emprise sol</div>
+            </div>
+            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
+              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.H} m</div>
+              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Hauteur</div>
+            </div>
+            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
+              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.perim} m</div>
+              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Périmètre</div>
+            </div>
+          </div>
+          <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", gap:6, overflow:"hidden"}}>
+            <div style={{fontSize:10, fontWeight:700, color:"#607898", letterSpacing:1, textTransform:"uppercase", flexShrink:0}}>Vos {taken} photos</div>
+            <div style={{display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:5, flexShrink:0}}>
+              {walkPhotos.map(function(s){
+                return (
+                  <div key={s.id} style={{aspectRatio:"1/1", borderRadius:5, overflow:"hidden", background:"#0A1828", border:"1px solid " + (s.photoUrl ? "#00E5A0" : "#1C3050")}}>
+                    {s.photoUrl ? <img src={s.photoUrl} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}}/> : <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100%", color:"#3A4A60", fontSize:16}}>·</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{background:"rgba(0,194,255,0.05)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:7, padding:"8px 12px", fontSize:11, color:"#8DAFC8", flexShrink:0}}>
+            💡 Estimation depuis emprise sol (onglet Mesures) + nb étages. Précision pro = retouche manuelle dans onglet Mesures.
+          </div>
+        </div>
+        <div style={FOOT}>
+          <Btn onClick={function(){ setStep(0); }} style={{flex:0, padding:"10px 16px"}}>← Photos</Btn>
+          <Btn primary={true} onClick={function(){
+            var m = project.meas || {};
+            var hasManual = parseFloat(m.walls) > 0 || parseFloat(m.h) > 0;
+            if (!hasManual) {
+              onUpdate({ meas: Object.assign({}, m, { walls: String(est.surfMurs), roof: String(est.surfToit), perim: String(est.perim), h: String(est.H), foot: String(est.empriseM2) })});
+            }
+            setStep(2);
+          }} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ Appliquer au projet</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 2) {
+    return (
+      <div style={WRAP}>
+        <div style={HEAD}>
+          <div style={H1}>✅ Relevé extérieur terminé</div>
+          <div style={MUT}>Les métrés ont été appliqués au projet</div>
+        </div>
+        <div style={BODY}>
+          <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
+            <div style={{fontSize:64}}>🎉</div>
+            <div style={{fontSize:20, fontWeight:800, color:"#00E5A0"}}>{taken} photos · {est.surfMurs} m² murs · {est.surfToit} m² toit</div>
+            <div style={Object.assign({}, MUT, { maxWidth:480 })}>
+              Tes mesures sont disponibles dans les onglets <strong style={{color:"#E8EDF5"}}>Mesures</strong>, <strong style={{color:"#E8EDF5"}}>Modèle 3D</strong>, <strong style={{color:"#E8EDF5"}}>Plans</strong>, <strong style={{color:"#E8EDF5"}}>Devis</strong>. Tu peux retoucher chaque valeur depuis l'onglet Mesures si besoin de précision pro.
+            </div>
+          </div>
+        </div>
+        <div style={FOOT}>
+          <Btn onClick={function(){ setStep(0); }} style={{flex:0, padding:"10px 16px"}}>↻ Reprendre photos</Btn>
+          <Btn primary={true} onClick={function(){ setStep(1); }} style={{flex:1, background:"#00C2FF", color:"#000"}}>📐 Voir les mesures →</Btn>
+        </div>
+      </div>
+    );
+  }
+  return null;
 }
 
 export {
