@@ -6214,7 +6214,7 @@ function Modal({ onClose, onCreate }) {
     && (!isPerson || prenom.trim().length > 1)
     && rue.trim().length > 2
     && num.trim().length > 0
-    && /^\d{4}$/.test(cp.trim())
+    && /^\d{4,5}$/.test(cp.trim())
     && city.trim().length > 1;
   /* Step 1 OK : au moins une façade avec longueur ET hauteur > 0 */
   var step1Ok = ["sud","est","nord","ouest"].some(function(side){
@@ -6223,8 +6223,8 @@ function Modal({ onClose, onCreate }) {
   });
   var stepOk = step === 0 ? step0Ok : step === 1 ? step1Ok : true;
 
-  /* Solar API auto-fill : compose une adresse depuis l'étape 1, appelle
-     l'API, puis pré-remplit les 4 façades + récupère la hauteur. */
+  /* Auto-fill mesures depuis adresse — Solar API (Google, clé payante)
+     puis fallback gratuit cadastre/OSM (IGN BDTOPO / UrbIS / PICC / Overpass). */
   function runSolarAutoFill() {
     var fullAddr = (num + " " + rue + ", " + cp + " " + city).trim();
     if (!fullAddr || fullAddr.length < 8) {
@@ -6232,7 +6232,36 @@ function Modal({ onClose, onCreate }) {
       return;
     }
     setSolarBusy(true);
-    setSolarMsg("📡 Géocodage + Solar API…");
+    setSolarMsg("📡 Géocodage + cadastre…");
+
+    function applyFromPolygon(ring, source, displayName) {
+      var bbox = polygonBBoxM_v2(ring);
+      var area = polygonAreaM2_v2(ring);
+      var W = bbox.W, D = bbox.D;
+      /* Hauteur estimée depuis nb étages saisi côté projet, défaut 2 → 6m + comble 0.5 */
+      var floors = 2, h = floors * 2.7 + 0.5;
+      var hs = h.toFixed(1), Ws = W.toFixed(1), Ds = D.toFixed(1);
+      setFacades({
+        sud:   { l: Ws, h: hs, win:"", doors:"" },
+        est:   { l: Ds, h: hs, win:"", doors:"" },
+        nord:  { l: Ws, h: hs, win:"", doors:"" },
+        ouest: { l: Ds, h: hs, win:"", doors:"" },
+      });
+      setSolarMsg("✓ " + (displayName || fullAddr) + " — " + sourceLabel(source)
+        + " · emprise " + Math.round(area) + " m², " + Ws + " × " + Ds + " m");
+      setSolarBusy(false);
+    }
+
+    function runCadastreFallback(prevErr) {
+      setSolarMsg("📡 Solar indisponible → cadastre/OSM…");
+      fetchBuildingFootprint(fullAddr).then(function(r){
+        applyFromPolygon(r.ring, r.source, r.displayName);
+      }).catch(function(err){
+        setSolarMsg("⚠️ Aucune source ne couvre cette adresse. Saisissez manuellement les façades.");
+        setSolarBusy(false);
+      });
+    }
+
     fetchSolarBuilding(fullAddr).then(function(data){
       setSolarData(data);
       var s = data.summary;
@@ -6240,19 +6269,17 @@ function Modal({ onClose, onCreate }) {
       var hs = h > 0 ? h.toFixed(1) : "";
       var Ws = W > 0 ? W.toFixed(1) : "";
       var Ds = D > 0 ? D.toFixed(1) : "";
-      /* Pré-remplit Sud + Nord avec largeur EW, Est + Ouest avec profondeur NS */
       setFacades({
         sud:   { l: Ws, h: hs, win:"", doors:"" },
         est:   { l: Ds, h: hs, win:"", doors:"" },
         nord:  { l: Ws, h: hs, win:"", doors:"" },
         ouest: { l: Ds, h: hs, win:"", doors:"" },
       });
-      setSolarMsg("✓ " + data.formatted + " — " + s.segmentCount + " pans, " +
+      setSolarMsg("✓ " + data.formatted + " — Google Solar · " + s.segmentCount + " pans, " +
         s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
       setSolarBusy(false);
     }).catch(function(err){
-      setSolarMsg("⚠️ " + (err.message || "Erreur Solar API"));
-      setSolarBusy(false);
+      runCadastreFallback(err);
     });
   }
 
