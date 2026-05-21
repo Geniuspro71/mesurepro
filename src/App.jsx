@@ -2890,7 +2890,7 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
         {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
         {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
-        {tab === "exterior" && <TabExteriorWalk project={project} onUpdate={onUpdate}/>}
+        {tab === "exterior" && <TabExteriorAuto project={project} onUpdate={onUpdate}/>}
         {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
         {tab === "design"   && <TabDesign   project={project} mat={mat} setMat={setMat}/>}
         {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
@@ -9369,224 +9369,378 @@ function TabExterior({ project, onUpdate }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   PhotoWalk Guide — pivot UX 2025 (à la Hover.to)
-   2026-05-20 : 6 photos guidées + auto-estimation depuis emprise+étages
-   Remplace le wizard manuel pour onglet Extérieur
+   TabExteriorAuto — autofill emprise depuis adresse projet (2026-05-21)
+   Source : IGN BDTOPO (FR) → UrbIS (BE-BXL) → PICC (BE-WAL) →
+   Overpass OSM (universel). Polygone RÉEL, mesures géométriques.
    ═══════════════════════════════════════════════════════════════════ */
 
-const WALK_SLOTS = [
-  { id:"face_av",    label:"Face avant",          emoji:"🏠", desc:"Côté entrée principale" },
-  { id:"angle_g_av", label:"Angle gauche-avant",  emoji:"↖️", desc:"3/4 avant gauche" },
-  { id:"cote_g",     label:"Côté gauche",         emoji:"⬅️", desc:"Profil gauche complet" },
-  { id:"face_ar",    label:"Face arrière",        emoji:"🏡", desc:"Côté jardin / cour" },
-  { id:"cote_d",     label:"Côté droit",          emoji:"➡️", desc:"Profil droit complet" },
-  { id:"angle_d_av", label:"Angle droit-avant",   emoji:"↗️", desc:"3/4 avant droit" }
-];
+function polygonAreaM2_v2(ring) {
+  if (!ring || ring.length < 3) return 0;
+  var lat0 = 0;
+  for (var i = 0; i < ring.length; i++) lat0 += ring[i][0];
+  lat0 = lat0 / ring.length;
+  var R = 6378137, rad = Math.PI / 180;
+  var pts = ring.map(function(p){
+    return [R * p[1] * rad * Math.cos(lat0 * rad), R * p[0] * rad];
+  });
+  var a = 0;
+  for (var j = 0; j < pts.length; j++) {
+    var p1 = pts[j], p2 = pts[(j + 1) % pts.length];
+    a += p1[0] * p2[1] - p2[0] * p1[1];
+  }
+  return Math.abs(a) / 2;
+}
 
-function estimateWalkMetrics(project) {
-  var emp = parseFloat(project && project.meas && project.meas.foot) || 0;
-  var floors = parseInt(project && project.floors) || 1;
-  var H = floors * 2.5 + 1;
-  var s = emp > 0 ? Math.sqrt(emp) : 8;
-  var W = s, D = s;
-  var perim = 2 * (W + D);
+function polygonPerimM_v2(ring) {
+  if (!ring || ring.length < 2) return 0;
+  var sum = 0, R = 6378137, rad = Math.PI / 180;
+  for (var i = 0; i < ring.length; i++) {
+    var p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+    var dLat = (p2[0] - p1[0]) * rad, dLon = (p2[1] - p1[1]) * rad;
+    var lat0 = ((p1[0] + p2[0]) / 2) * rad;
+    var dy = dLat * R, dx = dLon * R * Math.cos(lat0);
+    sum += Math.sqrt(dx * dx + dy * dy);
+  }
+  return sum;
+}
+
+function polygonBBoxM_v2(ring) {
+  if (!ring || ring.length < 2) return { W:0, D:0, minLat:0, maxLat:0, minLon:0, maxLon:0 };
+  var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (var i = 0; i < ring.length; i++) {
+    if (ring[i][0] < minLat) minLat = ring[i][0];
+    if (ring[i][0] > maxLat) maxLat = ring[i][0];
+    if (ring[i][1] < minLon) minLon = ring[i][1];
+    if (ring[i][1] > maxLon) maxLon = ring[i][1];
+  }
+  var avgLat = ((minLat + maxLat) / 2) * Math.PI / 180;
   return {
-    H: Math.round(H * 10) / 10,
-    W: Math.round(W * 10) / 10,
-    D: Math.round(D * 10) / 10,
-    perim: Math.round(perim * 10) / 10,
-    surfMurs: Math.round(perim * H),
-    surfToit: Math.round(W * D * 1.15),
-    empriseM2: Math.round(W * D)
+    W: (maxLon - minLon) * 111000 * Math.cos(avgLat),
+    D: (maxLat - minLat) * 111000,
+    minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon
   };
 }
 
-function emptyWalkPhotos() {
-  return WALK_SLOTS.map(function(s){ return Object.assign({}, s, { photoUrl: null }); });
+function nearestPolygonRing(features, lat, lon, extractRing) {
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < features.length; i++) {
+    var ring = extractRing(features[i]);
+    if (!ring || ring.length < 3) continue;
+    var cLat = 0, cLon = 0;
+    for (var j = 0; j < ring.length; j++) { cLat += ring[j][0]; cLon += ring[j][1]; }
+    cLat /= ring.length; cLon /= ring.length;
+    var d = (cLat - lat) * (cLat - lat) + (cLon - lon) * (cLon - lon);
+    if (d < bestD) { bestD = d; best = ring; }
+  }
+  return best;
 }
 
-function TabExteriorWalk({ project, onUpdate }) {
-  var exterior = project.exterior || emptyExterior();
-  var walkPhotos = (exterior.walkPhotos && Array.isArray(exterior.walkPhotos) && exterior.walkPhotos.length === 6) ? exterior.walkPhotos : emptyWalkPhotos();
-  var [step, setStep] = useState(0);
+function geojsonRingToLatLng(coords) {
+  if (!coords || !coords.length) return null;
+  return coords.map(function(p){ return [p[1], p[0]]; });
+}
+
+function fetchFootprintIGN(lat, lon) {
+  var d = 0.0004;
+  var url = "https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetFeature"
+    + "&typeName=BDTOPO_V3:batiment&srsName=EPSG:4326"
+    + "&bbox=" + (lat - d) + "," + (lon - d) + "," + (lat + d) + "," + (lon + d)
+    + "&outputFormat=application/json&count=20";
+  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      var c = f.geometry.coordinates;
+      if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
+      if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
+      return null;
+    });
+    return ring ? { ring: ring, source: "fr-ign" } : null;
+  });
+}
+
+function fetchFootprintUrbIS(lat, lon) {
+  var d = 0.0005;
+  var cql = "BBOX(GEOMETRY," + (lon - d) + "," + (lat - d) + "," + (lon + d) + "," + (lat + d) + ",'EPSG:4326')";
+  var url = "https://gis.urban.brussels/geoserver/ows?service=WFS&version=2.0.0&request=GetFeature"
+    + "&typeName=URBAN_DCC_ER:VM_URBIS_M8_BUILDINGS&srsName=EPSG:4326"
+    + "&CQL_FILTER=" + encodeURIComponent(cql)
+    + "&outputFormat=application/json&count=20";
+  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      var c = f.geometry.coordinates;
+      if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
+      if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
+      return null;
+    });
+    return ring ? { ring: ring, source: "be-urbis" } : null;
+  });
+}
+
+function fetchFootprintPICC(lat, lon) {
+  var url = "https://geoservices.wallonie.be/arcgis/rest/services/TOPOGRAPHIE/PICC_VDIFF/MapServer/11/query"
+    + "?f=geojson&geometry=" + lon + "," + lat
+    + "&geometryType=esriGeometryPoint&inSR=4326&outSR=4326"
+    + "&distance=30&units=esriSRUnit_Meter&spatialRel=esriSpatialRelIntersects"
+    + "&outFields=*&returnGeometry=true&resultRecordCount=10";
+  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      return geojsonRingToLatLng(f.geometry.coordinates[0]);
+    });
+    return ring ? { ring: ring, source: "be-picc" } : null;
+  });
+}
+
+function fetchFootprintOSM(lat, lon) {
+  var query = "[out:json][timeout:25];way(around:40," + lat + "," + lon + ")[\"building\"];out geom;";
+  return fetch("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: "data=" + encodeURIComponent(query)
+  }).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.elements || !j.elements.length) return null;
+    var ring = nearestPolygonRing(j.elements, lat, lon, function(e){
+      if (!e.geometry) return null;
+      return e.geometry.map(function(p){ return [p.lat, p.lon]; });
+    });
+    return ring ? { ring: ring, source: "osm" } : null;
+  });
+}
+
+function geocodeNominatim(query) {
+  var url = "https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(query)
+    + "&format=json&limit=1&countrycodes=be,fr";
+  return fetch(url).then(function(r){ return r.json(); }).then(function(arr){
+    if (!arr || !arr.length) throw new Error("Adresse introuvable via Nominatim");
+    return { lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon), displayName: arr[0].display_name };
+  });
+}
+
+function fetchBuildingFootprint(address, prefCountry) {
+  return geocodeNominatim(address).then(function(geo){
+    var displayLower = (geo.displayName || "").toLowerCase();
+    var country = prefCountry
+      || (displayLower.indexOf("belgi") !== -1 || displayLower.indexOf("brussel") !== -1 ? "be"
+        : displayLower.indexOf("france") !== -1 ? "fr"
+        : "auto");
+    var chain;
+    if (country === "fr") chain = [fetchFootprintIGN, fetchFootprintOSM];
+    else if (country === "be") chain = [fetchFootprintUrbIS, fetchFootprintPICC, fetchFootprintOSM];
+    else chain = [fetchFootprintIGN, fetchFootprintUrbIS, fetchFootprintPICC, fetchFootprintOSM];
+    var idx = 0;
+    function tryNext() {
+      if (idx >= chain.length) return Promise.reject(new Error("Bâtiment introuvable dans cadastre/OSM"));
+      var fn = chain[idx++];
+      return fn(geo.lat, geo.lon).then(function(res){
+        if (res) return Object.assign({}, res, { lat: geo.lat, lon: geo.lon, displayName: geo.displayName });
+        return tryNext();
+      }).catch(function(){ return tryNext(); });
+    }
+    return tryNext();
+  });
+}
+
+function sourceLabel(src) {
+  var m = { "fr-ign":"IGN BDTOPO (FR)", "be-urbis":"UrbIS (Bruxelles)", "be-picc":"PICC (Wallonie)", "osm":"OpenStreetMap" };
+  return m[src] || src;
+}
+
+function TabExteriorAuto({ project, onUpdate }) {
+  var [busy, setBusy] = useState(false);
+  var [error, setError] = useState("");
+  var [result, setResult] = useState(null);
+  var [floors, setFloors] = useState(parseInt(project.floors) || 2);
+
+  var hasAddress = !!(project.addr && project.city);
+  var fullAddr = hasAddress
+    ? ((project.num ? project.num + " " : "") + project.addr + ", " + (project.cp ? project.cp + " " : "") + project.city)
+    : "";
+
+  function runFetch() {
+    if (!fullAddr || fullAddr.length < 6) { setError("Renseigne l'adresse du projet (bouton Modifier)."); return; }
+    setBusy(true); setError(""); setResult(null);
+    fetchBuildingFootprint(fullAddr).then(function(r){
+      var area = polygonAreaM2_v2(r.ring);
+      var perim = polygonPerimM_v2(r.ring);
+      var bbox = polygonBBoxM_v2(r.ring);
+      setResult({ ring: r.ring, source: r.source, areaM2: area, perimM: perim, W: bbox.W, D: bbox.D, lat: r.lat, lon: r.lon });
+      setBusy(false);
+    }).catch(function(err){
+      setError(err.message || "Aucun bâtiment trouvé");
+      setBusy(false);
+    });
+  }
 
   useEffect(function(){
-    if (!project.exterior || !Array.isArray(project.exterior.walkPhotos)) {
-      onUpdate({ exterior: Object.assign({}, exterior, { walkPhotos: emptyWalkPhotos() }) });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (hasAddress && !result && !busy && !error) runFetch();
+    // eslint-disable-next-line
   }, []);
 
-  function setPhoto(slotId, url) {
-    var newWalk = walkPhotos.map(function(s){ return s.id === slotId ? Object.assign({}, s, { photoUrl: url }) : s; });
-    onUpdate({ exterior: Object.assign({}, exterior, { walkPhotos: newWalk }) });
-  }
-  function readFile(file, onLoaded) {
-    if (!file) return;
-    var r = new FileReader();
-    r.onload = function(e){ onLoaded(e.target.result); };
-    r.readAsDataURL(file);
+  function computeMetrics() {
+    if (!result) return null;
+    var H = floors * 2.7 + 0.5;
+    var emp = result.areaM2;
+    var perim = result.perimM;
+    return {
+      H: Math.round(H * 10) / 10,
+      perim: Math.round(perim * 10) / 10,
+      W: Math.round(result.W * 10) / 10,
+      D: Math.round(result.D * 10) / 10,
+      empriseM2: Math.round(emp),
+      murs: Math.round(perim * H),
+      toit: Math.round(emp * 1.15)
+    };
   }
 
-  var taken = walkPhotos.filter(function(s){ return s.photoUrl; }).length;
-  var ready = taken >= 4;
-  var est = estimateWalkMetrics(project);
+  function apply() {
+    var m = computeMetrics();
+    if (!m) return;
+    var prevMeas = project.meas || {};
+    onUpdate({
+      meas: Object.assign({}, prevMeas, {
+        foot: String(m.empriseM2),
+        walls: String(m.murs),
+        roof: String(m.toit),
+        perim: String(m.perim),
+        h: String(m.H)
+      }),
+      floors: floors,
+      exterior_meta: { source: result.source, lat: result.lat, lon: result.lon, polygon: result.ring, fetched_at: new Date().toISOString() }
+    });
+  }
+
+  function ringToSvgPath(ring) {
+    if (!ring || ring.length < 3) return "";
+    var bbox = polygonBBoxM_v2(ring);
+    var padX = (bbox.maxLon - bbox.minLon) * 0.1 || 0.0001;
+    var padY = (bbox.maxLat - bbox.minLat) * 0.1 || 0.0001;
+    var dx = (bbox.maxLon - bbox.minLon) + padX * 2;
+    var dy = (bbox.maxLat - bbox.minLat) + padY * 2;
+    var pts = ring.map(function(p){
+      var x = ((p[1] - (bbox.minLon - padX)) / dx) * 200;
+      var y = ((bbox.maxLat + padY) - p[0]) / dy * 160 + 5;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    return "M" + pts.join("L") + "Z";
+  }
 
   var WRAP = { display:"flex", flexDirection:"column", height:"calc(100vh - 92px)", overflow:"hidden", background:"#08111E" };
   var HEAD = { padding:"14px 20px", borderBottom:"1px solid #1C3050", flexShrink:0, background:"#0F1C2E" };
-  var BODY = { flex:1, padding:"14px 20px", overflow:"hidden", display:"flex", flexDirection:"column", gap:10, minHeight:0 };
+  var BODY = { flex:1, padding:"14px 20px", overflow:"hidden", display:"flex", flexDirection:"column", gap:12, minHeight:0 };
   var FOOT = { padding:"10px 18px", borderTop:"1px solid #1C3050", flexShrink:0, display:"flex", gap:8, background:"#0F1C2E", alignItems:"center" };
   var H1 = { fontSize:17, fontWeight:800, color:"#E8EDF5", marginBottom:2 };
   var MUT = { fontSize:12, color:"#607898" };
+  var STAT_CARD = { background:"#0A1828", border:"1px solid #1C3050", borderRadius:8, padding:"10px 12px", textAlign:"center", flex:1 };
+  var STAT_VAL = { fontFamily:"monospace", fontSize:20, fontWeight:800, color:"#E8EDF5" };
+  var STAT_LBL = { fontSize:10, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2 };
 
-  if (step === 0) {
-    return (
-      <div style={WRAP}>
-        <div style={HEAD}>
-          <div style={{display:"flex", alignItems:"center", gap:10}}>
-            <div style={{fontSize:24}}>📸</div>
-            <div style={{flex:1}}>
-              <div style={H1}>Prends 6 photos de ta maison</div>
-              <div style={MUT}>Fais le tour avec ton iPhone — l'app calcule les mesures pour toi</div>
-            </div>
-            <div style={{fontFamily:"monospace", fontSize:16, fontWeight:800, color: ready ? "#00E5A0" : "#00C2FF", padding:"4px 10px", borderRadius:6, background: ready ? "rgba(0,229,160,0.10)" : "rgba(0,194,255,0.10)"}}>{taken}/6</div>
+  var m = computeMetrics();
+
+  return (
+    <div style={WRAP}>
+      <div style={HEAD}>
+        <div style={{display:"flex", alignItems:"center", gap:10}}>
+          <div style={{fontSize:24}}>🗺️</div>
+          <div style={{flex:1}}>
+            <div style={H1}>Mesures auto depuis le cadastre</div>
+            <div style={MUT}>{hasAddress ? fullAddr : "⚠️ Adresse du projet non renseignée"}</div>
           </div>
-        </div>
-        <div style={BODY}>
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gridTemplateRows:"1fr 1fr", gap:8, flex:1, minHeight:0}}>
-            {walkPhotos.map(function(slot){
-              var inputId = "walk-" + slot.id;
-              return (
-                <label key={slot.id} htmlFor={inputId} style={{
-                  position:"relative",
-                  background:"#0A1828",
-                  border: "2px " + (slot.photoUrl ? "solid #00E5A0" : "dashed #1C3050"),
-                  borderRadius:10, cursor:"pointer", overflow:"hidden",
-                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-                  gap:4, minHeight:0, transition:"border-color 0.15s"
-                }}>
-                  <input id={inputId} type="file" accept="image/*" capture="environment" onChange={function(e){ readFile(e.target.files[0], function(url){ setPhoto(slot.id, url); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
-                  {slot.photoUrl ? (
-                    <span style={{position:"absolute", inset:0}}>
-                      <img src={slot.photoUrl} alt="" style={{position:"absolute", top:0, left:0, width:"100%", height:"100%", objectFit:"cover"}} />
-                      <span style={{position:"absolute", inset:0, background:"linear-gradient(to top, rgba(0,0,0,0.75), transparent 45%)", display:"block"}}/>
-                      <span style={{position:"absolute", top:6, right:6, background:"rgba(0,229,160,0.95)", color:"#000", padding:"3px 9px", borderRadius:5, fontSize:11, fontWeight:800}}>✓</span>
-                      <span style={{position:"absolute", bottom:8, left:10, right:10, color:"#fff", fontSize:11, fontWeight:700}}>{slot.emoji} {slot.label}</span>
-                      <span style={{position:"absolute", bottom:8, right:10, background:"rgba(0,194,255,0.9)", color:"#000", padding:"2px 7px", borderRadius:4, fontSize:9, fontWeight:800}}>↻</span>
-                    </span>
-                  ) : (
-                    <span style={{display:"flex", flexDirection:"column", alignItems:"center", gap:4}}>
-                      <span style={{fontSize:36}}>{slot.emoji}</span>
-                      <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>{slot.label}</span>
-                      <span style={{fontSize:10, color:"#607898", textAlign:"center", padding:"0 8px"}}>{slot.desc}</span>
-                      <span style={{marginTop:6, background:"#00C2FF", color:"#000", padding:"6px 14px", borderRadius:6, fontSize:11, fontWeight:800}}>📷 Prendre</span>
-                    </span>
-                  )}
-                </label>
-              );
-            })}
-          </div>
-        </div>
-        <div style={FOOT}>
-          <div style={{flex:1, fontSize:11, color: ready ? "#00E5A0" : "#607898", textAlign:"center"}}>
-            {ready ? "✓ Photos suffisantes — appuie pour calculer les mesures" : "Minimum 4 photos · " + (4 - taken) + " restante(s)"}
-          </div>
-          <Btn primary={ready} onClick={function(){ if(ready) setStep(1); }} style={{flex:0, padding:"12px 20px", opacity: ready ? 1 : 0.4}}>📐 Calculer →</Btn>
+          {result && (
+            <span style={{padding:"3px 9px", borderRadius:5, fontSize:10, fontWeight:800, background:"rgba(0,229,160,0.15)", color:"#00E5A0", letterSpacing:0.5}}>
+              Source : {sourceLabel(result.source)}
+            </span>
+          )}
         </div>
       </div>
-    );
-  }
 
-  if (step === 1) {
-    return (
-      <div style={WRAP}>
-        <div style={HEAD}>
-          <div style={H1}>📐 Mesures estimées automatiquement</div>
-          <div style={MUT}>Depuis tes {taken} photos + emprise sol + nb étages du projet</div>
-        </div>
-        <div style={BODY}>
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, flexShrink:0}}>
-            <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.35)", borderRadius:9, padding:14, textAlign:"center"}}>
-              <div style={{fontFamily:"monospace", fontSize:26, fontWeight:800, color:"#00C2FF"}}>{est.surfMurs}</div>
-              <div style={{fontSize:11, color:"#8DAFC8", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>m² murs</div>
-              <div style={{fontSize:10, color:"#607898", marginTop:2}}>périmètre × hauteur</div>
-            </div>
-            <div style={{background:"rgba(245,196,0,0.08)", border:"1px solid rgba(245,196,0,0.35)", borderRadius:9, padding:14, textAlign:"center"}}>
-              <div style={{fontFamily:"monospace", fontSize:26, fontWeight:800, color:"#F5C400"}}>{est.surfToit}</div>
-              <div style={{fontSize:11, color:"#D8BC88", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>m² toiture</div>
-              <div style={{fontSize:10, color:"#607898", marginTop:2}}>emprise + 15 % pente</div>
-            </div>
+      <div style={BODY}>
+        {!hasAddress && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
+            <div style={{fontSize:48}}>📍</div>
+            <div style={Object.assign({}, H1, {fontSize:16})}>Adresse manquante</div>
+            <div style={Object.assign({}, MUT, {maxWidth:380})}>Renseigne l'adresse du bâtiment (bouton <strong style={{color:"#E8EDF5"}}>Modifier</strong> en haut) pour récupérer automatiquement l'emprise au sol depuis le cadastre belge/français ou OpenStreetMap.</div>
           </div>
-          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, flexShrink:0}}>
-            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
-              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.W} × {est.D} m</div>
-              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Emprise sol</div>
-            </div>
-            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
-              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.H} m</div>
-              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Hauteur</div>
-            </div>
-            <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:7, padding:10, textAlign:"center"}}>
-              <div style={{fontFamily:"monospace", fontSize:15, color:"#E8EDF5", fontWeight:700}}>{est.perim} m</div>
-              <div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2}}>Périmètre</div>
-            </div>
-          </div>
-          <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", gap:6, overflow:"hidden"}}>
-            <div style={{fontSize:10, fontWeight:700, color:"#607898", letterSpacing:1, textTransform:"uppercase", flexShrink:0}}>Vos {taken} photos</div>
-            <div style={{display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:5, flexShrink:0}}>
-              {walkPhotos.map(function(s){
-                return (
-                  <div key={s.id} style={{aspectRatio:"1/1", borderRadius:5, overflow:"hidden", background:"#0A1828", border:"1px solid " + (s.photoUrl ? "#00E5A0" : "#1C3050")}}>
-                    {s.photoUrl ? <img src={s.photoUrl} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}}/> : <div style={{display:"flex", alignItems:"center", justifyContent:"center", height:"100%", color:"#3A4A60", fontSize:16}}>·</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{background:"rgba(0,194,255,0.05)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:7, padding:"8px 12px", fontSize:11, color:"#8DAFC8", flexShrink:0}}>
-            💡 Estimation depuis emprise sol (onglet Mesures) + nb étages. Précision pro = retouche manuelle dans onglet Mesures.
-          </div>
-        </div>
-        <div style={FOOT}>
-          <Btn onClick={function(){ setStep(0); }} style={{flex:0, padding:"10px 16px"}}>← Photos</Btn>
-          <Btn primary={true} onClick={function(){
-            var m = project.meas || {};
-            var hasManual = parseFloat(m.walls) > 0 || parseFloat(m.h) > 0;
-            if (!hasManual) {
-              onUpdate({ meas: Object.assign({}, m, { walls: String(est.surfMurs), roof: String(est.surfToit), perim: String(est.perim), h: String(est.H), foot: String(est.empriseM2) })});
-            }
-            setStep(2);
-          }} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ Appliquer au projet</Btn>
-        </div>
-      </div>
-    );
-  }
+        )}
 
-  if (step === 2) {
-    return (
-      <div style={WRAP}>
-        <div style={HEAD}>
-          <div style={H1}>✅ Relevé extérieur terminé</div>
-          <div style={MUT}>Les métrés ont été appliqués au projet</div>
-        </div>
-        <div style={BODY}>
-          <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
-            <div style={{fontSize:64}}>🎉</div>
-            <div style={{fontSize:20, fontWeight:800, color:"#00E5A0"}}>{taken} photos · {est.surfMurs} m² murs · {est.surfToit} m² toit</div>
-            <div style={Object.assign({}, MUT, { maxWidth:480 })}>
-              Tes mesures sont disponibles dans les onglets <strong style={{color:"#E8EDF5"}}>Mesures</strong>, <strong style={{color:"#E8EDF5"}}>Modèle 3D</strong>, <strong style={{color:"#E8EDF5"}}>Plans</strong>, <strong style={{color:"#E8EDF5"}}>Devis</strong>. Tu peux retoucher chaque valeur depuis l'onglet Mesures si besoin de précision pro.
-            </div>
+        {hasAddress && busy && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14}}>
+            <div style={{fontSize:36}}>⏳</div>
+            <div style={Object.assign({}, H1, {fontSize:16})}>Récupération en cours…</div>
+            <div style={MUT}>IGN BDTOPO → UrbIS → PICC → OSM</div>
           </div>
-        </div>
-        <div style={FOOT}>
-          <Btn onClick={function(){ setStep(0); }} style={{flex:0, padding:"10px 16px"}}>↻ Reprendre photos</Btn>
-          <Btn primary={true} onClick={function(){ setStep(1); }} style={{flex:1, background:"#00C2FF", color:"#000"}}>📐 Voir les mesures →</Btn>
-        </div>
+        )}
+
+        {hasAddress && error && !busy && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
+            <div style={{fontSize:36}}>⚠️</div>
+            <div style={Object.assign({}, H1, {fontSize:15, color:"#F5B400"})}>{error}</div>
+            <div style={Object.assign({}, MUT, {maxWidth:400})}>Le bâtiment n'est dans aucune base publique gratuite pour cette adresse. Saisis manuellement dans l'onglet <strong style={{color:"#E8EDF5"}}>Mesures</strong> ou réessaie avec une adresse plus précise.</div>
+            <Btn onClick={runFetch} style={{padding:"8px 16px"}}>↻ Réessayer</Btn>
+          </div>
+        )}
+
+        {result && !busy && m && (
+          <>
+            <div style={{display:"flex", gap:12, flexShrink:0}}>
+              <div style={{width:220, height:170, background:"#0A1828", borderRadius:9, padding:5, border:"1px solid #1C3050", flexShrink:0}}>
+                <svg viewBox="0 0 200 170" style={{width:"100%", height:"100%"}}>
+                  <path d={ringToSvgPath(result.ring)} fill="rgba(0,194,255,0.25)" stroke="#00C2FF" strokeWidth="1.5"/>
+                </svg>
+              </div>
+              <div style={{flex:1, display:"flex", flexDirection:"column", gap:8}}>
+                <div style={{display:"flex", gap:8}}>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.empriseM2}</div><div style={STAT_LBL}>Emprise m²</div></div>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.perim}</div><div style={STAT_LBL}>Périmètre m</div></div>
+                </div>
+                <div style={{display:"flex", gap:8}}>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.W}</div><div style={STAT_LBL}>Largeur m</div></div>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.D}</div><div style={STAT_LBL}>Profondeur m</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{background:"#0A1828", border:"1px solid #1C3050", borderRadius:9, padding:"12px 14px", flexShrink:0}}>
+              <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6}}>
+                <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>Nombre d'étages</span>
+                <span style={{fontFamily:"monospace", fontSize:18, fontWeight:800, color:"#00C2FF"}}>{floors} · h ≈ {m.H} m</span>
+              </div>
+              <input type="range" min="1" max="6" value={floors} onChange={function(e){ setFloors(parseInt(e.target.value)); }} style={{width:"100%", accentColor:"#00C2FF"}}/>
+            </div>
+
+            <div style={{display:"flex", gap:8, flexShrink:0}}>
+              <div style={Object.assign({}, STAT_CARD, {background:"rgba(0,194,255,0.08)", borderColor:"rgba(0,194,255,0.35)"})}>
+                <div style={Object.assign({}, STAT_VAL, {fontSize:24, color:"#00C2FF"})}>{m.murs}</div>
+                <div style={STAT_LBL}>m² murs (périm × H)</div>
+              </div>
+              <div style={Object.assign({}, STAT_CARD, {background:"rgba(245,196,0,0.08)", borderColor:"rgba(245,196,0,0.35)"})}>
+                <div style={Object.assign({}, STAT_VAL, {fontSize:24, color:"#F5C400"})}>{m.toit}</div>
+                <div style={STAT_LBL}>m² toit (emprise × 1.15)</div>
+              </div>
+            </div>
+
+            <div style={{background:"rgba(0,194,255,0.04)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:7, padding:"8px 12px", fontSize:11, color:"#8DAFC8", flexShrink:0}}>
+              💡 Polygone réel récupéré depuis {sourceLabel(result.source)}. Mesures calculées géométriquement. Précision pro = retouche par façade dans onglet Mesures.
+            </div>
+          </>
+        )}
       </div>
-    );
-  }
-  return null;
+
+      <div style={FOOT}>
+        {hasAddress && !busy && (
+          <Btn onClick={runFetch} style={{flex:0, padding:"10px 16px"}}>↻ Recalculer</Btn>
+        )}
+        {result && !busy && (
+          <Btn primary={true} onClick={apply} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ Appliquer au projet</Btn>
+        )}
+      </div>
+    </div>
+  );
 }
+
 
 export {
   slug,
