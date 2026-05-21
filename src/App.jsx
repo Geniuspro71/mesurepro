@@ -6283,6 +6283,16 @@ function Modal({ onClose, onCreate }) {
     });
   }
 
+  /* Auto-trigger autofill mesures dès le passage à l'étape "Remplir"
+     si pas déjà fait et adresse renseignée. Pas de clic manuel à attendre. */
+  useEffect(function(){
+    if (step === 1 && !solarBusy && !solarData && !solarMsg
+        && rue.trim().length > 2 && cp.trim().length >= 4 && city.trim().length > 1) {
+      runSolarAutoFill();
+    }
+    // eslint-disable-next-line
+  }, [step]);
+
   function setFacadeField(side, field, val) {
     setFacades(function(prev){
       return Object.assign({}, prev, {
@@ -6644,47 +6654,6 @@ function Modal({ onClose, onCreate }) {
 
         {step === 1 && (
           <div>
-            {/* Templates BE — pré-remplissage rapide selon type de bâtiment.
-                Couvre 80% des typologies BE (maison libre / mitoyenne / semi /
-                fermette / immeuble). Bouton "saisie manuelle" pour skip. */}
-            <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,padding:"11px 12px",marginBottom:12}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#FFB35E",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}}>
-                ⚡ {t("modal.template")} <span style={{color:"#607898",fontWeight:400,textTransform:"none",letterSpacing:0}}>— pré-remplissage rapide</span>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:6}}>
-                {[
-                  {id:"libre",   key:"maisonLibre",   data:{sud:[9,6,3,1], nord:[9,6,2,0], est:[12,6,4,0], ouest:[12,6,2,0]}},
-                  {id:"mitoyen", key:"mitoyenne",     data:{sud:[7,8,3,1], nord:[7,8,2,1], est:[10,8,0,0], ouest:[10,8,0,0]}},
-                  {id:"semi",    key:"semiMitoyenne", data:{sud:[8,7,3,1], nord:[8,7,2,1], est:[10,7,2,0], ouest:[10,7,0,0]}},
-                  {id:"ferme",   key:"fermette",      data:{sud:[12,5,4,1], nord:[12,5,2,0], est:[15,5,3,1], ouest:[15,5,3,0]}},
-                  {id:"appart",  key:"appart",        data:{sud:[14,15,15,1], nord:[14,15,12,1], est:[20,15,10,0], ouest:[20,15,10,0]}},
-                ].map(function(tpl){
-                  return (
-                    <button key={tpl.id} type="button"
-                      title={t("tpl." + tpl.key + "Desc")}
-                      onClick={function(){
-                        var f = {};
-                        Object.keys(tpl.data).forEach(function(side){
-                          var d = tpl.data[side];
-                          f[side] = { l:String(d[0]), h:String(d[1]), win:String(d[2]), doors:String(d[3]) };
-                        });
-                        setFacades(f);
-                      }}
-                      style={{background:"#0F1C2E",border:"1px solid #2E4A6A",
-                        color:"#E8EDF5",borderRadius:7,padding:"8px 10px",
-                        fontSize:11,fontWeight:600,cursor:"pointer",outline:"none",
-                        textAlign:"left",lineHeight:1.3}}>
-                      <div style={{fontWeight:700}}>{t("tpl." + tpl.key)}</div>
-                      <div style={{fontSize:9,color:"#607898",marginTop:2}}>{t("tpl." + tpl.key + "Desc")}</div>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{fontSize:9,color:"#607898",marginTop:7,fontStyle:"italic"}}>
-                💡 Cliquer applique des dimensions typiques BE. Ajustez ensuite chaque façade ci-dessous.
-              </div>
-            </div>
-
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
               <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
               <button type="button" onClick={connectLaser}
