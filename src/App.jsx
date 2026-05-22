@@ -721,13 +721,14 @@ function exportReportPdf(r) {
     }
     var sub = (r.lines||[]).reduce(function(a,l){ return a + parseFloat(l.t||0); }, 0);
     var disc = parseFloat(r.discount||0);
-    var ad = sub*(1-disc/100), tva = ad*0.2, tot = ad+tva;
+    var tvaPct = parseFloat(getPrefs().tva) || 21;   /* TVA paramétrable (BE 21 %) */
+    var ad = sub*(1-disc/100), tva = ad*(tvaPct/100), tot = ad+tva;
     autoTable(doc, {
       startY: y,
       body: [
         ["Sous-total HT", sub.toFixed(2)+" EUR"],
         ["Remise "+disc+"%", "-"+(sub*disc/100).toFixed(2)+" EUR"],
-        ["TVA 20%", tva.toFixed(2)+" EUR"],
+        ["TVA "+tvaPct+"%", tva.toFixed(2)+" EUR"],
         ["TOTAL TTC", tot.toFixed(2)+" EUR"],
       ],
       styles: {fontSize: 11, fontStyle: "bold"},
@@ -1814,8 +1815,22 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
     realD = roomD;
     realW = realFoot > 0 ? realFoot / roomD : roomD * 0.6;
   } else {
-    realW = Math.sqrt(realFoot * ratio);
-    realD = Math.sqrt(realFoot / ratio);
+    /* Aucune façade dans rooms[] : dérive W/D depuis emprise + périmètre
+       si cohérents (vrai rectangle équivalent), sinon ratio 1.6. */
+    realW = 0; realD = 0;
+    var perimM = parseFloat(m.perim) || 0;
+    if (perimM > 0 && realFoot > 0) {
+      var half = perimM / 2;
+      var disc = half * half - 4 * realFoot;
+      if (disc >= 0) {
+        var w1 = (half + Math.sqrt(disc)) / 2, d1 = (half - Math.sqrt(disc)) / 2;
+        if (d1 > 0 && w1 / d1 <= 4) { realW = w1; realD = d1; }
+      }
+    }
+    if (!(realW > 0 && realD > 0)) {
+      realW = Math.sqrt(realFoot * ratio);
+      realD = Math.sqrt(realFoot / ratio);
+    }
   }
 
   /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
@@ -1850,7 +1865,7 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
 
           <Building3D
             realW={realW} realD={realD} realH={realH}
-            fl={fl} mat={mat} roofType={roof}
+            fl={fl} mat={mat} roofType={roof} photos={photos}
           />
 
           {/* HDR environment for realistic reflections on glass + metal.
@@ -1997,7 +2012,10 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
   var bw = realW * scale;
   var bh = realH * scale;
   var roofType = (project.roof || "").toLowerCase();
-  var isPignon = roofType.indexOf("pignon") !== -1 || facadeId === "est" || facadeId === "ouest";
+  /* "pignon" = toit 2 pans : seules les façades est/ouest (sous le pignon)
+     montrent le triangle. Les autres types (4 pans, terrasse, mansart) →
+     mur rectangulaire sur les 4 façades. */
+  var isPignon = roofType.indexOf("pignon") !== -1 && (facadeId === "est" || facadeId === "ouest");
   var isFlat   = roofType.indexOf("terras") !== -1;
   var isMansart= roofType.indexOf("mans") !== -1;
   var roofH = isFlat ? 6 : (isMansart ? Math.min(70, bh*0.35) : (isPignon ? Math.min(95, bw*0.32) : Math.min(70, bw*0.18)));
@@ -3580,30 +3598,21 @@ function TabModel({ project, mat, setMat, onUpdate }) {
     onUpdate && onUpdate({floors: n});
   }
   function setMeas(key, val) {
+    if (!onUpdate) return;
     var next = Object.assign({}, m, {[key]: String(val)});
-    /* When the user moves dimensional sliders we also recompute the
-       derivable surfaces so the building visual + measurements stay
-       consistent. The user can still override any field manually in
-       the Mesures tab afterwards. */
-    if (key === "h" || key === "foot") {
-      var h = parseFloat(key === "h"    ? val : m.h)    || realH;
-      var f = parseFloat(key === "foot" ? val : m.foot) || realFoot;
-      var ratio = 1.6;
-      var w = Math.sqrt(f * ratio);
-      var d = Math.sqrt(f / ratio);
-      var perim = 2 * (w + d);
-      var walls = perim * h;
-      next.perim = perim.toFixed(1);
-      next.walls = walls.toFixed(1);
-      if (!m.roof || m.roof === "") next.roof = (f * 1.3).toFixed(1);
+    /* foot/h pilotent : régénère rooms[] (forme préservée) puis recalcule
+       les agrégats dérivés depuis les vraies dimensions. Sans ça les
+       plans 2D/3D (qui lisent rooms[]) ne réagiraient pas aux sliders. */
+    var newRooms = roomsFromMeas(next, project.rooms);
+    var W = _roomLenByName(newRooms, /\bsud\b/i) || _roomLenByName(newRooms, /\bnord\b/i);
+    var D = _roomLenByName(newRooms, /\best\b/i) || _roomLenByName(newRooms, /\bouest\b/i);
+    var h = parseFloat(next.h) || realH;
+    if (W > 0 && D > 0) {
+      next.perim = (2 * (W + D)).toFixed(1);
+      next.walls = (2 * (W + D) * h).toFixed(1);
+      next.roof  = (W * D * 1.15).toFixed(1);
     }
-    /* Synchronise meas ↔ rooms — sans ça les plans 2D/3D (qui lisent
-       rooms) ne réagissent pas aux sliders. */
-    if (onUpdate) {
-      var sync = syncMeasRooms(next, project.rooms);
-      sync.meas[key] = String(val);   /* le slider reste la valeur de référence */
-      onUpdate({ meas: sync.meas, rooms: sync.rooms });
-    }
+    onUpdate({ meas: next, rooms: newRooms });
   }
   return (
     <div style={{display:"flex",height:"calc(100vh - 92px)"}}>
@@ -3775,30 +3784,48 @@ function TabMeas({ project, onUpdate }) {
     {key:"doors", lbl:"Portes",       unit:"",   col:"#E8EDF5"},
   ];
 
-  var GEOM_KEYS = ["foot", "h", "perim", "roof"];
+  /* Seuls foot (emprise) et h (hauteur) PILOTENT la géométrie : les
+     modifier régénère rooms[] + recalcule les agrégats dérivés
+     (perim/walls/roof). Les autres champs (win/doors) sont en saisie
+     libre. Aucun champ saisi n'est jamais écrasé par un recalcul. */
+  var PILOT_KEYS = ["foot", "h"];
 
-  /* Saisie clavier EN COURS — écrit juste meas[key], léger : le champ reste
-     fluide, pas de régénération rooms à chaque caractère. */
+  /* Saisie clavier EN COURS — écrit juste meas[key], léger : le champ
+     reste fluide, pas de régénération rooms à chaque caractère. */
   function setMeasFieldLive(key, val) {
     onUpdate({ meas: Object.assign({}, m, {[key]: val}) });
   }
 
-  /* Fin de saisie (blur) — synchronise rooms[] + meas dérivés une seule fois. */
+  /* Régénère rooms[] + agrégats dérivés depuis un meas piloté par foot/h.
+     foot et h sont préservés tels quels — seuls perim/walls/roof dérivent. */
+  function rebuildFromPilot(srcMeas) {
+    var newRooms = roomsFromMeas(srcMeas, rooms);
+    var W = _roomLenByName(newRooms, /\bsud\b/i) || _roomLenByName(newRooms, /\bnord\b/i);
+    var D = _roomLenByName(newRooms, /\best\b/i) || _roomLenByName(newRooms, /\bouest\b/i);
+    var h = parseFloat(srcMeas.h) || 0;
+    var out = Object.assign({}, srcMeas);
+    if (W > 0 && D > 0) {
+      out.perim = (2 * (W + D)).toFixed(1);
+      if (h > 0) out.walls = (2 * (W + D) * h).toFixed(1);
+      out.roof = (W * D * 1.15).toFixed(1);
+    }
+    return { meas: out, rooms: newRooms };
+  }
+
+  /* Fin de saisie (blur). foot/h → régénère tout ; autres → rien. */
   function commitMeasField(key) {
-    if (GEOM_KEYS.indexOf(key) !== -1) {
-      var sync = syncMeasRooms(m, rooms);
-      sync.meas[key] = m[key];   /* garde la valeur saisie par l'utilisateur */
-      onUpdate({ meas: sync.meas, rooms: sync.rooms });
+    if (PILOT_KEYS.indexOf(key) !== -1) {
+      var r = rebuildFromPilot(m);
+      onUpdate({ meas: r.meas, rooms: r.rooms });
     }
   }
 
-  /* Écriture atomique complète (laser BLE, programmatique) — sync immédiat. */
+  /* Écriture atomique (laser BLE, programmatique). */
   function setMeasField(key, val) {
     var next = Object.assign({}, m, {[key]: val});
-    if (GEOM_KEYS.indexOf(key) !== -1) {
-      var sync = syncMeasRooms(next, rooms);
-      sync.meas[key] = val;   /* ne jamais écraser la valeur fournie */
-      onUpdate({ meas: sync.meas, rooms: sync.rooms });
+    if (PILOT_KEYS.indexOf(key) !== -1) {
+      var r = rebuildFromPilot(next);
+      onUpdate({ meas: r.meas, rooms: r.rooms });
     } else {
       onUpdate({ meas: next });
     }
@@ -3808,7 +3835,7 @@ function TabMeas({ project, onUpdate }) {
     var next = rooms.map(function(r, j) {
       return j === i ? Object.assign({}, r, {[field]: val}) : r;
     });
-    /* Recalcule meas agrégé pour garder meas ↔ rooms cohérents. */
+    /* Édition directe d'un mur → recalcule meas agrégé (sens inverse). */
     onUpdate({ rooms: next, meas: measFromRooms(next, m) });
   }
 
@@ -3831,7 +3858,7 @@ function TabMeas({ project, onUpdate }) {
       var parts = f.split(":");          /* "rooms:0:l" */
       var idx = parseInt(parts[1], 10);
       var fld = parts[2];
-      var val = (fld === "a") ? meters.toFixed(2) : meters.toFixed(2);
+      var val = meters.toFixed(2);
       setRoomField(idx, fld, val);
     } else {
       /* champs principaux : win/doors = entier, autres = 2 décimales */
@@ -6506,6 +6533,7 @@ function Modal({ onClose, onCreate }) {
       return;
     }
     setSolarBusy(true);
+    setSolarData(null);   /* reset : pas de récap périmé si la 2ᵉ adresse échoue */
     setSolarMsg("📡 Géocodage + cadastre…");
 
     function applyFromPolygon(ring, source, displayName) {
@@ -6526,11 +6554,11 @@ function Modal({ onClose, onCreate }) {
       setSolarBusy(false);
     }
 
-    function runCadastreFallback(prevErr) {
+    function runCadastreFallback() {
       setSolarMsg("📡 Solar indisponible → cadastre/OSM…");
       fetchBuildingFootprint(fullAddr).then(function(r){
         applyFromPolygon(r.ring, r.source, r.displayName);
-      }).catch(function(err){
+      }).catch(function(){
         setSolarMsg("⚠️ Aucune source ne couvre cette adresse. Saisissez manuellement les façades.");
         setSolarBusy(false);
       });
@@ -6552,15 +6580,16 @@ function Modal({ onClose, onCreate }) {
       setSolarMsg("✓ " + data.formatted + " — Google Solar · " + s.segmentCount + " pans, " +
         s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
       setSolarBusy(false);
-    }).catch(function(err){
-      runCadastreFallback(err);
+    }).catch(function(){
+      runCadastreFallback();
     });
   }
 
-  /* Auto-trigger autofill mesures dès le passage à l'étape "Remplir"
-     si pas déjà fait et adresse renseignée. Pas de clic manuel à attendre. */
+  /* Auto-trigger autofill mesures au passage à l'étape "Remplir" tant
+     qu'aucun résultat n'a abouti (solarData null) — permet de réessayer
+     après une erreur si l'utilisateur corrige l'adresse. */
   useEffect(function(){
-    if (step === 1 && !solarBusy && !solarData && !solarMsg
+    if (step === 1 && !solarBusy && !solarData
         && rue.trim().length > 2 && cp.trim().length >= 4 && city.trim().length > 1) {
       runSolarAutoFill();
     }
@@ -9394,14 +9423,6 @@ function measFromRooms(rooms, prevMeas) {
   return next;
 }
 
-/* Couple {meas, rooms} parfaitement cohérent depuis un meas (potentiellement
-   partiel après édition d'un champ) + les rooms précédentes. À utiliser à
-   CHAQUE édition de meas pour garantir l'invariant meas ↔ rooms. */
-function syncMeasRooms(meas, prevRooms) {
-  var rooms = roomsFromMeas(meas, prevRooms);
-  return { rooms: rooms, meas: measFromRooms(rooms, meas) };
-}
-
 /* Mappe une forme de toit OSM (roof:shape) vers les types MesurePro. */
 function roofShapeToType(shape) {
   if (!shape) return null;
@@ -9448,12 +9469,12 @@ function TabExteriorAuto({ project, onUpdate }) {
     });
   }
 
-  /* Auto-fetch au mount ET à chaque changement de projet (chaque projet
-     a ses propres mesures — règle non négociable). */
+  /* Auto-fetch au mount, au changement de projet ET quand l'adresse est
+     saisie/modifiée (sinon l'utilisateur saisit l'adresse et rien ne part). */
   useEffect(function(){
     if (hasAddress) runFetch();
     // eslint-disable-next-line
-  }, [project.id]);
+  }, [project.id, project.addr, project.city, project.num, project.cp]);
 
   function computeMetrics() {
     if (!result) return null;
