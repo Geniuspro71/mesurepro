@@ -497,29 +497,6 @@ function exportProjectPdf(project) {
   doc.save("mesurepro-" + slug(project.addr) + ".pdf");
 }
 
-function exportProjectCsv(project) {
-  var m = project.meas || {};
-  var rows = [
-    ["Champ","Valeur"],
-    ["Adresse", project.addr||""],
-    ["Ville", project.city||""],
-    ["Surface murs (m2)", m.walls||""],
-    ["Surface toit (m2)", m.roof||""],
-    ["Perimetre (m)", m.perim||""],
-    ["Hauteur (m)", m.h||""],
-    ["Emprise sol (m2)", m.foot||""],
-    ["Fenetres", m.win||""],
-    ["Portes", m.doors||""],
-    [],
-    ["Facades:"],
-    ["Nom","Surface (m2)","Longueur","Hauteur","Type"],
-  ];
-  (project.rooms||[]).forEach(function(r){
-    rows.push([r.n||"",r.a||"",r.l||"",r.h||"",r.t==="r"?"Toit":"Mur"]);
-  });
-  exportCsv(rows, "mesurepro-" + slug(project.addr) + ".csv");
-}
-
 /* Vrai export Excel via SheetJS — 2 feuilles : Synthèse + Façades. Remplace
    l'ancien alias CSV. Garde des cellules numériques (parseFloat) pour que
    les formules Excel marchent directement. */
@@ -3620,7 +3597,9 @@ function TabModel({ project, mat, setMat, onUpdate }) {
       next.walls = walls.toFixed(1);
       if (!m.roof || m.roof === "") next.roof = (f * 1.3).toFixed(1);
     }
-    onUpdate && onUpdate({meas: next});
+    /* Régénère rooms[] — sans ça les plans 2D/3D (qui lisent rooms) ne
+       réagissent pas aux sliders. */
+    onUpdate && onUpdate({ meas: next, rooms: roomsFromMeas(next, project.rooms) });
   }
   return (
     <div style={{display:"flex",height:"calc(100vh - 92px)"}}>
@@ -3794,14 +3773,20 @@ function TabMeas({ project, onUpdate }) {
 
   function setMeasField(key, val) {
     var next = Object.assign({}, m, {[key]: val});
-    onUpdate({meas: next});
+    /* Les champs géométriques régénèrent rooms[] pour garder 2D/3D synchro. */
+    if (key === "foot" || key === "h" || key === "perim" || key === "roof") {
+      onUpdate({ meas: next, rooms: roomsFromMeas(next, rooms) });
+    } else {
+      onUpdate({ meas: next });
+    }
   }
 
   function setRoomField(i, field, val) {
     var next = rooms.map(function(r, j) {
       return j === i ? Object.assign({}, r, {[field]: val}) : r;
     });
-    onUpdate({rooms: next});
+    /* Recalcule meas agrégé pour garder meas ↔ rooms cohérents. */
+    onUpdate({ rooms: next, meas: measFromRooms(next, m) });
   }
 
   function addRoom() {
@@ -8899,10 +8884,8 @@ function TabInterior({ project, onUpdate }) {
 }
 
 /* =============================================================
-   Phase B — Module Extérieur (façades détaillées + ElevationDiagramLive)
-   4 façades (Sud/Est/Nord/Ouest) avec hauteurs L/R, corniche, pignon+faîtage,
-   matériau, état (Bon/Moyen/Mauvais), dévers, remarques, ouvertures.
-   SVG en preview live pendant la saisie + calcul surface brute/nette auto.
+   Helpers façades (Sud/Est/Nord/Ouest) — constantes + calculs de surface
+   brute/nette. Consommés par TabExteriorAuto et la suite de tests.
    ============================================================= */
 
 const FACADE_SIDES = [
@@ -8931,34 +8914,6 @@ const FACADE_CONDITIONS = [
 /* Phase B refonte 2026-05-20 — Reprise fidèle artifact JSX :
    config bâtiment + N façades + toiture + validation score */
 
-const BUILDING_TYPES = [
-  { id:"mitoyen2",  label:"Mitoyen 2 façades",        emoji:"🏘️", facadeCount:2, desc:"Maison entre 2 voisins" },
-  { id:"mitoyen3",  label:"Semi-mitoyen 3 façades",   emoji:"🏚️", facadeCount:3, desc:"1 côté mitoyen" },
-  { id:"facades4",  label:"4 façades",                emoji:"🏡", facadeCount:4, desc:"Maison isolée" },
-  { id:"immeuble",  label:"Immeuble / Appartement",   emoji:"🏢", facadeCount:2, desc:"Immeuble collectif" },
-  { id:"hangar",    label:"Hangar / Entrepôt",        emoji:"🏭", facadeCount:4, desc:"Bâtiment industriel" },
-  { id:"autre",     label:"Autre / Complexe",         emoji:"🏰", facadeCount:4, desc:"Forme atypique" }
-];
-
-const ROOF_TYPES = [
-  { id:"2pans",     label:"2 pans",         emoji:"⛺" },
-  { id:"4pans",     label:"4 pans",         emoji:"🔷" },
-  { id:"plat",      label:"Plate",          emoji:"⬜" },
-  { id:"mansarde",  label:"Mansardée",      emoji:"🏠" },
-  { id:"shed",      label:"Shed",           emoji:"📐" },
-  { id:"complexe",  label:"Complexe",       emoji:"🔀" }
-];
-
-const ROOF_CHECKS = [
-  { id:"pente",      label:"Pente",                  unit:"°",  required:true },
-  { id:"surface",    label:"Surface toiture",        unit:"m²", required:true },
-  { id:"gouttieres", label:"Linéaire gouttières",    unit:"m",  required:true },
-  { id:"faitage",    label:"Linéaire faîtage",       unit:"m",  required:false },
-  { id:"cheminee",   label:"Cheminées",              unit:"nb", required:false },
-  { id:"velux",      label:"Velux",                  unit:"nb", required:false },
-  { id:"panneaux",   label:"Panneaux solaires",      unit:"nb", required:false }
-];
-
 function emptyBuildingConfig() {
   return {
     buildingType:"", facadeCount:4, floorCount:1,
@@ -8977,54 +8932,6 @@ function getFacadeListBySide(count) {
   if (n === 3) return [FACADE_SIDES[0], FACADE_SIDES[1], FACADE_SIDES[2]];
   if (n >= 4)  return FACADE_SIDES.slice(0, Math.min(n, 4));
   return FACADE_SIDES;
-}
-
-/* Score fiabilité 0-100 (fidèle artifact JSX) :
-   - photos façades + dims principales + dim corniche + condition + validated
-   - photo toiture + métrés requis + condition */
-function calcExteriorScore(p) {
-  var s = 0, max = 0;
-  var ex = (p && p.exterior) || {};
-  var facades = ex.facades || [];
-  facades.forEach(function(f){
-    max += 12;
-    if (f.hasPhoto) s += 4;
-    if (parseFloat(f.widthTotal) > 0 && parseFloat(f.heightLeft) > 0) s += 3;
-    if (parseFloat(f.heightLeft) > 0) s += 1;
-    if (parseFloat(f.heightRight) > 0) s += 1;
-    if (parseFloat(f.heightCorniche) > 0) s += 1;
-    if (f.condition) s += 1;
-    if (f.validated) s += 1;
-  });
-  var roof = ex.roof || {};
-  max += 30;
-  if (roof.hasPhoto) s += 10;
-  ROOF_CHECKS.filter(function(r){ return r.required; }).forEach(function(r){
-    if (roof.data && roof.data[r.id]) s += 5;
-  });
-  if (roof.condition) s += 5;
-  return max > 0 ? Math.round((s / max) * 100) : 0;
-}
-
-function validateExterior(p) {
-  var alerts = [];
-  var ex = (p && p.exterior) || {};
-  var facades = ex.facades || [];
-  facades.forEach(function(f){
-    var lbl = (FACADE_SIDES.find(function(s){return s.id===f.side;}) || {short:"?"}).short;
-    if (!f.hasPhoto) alerts.push({ type:"error", msg:"Photo manquante — façade " + lbl });
-    if (!parseFloat(f.widthTotal) || !parseFloat(f.heightLeft)) alerts.push({ type:"error", msg:"Largeur + hauteur manquantes — façade " + lbl });
-    if (!parseFloat(f.heightRight) && parseFloat(f.heightLeft)) alerts.push({ type:"warning", msg:"Hauteur droite manquante — façade " + lbl });
-    if (!parseFloat(f.heightCorniche)) alerts.push({ type:"warning", msg:"Hauteur corniche manquante — façade " + lbl });
-    if (f.hasPignon && !parseFloat(f.heightFaitage)) alerts.push({ type:"error", msg:"Hauteur faîtage manquante — façade " + lbl + " (pignon)" });
-    if (!f.condition) alerts.push({ type:"warning", msg:"État non renseigné — façade " + lbl });
-  });
-  var roof = ex.roof || {};
-  if (!roof.hasPhoto) alerts.push({ type:"error", msg:"Photo toiture manquante" });
-  ROOF_CHECKS.filter(function(r){ return r.required; }).forEach(function(r){
-    if (!roof.data || !roof.data[r.id]) alerts.push({ type:"error", msg:"Toiture — " + r.label + " manquant(e)" });
-  });
-  return alerts;
 }
 
 function uidExterior() {
@@ -9124,509 +9031,6 @@ function roofPitchFromFacades(project) {
   var rise = hF - hC;
   var angle = Math.atan(rise / halfW) * 180 / Math.PI;
   return Math.round(angle * 10) / 10;
-}
-
-function ElevationDiagramLive(props) {
-  var widthTotal = parseFloat(props.widthTotal) || 0;
-  var heightLeft = parseFloat(props.heightLeft) || 0;
-  var heightRight = parseFloat(props.heightRight) || 0;
-  var heightCorniche = parseFloat(props.heightCorniche) || 0;
-  var heightFaitage = parseFloat(props.heightFaitage) || 0;
-  var hasPignon = !!props.hasPignon;
-  var W = 320, H = 200;
-  var ml = 50, mr = 36, mb = 36, mt = 16;
-  var dH = H - mt - mb;
-  var hMax = Math.max(heightLeft, heightRight, heightFaitage, 1);
-  var yFor = function(h){ return H - mb - (h / hMax) * dH; };
-  var x1 = ml, x2 = W - mr, xMid = (x1 + x2) / 2;
-  var yL = heightLeft > 0 ? yFor(heightLeft) : H - mb - dH * 0.6;
-  var yR = heightRight > 0 ? yFor(heightRight) : yL;
-  var yGround = H - mb;
-  var yF = (hasPignon && heightFaitage > 0) ? yFor(heightFaitage) : null;
-  var hasAnyData = widthTotal > 0 || heightLeft > 0 || heightRight > 0 || heightFaitage > 0;
-  return (
-    <svg width="100%" viewBox={"0 0 " + W + " " + H} style={{display:"block", borderRadius:8, background:"#0A1828", marginBottom:12}}>
-      <line x1={x1 - 12} y1={yGround} x2={x2 + 12} y2={yGround} stroke="#1C3050" strokeWidth={2} />
-      <line x1={x1} y1={yL} x2={x1} y2={yGround} stroke="#E8EDF5" strokeWidth={2} />
-      <line x1={x2} y1={yR} x2={x2} y2={yGround} stroke="#E8EDF5" strokeWidth={2} />
-      <line x1={x1} y1={yL} x2={x2} y2={yR} stroke="#00C2FF" strokeWidth={1.5} strokeDasharray="5,3" />
-      {hasPignon && yF !== null ? <line x1={x1} y1={yL} x2={xMid} y2={yF} stroke="#F5C400" strokeWidth={2} /> : null}
-      {hasPignon && yF !== null ? <line x1={x2} y1={yR} x2={xMid} y2={yF} stroke="#F5C400" strokeWidth={2} /> : null}
-      {hasPignon && yF !== null ? <circle cx={xMid} cy={yF} r={3} fill="#F5C400" /> : null}
-      {hasPignon && yF !== null && heightFaitage > 0 ? <text x={xMid + 6} y={yF - 4} fill="#F5C400" fontSize={10} fontFamily="monospace">hF={heightFaitage}m</text> : null}
-      <line x1={x1} y1={yGround + 18} x2={x2} y2={yGround + 18} stroke="#F5C400" strokeWidth={1} />
-      <line x1={x1} y1={yGround + 14} x2={x1} y2={yGround + 22} stroke="#F5C400" strokeWidth={1} />
-      <line x1={x2} y1={yGround + 14} x2={x2} y2={yGround + 22} stroke="#F5C400" strokeWidth={1} />
-      {widthTotal > 0 ? <text x={xMid} y={yGround + 30} fill="#F5C400" fontSize={11} textAnchor="middle" fontFamily="monospace">{widthTotal}m</text> : null}
-      {heightLeft > 0 ? <line x1={x1 - 14} y1={yL} x2={x1 - 14} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightLeft > 0 ? <line x1={x1 - 18} y1={yL} x2={x1 - 10} y2={yL} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightLeft > 0 ? <line x1={x1 - 18} y1={yGround} x2={x1 - 10} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightLeft > 0 ? <text x={x1 - 20} y={(yL + yGround) / 2 + 4} fill="#00E5A0" fontSize={10} textAnchor="end" fontFamily="monospace">{heightLeft}m</text> : null}
-      {heightRight > 0 ? <line x1={x2 + 14} y1={yR} x2={x2 + 14} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightRight > 0 ? <line x1={x2 + 10} y1={yR} x2={x2 + 18} y2={yR} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightRight > 0 ? <line x1={x2 + 10} y1={yGround} x2={x2 + 18} y2={yGround} stroke="#00E5A0" strokeWidth={1} /> : null}
-      {heightRight > 0 ? <text x={x2 + 20} y={(yR + yGround) / 2 + 4} fill="#00E5A0" fontSize={10} textAnchor="start" fontFamily="monospace">{heightRight}m</text> : null}
-      {!hasAnyData ? <text x={xMid} y={H / 2 + 4} fill="#607898" fontSize={11} textAnchor="middle" fontFamily="monospace">{t("ext.saisirDim")}</text> : null}
-    </svg>
-  );
-}
-
-function TabExterior({ project, onUpdate }) {
-  var exterior = project.exterior || emptyExterior();
-  var cfg = exterior.config || emptyBuildingConfig();
-  var facades = exterior.facades || [];
-  var roof = exterior.roof || emptyRoof();
-
-  /* Wizard linéaire fidèle artifact JSX :
-     phase = 'config' (1 step) | 'facade' (N×4 sub-steps) | 'roof' (2 sub-steps) | 'valid' */
-  var [phase, setPhase] = useState("config");
-  var [facIdx, setFacIdx] = useState(0);
-  var [subStep, setSubStep] = useState(0);
-
-  useEffect(function(){
-    /* Migration auto si project.exterior format obsolète (sans config/roof) */
-    if (!project.exterior || !project.exterior.config || !project.exterior.roof || !Array.isArray(project.exterior.facades)) {
-      onUpdate({ exterior: emptyExterior() });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  var nb = facades.length;
-  var curFacade = (phase === "facade" && facIdx < nb) ? facades[facIdx] : null;
-  var score = calcExteriorScore(project);
-  var alerts = validateExterior(project);
-
-  function updateConfig(field, value) {
-    var nextCfg = Object.assign({}, cfg);
-    nextCfg[field] = value;
-    var newFacades = facades;
-    if (field === "buildingType") {
-      var bt = BUILDING_TYPES.find(function(b){ return b.id === value; });
-      if (bt && bt.facadeCount !== cfg.facadeCount) {
-        nextCfg.facadeCount = bt.facadeCount;
-        var sides = getFacadeListBySide(bt.facadeCount);
-        newFacades = sides.map(function(s){
-          var existing = facades.find(function(f){ return f.side === s.id; });
-          return existing || emptyFacade(s.id);
-        });
-      }
-    }
-    if (field === "facadeCount") {
-      var sides2 = getFacadeListBySide(value);
-      newFacades = sides2.map(function(s){
-        var existing = facades.find(function(f){ return f.side === s.id; });
-        return existing || emptyFacade(s.id);
-      });
-    }
-    onUpdate({ exterior: Object.assign({}, exterior, { config: nextCfg, facades: newFacades }) });
-  }
-
-  function updateFacadeAtIdx(idx, patch) {
-    /* Multi-champs en 1 seul setState — évite closure stale React */
-    var newFacades = facades.map(function(f, i){
-      return i === idx ? Object.assign({}, f, patch) : f;
-    });
-    onUpdate({ exterior: Object.assign({}, exterior, { facades: newFacades }) });
-  }
-
-  function updateRoof(field, value) {
-    var patch = {}; patch[field] = value;
-    onUpdate({ exterior: Object.assign({}, exterior, { roof: Object.assign({}, roof, patch) }) });
-  }
-  function updateRoofData(field, value) {
-    var newData = Object.assign({}, roof.data || {});
-    newData[field] = value;
-    onUpdate({ exterior: Object.assign({}, exterior, { roof: Object.assign({}, roof, { data: newData }) }) });
-  }
-
-  function readPhotoFile(file, onLoaded) {
-    if (!file) return;
-    var r = new FileReader();
-    r.onload = function(e){ onLoaded(e.target.result); };
-    r.readAsDataURL(file);
-  }
-
-  function next() {
-    if (phase === "config") {
-      if (!cfg.buildingType) return;
-      setPhase("facade"); setFacIdx(0); setSubStep(0);
-    } else if (phase === "facade") {
-      if (subStep < 3) setSubStep(subStep + 1);
-      else if (facIdx < nb - 1) {
-        if (parseFloat(curFacade.widthTotal) > 0 && parseFloat(curFacade.heightLeft) > 0) {
-          updateFacadeAtIdx(facIdx, { validated: true });
-        }
-        setFacIdx(facIdx + 1); setSubStep(0);
-      }
-      else {
-        if (parseFloat(curFacade.widthTotal) > 0 && parseFloat(curFacade.heightLeft) > 0) {
-          updateFacadeAtIdx(facIdx, { validated: true });
-        }
-        setPhase("roof"); setSubStep(0);
-      }
-    } else if (phase === "roof") {
-      if (subStep < 1) setSubStep(subStep + 1);
-      else { setPhase("valid"); setSubStep(0); }
-    }
-  }
-  function prev() {
-    if (phase === "valid") { setPhase("roof"); setSubStep(1); }
-    else if (phase === "roof") {
-      if (subStep > 0) setSubStep(subStep - 1);
-      else { setPhase("facade"); setFacIdx(nb - 1); setSubStep(3); }
-    } else if (phase === "facade") {
-      if (subStep > 0) setSubStep(subStep - 1);
-      else if (facIdx > 0) { setFacIdx(facIdx - 1); setSubStep(3); }
-      else { setPhase("config"); setSubStep(0); }
-    }
-  }
-
-  /* ─── Styles non-négociables : ZÉRO SCROLL ─── */
-  var WRAP = { display:"flex", flexDirection:"column", height:"calc(100vh - 92px)", overflow:"hidden", background:"#08111E" };
-  var HEAD = { padding:"12px 18px", borderBottom:"1px solid #1C3050", flexShrink:0, background:"#0F1C2E" };
-  var BODY = { flex:1, padding:"12px 18px", overflow:"hidden", display:"flex", flexDirection:"column", gap:8, minHeight:0 };
-  var FOOT = { padding:"10px 18px", borderTop:"1px solid #1C3050", flexShrink:0, display:"flex", gap:8, background:"#0F1C2E" };
-  var H1 = { fontSize:16, fontWeight:800, color:"#E8EDF5", marginBottom:2 };
-  var H2 = { fontSize:13, fontWeight:700, color:"#E8EDF5" };
-  var MUT = { fontSize:11, color:"#607898" };
-  var INP = { width:"100%", boxSizing:"border-box", background:"#0A1828", border:"1px solid #1C3050", borderRadius:6, color:"#E8EDF5", fontSize:15, padding:"8px 10px", outline:"none" };
-  var LBL = { fontSize:10, fontWeight:700, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginBottom:3, display:"block" };
-  var CARD_DARK = { background:"#0A1828", border:"1px solid #1C3050", borderRadius:7, padding:"8px 10px" };
-
-  /* Progress bar globale : 1 + N + 2 segments */
-  var TOTAL = 1 + nb + 2;
-  var curStep = (phase === "config") ? 0 : (phase === "facade") ? 1 + facIdx : (phase === "roof") ? 1 + nb : 1 + nb + 1;
-  var headerTitle = "";
-  var subLabel = "";
-  if (phase === "config") headerTitle = "⚙️ Configuration";
-  if (phase === "facade" && curFacade) {
-    var si = FACADE_SIDES.find(function(s){return s.id===curFacade.side;}) || {short:"?"};
-    headerTitle = "🏛️ Façade " + si.short + " (" + (facIdx + 1) + "/" + nb + ")";
-    var subLabels = ["Dimensions", "Pignon + hauteurs", "Photo + matériau", "Ouvertures + récap"];
-    subLabel = subLabels[subStep] + " ("+(subStep+1)+"/4)";
-  }
-  if (phase === "roof") {
-    headerTitle = "🏠 Toiture";
-    subLabel = (subStep === 0 ? "Photo + état + accès" : "Métrés (pente, gouttières…)") + " ("+(subStep+1)+"/2)";
-  }
-  if (phase === "valid") headerTitle = "✅ Contrôle final";
-  var canNext = true;
-  if (phase === "config") canNext = !!cfg.buildingType;
-
-  return (
-    <div style={WRAP}>
-      <div style={HEAD}>
-        <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:6}}>
-          <div style={H2}>{headerTitle}</div>
-          {subLabel ? <span style={{fontSize:11, color:"#607898"}}>· {subLabel}</span> : null}
-          <div style={{marginLeft:"auto", fontFamily:"monospace", fontSize:10, color:"#607898"}}>{curStep + 1}/{TOTAL}</div>
-        </div>
-        <div style={{display:"flex", gap:2}}>
-          {Array.from({length: TOTAL}).map(function(_, i){
-            return <div key={i} style={{flex:1, height:3, borderRadius:2, background: i < curStep ? "#00E5A0" : i === curStep ? "#00C2FF" : "#1C3050"}} />;
-          })}
-        </div>
-      </div>
-
-      <div style={BODY}>
-        {/* === CONFIG === */}
-        {phase === "config" ? (
-          <>
-            <div><div style={H1}>⚙️ Configuration du bâtiment</div><div style={MUT}>Définis le type avant de relever</div></div>
-            <div>
-              <div style={LBL}>Type bâtiment *</div>
-              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6}}>
-                {BUILDING_TYPES.map(function(bt){
-                  var sel = cfg.buildingType === bt.id;
-                  return (
-                    <button key={bt.id} type="button" onClick={function(){ updateConfig("buildingType", bt.id); }} style={{
-                      background: sel ? "rgba(0,194,255,0.18)" : "#0A1828",
-                      border: "1px solid " + (sel ? "#00C2FF" : "#1C3050"),
-                      borderRadius: 7, padding:"8px 4px",
-                      display:"flex", flexDirection:"column", alignItems:"center", gap:2,
-                      cursor:"pointer", color: sel ? "#00C2FF" : "#E8EDF5"
-                    }}>
-                      <span style={{fontSize:20}}>{bt.emoji}</span>
-                      <span style={{fontSize:10, fontWeight:700, textAlign:"center", lineHeight:1.1}}>{bt.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
-              <div>
-                <div style={LBL}>Nb façades</div>
-                <div style={{display:"flex", gap:3}}>
-                  {[2,3,4,5,6].map(function(n){
-                    var sel = cfg.facadeCount === n;
-                    return <button key={n} type="button" onClick={function(){ updateConfig("facadeCount", n); }} style={{flex:1, padding:"8px 0", background: sel ? "rgba(0,194,255,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#00C2FF" : "#1C3050"), borderRadius:5, color: sel ? "#00C2FF" : "#E8EDF5", fontSize:13, fontWeight:800, cursor:"pointer"}}>{n}</button>;
-                  })}
-                </div>
-              </div>
-              <div>
-                <div style={LBL}>Étages (hors RDC)</div>
-                <div style={{display:"flex", gap:3}}>
-                  {[{v:0,l:"RDC"},{v:1,l:"R+1"},{v:2,l:"R+2"},{v:3,l:"R+3"},{v:4,l:"R+4"}].map(function(o){
-                    var sel = cfg.floorCount === o.v;
-                    return <button key={o.v} type="button" onClick={function(){ updateConfig("floorCount", o.v); }} style={{flex:1, padding:"8px 0", background: sel ? "rgba(0,229,160,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#00E5A0" : "#1C3050"), borderRadius:5, color: sel ? "#00E5A0" : "#E8EDF5", fontSize:11, fontWeight:700, cursor:"pointer"}}>{o.l}</button>;
-                  })}
-                </div>
-              </div>
-            </div>
-            <div>
-              <div style={LBL}>Type toiture</div>
-              <div style={{display:"grid", gridTemplateColumns:"repeat(6, 1fr)", gap:4}}>
-                {ROOF_TYPES.map(function(rt){
-                  var sel = cfg.roofType === rt.id;
-                  return <button key={rt.id} type="button" onClick={function(){ updateConfig("roofType", rt.id); }} style={{background: sel ? "rgba(245,196,0,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#F5C400" : "#1C3050"), borderRadius:5, padding:"6px 2px", display:"flex", flexDirection:"column", alignItems:"center", gap:1, cursor:"pointer", color: sel ? "#F5C400" : "#E8EDF5"}}><span style={{fontSize:14}}>{rt.emoji}</span><span style={{fontSize:9, fontWeight:700, lineHeight:1}}>{rt.label}</span></button>;
-                })}
-              </div>
-            </div>
-            <div style={{display:"flex", alignItems:"center", gap:8}}>
-              <input id="ext-cfg-basement" type="checkbox" checked={cfg.hasBasement} onChange={function(e){ updateConfig("hasBasement", e.target.checked); }} style={{width:16, height:16, accentColor:"#00C2FF"}} />
-              <label htmlFor="ext-cfg-basement" style={{fontSize:12, color:"#E8EDF5", cursor:"pointer"}}>Sous-sol / cave présent(e)</label>
-            </div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6}}>
-              <div><div style={LBL}>Larg. (m)</div><input type="number" inputMode="decimal" step="0.01" value={cfg.buildingWidth} onChange={function(e){ updateConfig("buildingWidth", e.target.value); }} placeholder="0.00" style={INP} /></div>
-              <div><div style={LBL}>Prof. (m)</div><input type="number" inputMode="decimal" step="0.01" value={cfg.buildingDepth} onChange={function(e){ updateConfig("buildingDepth", e.target.value); }} placeholder="0.00" style={INP} /></div>
-              <div><div style={LBL}>Année</div><input type="number" inputMode="numeric" step="1" value={cfg.yearApprox} onChange={function(e){ updateConfig("yearApprox", e.target.value); }} placeholder="1980" style={INP} /></div>
-            </div>
-          </>
-        ) : null}
-
-        {/* === FAÇADE step 0 : Dimensions === */}
-        {phase === "facade" && curFacade && subStep === 0 ? (
-          <>
-            <div><div style={H2}>📏 Dimensions principales</div><div style={MUT}>Largeur + hauteurs L/R — SVG se met à jour en direct</div></div>
-            <div style={{flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <ElevationDiagramLive widthTotal={curFacade.widthTotal} heightLeft={curFacade.heightLeft} heightRight={curFacade.heightRight} heightFaitage={curFacade.heightFaitage} hasPignon={curFacade.hasPignon} />
-            </div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, flexShrink:0}}>
-              <div><div style={LBL}>Largeur (m) *</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.widthTotal} onChange={function(e){ updateFacadeAtIdx(facIdx, { widthTotal: e.target.value }); }} placeholder="0.00" style={INP} autoFocus /></div>
-              <div><div style={LBL}>Haut. G (m) *</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.heightLeft} onChange={function(e){ updateFacadeAtIdx(facIdx, { heightLeft: e.target.value, heightRight: curFacade.heightRight || e.target.value }); }} placeholder="0.00" style={INP} /></div>
-              <div><div style={LBL}>Haut. D (m)</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.heightRight} onChange={function(e){ updateFacadeAtIdx(facIdx, { heightRight: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-            </div>
-          </>
-        ) : null}
-
-        {/* === FAÇADE step 1 : Pignon + hauteurs spé === */}
-        {phase === "facade" && curFacade && subStep === 1 ? (
-          <>
-            <div><div style={H2}>📐 Pignon + hauteurs spécifiques</div><div style={MUT}>Corniche, sablière, faîtage si pignon visible</div></div>
-            <div style={{flex:1, minHeight:0, display:"flex", alignItems:"center", justifyContent:"center"}}>
-              <ElevationDiagramLive widthTotal={curFacade.widthTotal} heightLeft={curFacade.heightLeft} heightRight={curFacade.heightRight} heightCorniche={curFacade.heightCorniche} heightFaitage={curFacade.heightFaitage} hasPignon={curFacade.hasPignon} />
-            </div>
-            <div style={{flexShrink:0}}>
-              <label style={{display:"flex", alignItems:"center", gap:8, cursor:"pointer", marginBottom:6}}>
-                <input type="checkbox" checked={curFacade.hasPignon} onChange={function(e){ updateFacadeAtIdx(facIdx, { hasPignon: e.target.checked, heightFaitage: e.target.checked ? curFacade.heightFaitage : "" }); }} style={{width:16, height:16, accentColor:"#F5C400"}} />
-                <span style={{fontSize:13, color:"#E8EDF5"}}>▲ Pignon visible (faîtage)</span>
-              </label>
-              <div style={{display:"grid", gridTemplateColumns: curFacade.hasPignon ? "1fr 1fr 1fr" : "1fr 1fr", gap:6}}>
-                <div><div style={LBL}>Corniche (m)</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.heightCorniche} onChange={function(e){ updateFacadeAtIdx(facIdx, { heightCorniche: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-                <div><div style={LBL}>Sablière (m)</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.heightSabliere} onChange={function(e){ updateFacadeAtIdx(facIdx, { heightSabliere: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-                {curFacade.hasPignon ? <div><div style={LBL}>Faîtage (m)</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.heightFaitage} onChange={function(e){ updateFacadeAtIdx(facIdx, { heightFaitage: e.target.value }); }} placeholder="0.00" style={INP} /></div> : null}
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {/* === FAÇADE step 2 : Photo + Matériau + État === */}
-        {phase === "facade" && curFacade && subStep === 2 ? (
-          <>
-            <div><div style={H2}>📷 Photo + 🧱 Matériau + État</div><div style={MUT}>Photo façade + revêtement + état général</div></div>
-            <input id={"facwiz-cam-"+curFacade.id} type="file" accept="image/*" capture="environment" onChange={function(e){ var file = e.target.files[0]; readPhotoFile(file, function(url){ updateFacadeAtIdx(facIdx, { photoUrl: url, hasPhoto: true }); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
-            <input id={"facwiz-gal-"+curFacade.id} type="file" accept="image/*" onChange={function(e){ var file = e.target.files[0]; readPhotoFile(file, function(url){ updateFacadeAtIdx(facIdx, { photoUrl: url, hasPhoto: true }); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
-            <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", gap:6}}>
-              {curFacade.photoUrl ? (
-                <div style={{flex:1, minHeight:0, position:"relative", borderRadius:7, overflow:"hidden", background:"#0A1828"}}>
-                  <img src={curFacade.photoUrl} alt="" style={{width:"100%", height:"100%", objectFit:"cover", display:"block"}} />
-                  <div style={{position:"absolute", bottom:4, right:4, display:"flex", gap:4}}>
-                    <label htmlFor={"facwiz-cam-"+curFacade.id} style={{background:"rgba(0,194,255,0.9)", color:"#000", padding:"5px 10px", borderRadius:4, fontSize:11, fontWeight:800, cursor:"pointer"}}>📷</label>
-                    <label htmlFor={"facwiz-gal-"+curFacade.id} style={{background:"rgba(255,255,255,0.9)", color:"#000", padding:"5px 10px", borderRadius:4, fontSize:11, fontWeight:700, cursor:"pointer"}}>🖼</label>
-                  </div>
-                </div>
-              ) : (
-                <div style={{flex:1, minHeight:0, background:"#0A1828", border:"2px dashed #00C2FF", borderRadius:7, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6}}>
-                  <div style={{fontSize:28}}>📸</div>
-                  <div style={{display:"flex", gap:6}}>
-                    <label htmlFor={"facwiz-cam-"+curFacade.id} style={{background:"#00C2FF", color:"#000", padding:"7px 14px", borderRadius:6, fontSize:12, fontWeight:800, cursor:"pointer"}}>📷 Caméra</label>
-                    <label htmlFor={"facwiz-gal-"+curFacade.id} style={{background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", padding:"7px 14px", borderRadius:6, fontSize:12, fontWeight:700, cursor:"pointer"}}>🖼 Galerie</label>
-                  </div>
-                </div>
-              )}
-              <div style={{flexShrink:0, display:"grid", gridTemplateColumns:"repeat(4, 1fr)", gap:3}}>
-                {FACADE_MATERIALS.slice(0, 4).map(function(m){
-                  var sel = curFacade.material === m.id;
-                  return <button key={m.id} type="button" onClick={function(){ updateFacadeAtIdx(facIdx, { material: m.id }); }} style={{background: sel ? "rgba(0,194,255,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#00C2FF" : "#1C3050"), borderRadius:5, color: sel ? "#00C2FF" : "#E8EDF5", padding:"7px 2px", fontSize:10, fontWeight: sel ? 700 : 500, cursor:"pointer"}}>{t("ext.mat." + m.id)}</button>;
-                })}
-              </div>
-              <div style={{flexShrink:0, display:"grid", gridTemplateColumns:"repeat(3, 1fr)", gap:3}}>
-                {FACADE_MATERIALS.slice(4, 7).map(function(m){
-                  var sel = curFacade.material === m.id;
-                  return <button key={m.id} type="button" onClick={function(){ updateFacadeAtIdx(facIdx, { material: m.id }); }} style={{background: sel ? "rgba(0,194,255,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#00C2FF" : "#1C3050"), borderRadius:5, color: sel ? "#00C2FF" : "#E8EDF5", padding:"7px 2px", fontSize:10, fontWeight: sel ? 700 : 500, cursor:"pointer"}}>{t("ext.mat." + m.id)}</button>;
-                })}
-              </div>
-              <div style={{flexShrink:0, display:"flex", gap:3}}>
-                {FACADE_CONDITIONS.map(function(c){
-                  var sel = curFacade.condition === c.id;
-                  return <button key={c.id} type="button" onClick={function(){ updateFacadeAtIdx(facIdx, { condition: c.id }); }} style={{flex:1, background: sel ? "rgba(255,255,255,0.06)" : "#0A1828", border:"1px solid " + (sel ? c.color : "#1C3050"), borderRadius:5, color: sel ? c.color : "#E8EDF5", padding:"10px 0", fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, cursor:"pointer"}}>{t("ext.cond." + c.id)}</button>;
-                })}
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {/* === FAÇADE step 3 : Ouvertures + Récap === */}
-        {phase === "facade" && curFacade && subStep === 3 ? (
-          <>
-            <div><div style={H2}>🚪 Ouvertures + ✓ Récap</div><div style={MUT}>Nb + surface par type, puis valide la façade</div></div>
-            <div style={{flexShrink:0, display:"grid", gridTemplateColumns:"24px 1fr 1fr", gap:6, alignItems:"end"}}>
-              <span style={{fontSize:14, paddingBottom:6}}>🚪</span>
-              <div><div style={LBL}>Portes nb</div><input type="number" inputMode="numeric" value={curFacade.doors} onChange={function(e){ updateFacadeAtIdx(facIdx, { doors: e.target.value }); }} placeholder="0" style={INP} /></div>
-              <div><div style={LBL}>Surf. m²</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.surfDoors} onChange={function(e){ updateFacadeAtIdx(facIdx, { surfDoors: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-            </div>
-            <div style={{flexShrink:0, display:"grid", gridTemplateColumns:"24px 1fr 1fr", gap:6, alignItems:"end"}}>
-              <span style={{fontSize:14, paddingBottom:6}}>🪟</span>
-              <div><div style={LBL}>Fenêtres nb</div><input type="number" inputMode="numeric" value={curFacade.windows} onChange={function(e){ updateFacadeAtIdx(facIdx, { windows: e.target.value }); }} placeholder="0" style={INP} /></div>
-              <div><div style={LBL}>Surf. m²</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.surfWindows} onChange={function(e){ updateFacadeAtIdx(facIdx, { surfWindows: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-            </div>
-            <div style={{flexShrink:0, display:"grid", gridTemplateColumns:"24px 1fr 1fr", gap:6, alignItems:"end"}}>
-              <span style={{fontSize:14, paddingBottom:6}}>🔲</span>
-              <div><div style={LBL}>Baies nb</div><input type="number" inputMode="numeric" value={curFacade.bays} onChange={function(e){ updateFacadeAtIdx(facIdx, { bays: e.target.value }); }} placeholder="0" style={INP} /></div>
-              <div><div style={LBL}>Surf. m²</div><input type="number" inputMode="decimal" step="0.01" value={curFacade.surfBays} onChange={function(e){ updateFacadeAtIdx(facIdx, { surfBays: e.target.value }); }} placeholder="0.00" style={INP} /></div>
-            </div>
-            <div style={{flexShrink:0, background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.3)", borderRadius:7, padding:8, display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, textAlign:"center"}}>
-              <div><div style={{fontFamily:"monospace", fontSize:15, fontWeight:700, color:"#00C2FF"}}>{facadeBruteArea(curFacade).toFixed(1)}</div><div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase"}}>brute m²</div></div>
-              <div><div style={{fontFamily:"monospace", fontSize:15, fontWeight:700, color:"#F5C400"}}>{facadeOpeningsArea(curFacade) > 0 ? "-"+facadeOpeningsArea(curFacade).toFixed(1) : "—"}</div><div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase"}}>ouv m²</div></div>
-              <div><div style={{fontFamily:"monospace", fontSize:15, fontWeight:700, color:"#00E5A0"}}>{facadeNetArea(curFacade).toFixed(1)}</div><div style={{fontSize:9, color:"#607898", letterSpacing:1, textTransform:"uppercase"}}>nette m²</div></div>
-            </div>
-            <div style={{flexShrink:0, display:"flex", alignItems:"center", gap:8}}>
-              <input id={"fac-devers-"+curFacade.id} type="checkbox" checked={curFacade.hasDevers} onChange={function(e){ updateFacadeAtIdx(facIdx, { hasDevers: e.target.checked }); }} style={{width:14, height:14, accentColor:"#FF8C42"}} />
-              <label htmlFor={"fac-devers-"+curFacade.id} style={{fontSize:11, color: curFacade.hasDevers ? "#FF8C42" : "#E8EDF5", cursor:"pointer"}}>⚠ Dévers / aplomb non vertical</label>
-              <input value={curFacade.remarks} onChange={function(e){ updateFacadeAtIdx(facIdx, { remarks: e.target.value }); }} placeholder="Remarques…" style={Object.assign({}, INP, { flex:1, fontSize:12, padding:"6px 8px" })} />
-            </div>
-          </>
-        ) : null}
-
-        {/* === ROOF step 0 : Photo + état + accès === */}
-        {phase === "roof" && subStep === 0 ? (
-          <>
-            <div><div style={H2}>📷 Photo toiture + état</div><div style={MUT}>Photo + état général + accès</div></div>
-            <input id="roof-cam" type="file" accept="image/*" capture="environment" onChange={function(e){ readPhotoFile(e.target.files[0], function(url){ updateRoof("photoUrl", url); updateRoof("hasPhoto", true); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
-            <input id="roof-gal" type="file" accept="image/*" onChange={function(e){ readPhotoFile(e.target.files[0], function(url){ updateRoof("photoUrl", url); updateRoof("hasPhoto", true); }); e.target.value=""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
-            <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", gap:6}}>
-              {roof.photoUrl ? (
-                <div style={{flex:1, minHeight:0, position:"relative", borderRadius:7, overflow:"hidden", background:"#0A1828"}}>
-                  <img src={roof.photoUrl} alt="" style={{width:"100%", height:"100%", objectFit:"cover", display:"block"}} />
-                  <div style={{position:"absolute", bottom:4, right:4, display:"flex", gap:4}}>
-                    <label htmlFor="roof-cam" style={{background:"rgba(245,196,0,0.9)", color:"#000", padding:"5px 10px", borderRadius:4, fontSize:11, fontWeight:800, cursor:"pointer"}}>📷</label>
-                    <label htmlFor="roof-gal" style={{background:"rgba(255,255,255,0.9)", color:"#000", padding:"5px 10px", borderRadius:4, fontSize:11, fontWeight:700, cursor:"pointer"}}>🖼</label>
-                  </div>
-                </div>
-              ) : (
-                <div style={{flex:1, minHeight:0, background:"#0A1828", border:"2px dashed #F5C400", borderRadius:7, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6}}>
-                  <div style={{fontSize:28}}>🏠</div>
-                  <div style={{display:"flex", gap:6}}>
-                    <label htmlFor="roof-cam" style={{background:"#F5C400", color:"#000", padding:"7px 14px", borderRadius:6, fontSize:12, fontWeight:800, cursor:"pointer"}}>📷 Caméra</label>
-                    <label htmlFor="roof-gal" style={{background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", padding:"7px 14px", borderRadius:6, fontSize:12, fontWeight:700, cursor:"pointer"}}>🖼 Galerie</label>
-                  </div>
-                </div>
-              )}
-              <div style={{flexShrink:0, display:"flex", gap:3}}>
-                {FACADE_CONDITIONS.concat([{id:"urgent", color:"#FF2020"}]).map(function(c){
-                  var sel = roof.condition === c.id;
-                  return <button key={c.id} type="button" onClick={function(){ updateRoof("condition", c.id); }} style={{flex:1, background: sel ? "rgba(255,255,255,0.06)" : "#0A1828", border:"1px solid " + (sel ? c.color : "#1C3050"), borderRadius:5, color: sel ? c.color : "#E8EDF5", padding:"10px 0", fontSize:10, fontWeight:700, textTransform:"uppercase", letterSpacing:0.5, cursor:"pointer"}}>{c.id === "urgent" ? "🚨 URGENT" : t("ext.cond."+c.id)}</button>;
-                })}
-              </div>
-              <div style={{flexShrink:0, display:"flex", gap:3, flexWrap:"wrap"}}>
-                {["Échelle","Trappe","Velux","Nacelle","Impossible"].map(function(a){
-                  var v = a.toLowerCase();
-                  var sel = roof.access === v;
-                  return <button key={a} type="button" onClick={function(){ updateRoof("access", v); }} style={{background: sel ? "rgba(245,196,0,0.18)" : "#0A1828", border:"1px solid " + (sel ? "#F5C400" : "#1C3050"), borderRadius:5, color: sel ? "#F5C400" : "#E8EDF5", padding:"6px 10px", fontSize:10, fontWeight:700, cursor:"pointer"}}>{a}</button>;
-                })}
-              </div>
-            </div>
-          </>
-        ) : null}
-
-        {/* === ROOF step 1 : Métrés === */}
-        {phase === "roof" && subStep === 1 ? (
-          <>
-            <div><div style={H2}>📐 Métrés toiture</div><div style={MUT}>Pente, surface, gouttières, faîtage, etc.</div></div>
-            <div style={{flex:1, minHeight:0, display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, alignContent:"start", overflow:"hidden"}}>
-              {ROOF_CHECKS.map(function(rc){
-                return (
-                  <div key={rc.id}>
-                    <div style={LBL}>{rc.label} ({rc.unit}){rc.required ? " *" : ""}</div>
-                    <input type="number" inputMode="decimal" step="0.1" value={(roof.data || {})[rc.id] || ""} onChange={function(e){ updateRoofData(rc.id, e.target.value); }} placeholder="0" style={INP} />
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{flexShrink:0}}>
-              <input value={roof.notes} onChange={function(e){ updateRoof("notes", e.target.value); }} placeholder="Notes toiture…" style={INP} />
-            </div>
-          </>
-        ) : null}
-
-        {/* === VALIDATION === */}
-        {phase === "valid" ? (
-          <>
-            <div style={{flexShrink:0, display:"flex", alignItems:"center", gap:14}}>
-              <div style={{
-                width:74, height:74, borderRadius:"50%",
-                border:"3px solid " + (score >= 80 ? "#00E5A0" : score >= 50 ? "#F5C400" : "#FF4757"),
-                color: score >= 80 ? "#00E5A0" : score >= 50 ? "#F5C400" : "#FF4757",
-                display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", flexShrink:0,
-                fontFamily:"'Barlow Condensed', sans-serif"
-              }}>
-                <div style={{fontSize:24, fontWeight:900, lineHeight:1}}>{score}</div>
-                <div style={{fontSize:9, letterSpacing:1.5}}>SCORE</div>
-              </div>
-              <div>
-                <div style={H1}>{alerts.filter(function(a){return a.type==="error";}).length === 0 ? "✓ Relevé conforme" : "⛔ " + alerts.filter(function(a){return a.type==="error";}).length + " erreur(s) critique(s)"}</div>
-                <div style={MUT}>{alerts.filter(function(a){return a.type==="warning";}).length} avertissement(s) · {facades.length} façades · toit {roof.hasPhoto ? "✓" : "⚫"}</div>
-              </div>
-            </div>
-            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:6, flexShrink:0}}>
-              {facades.map(function(f){
-                var si = FACADE_SIDES.find(function(s){return s.id===f.side;}) || {short:"?"};
-                var ok = f.hasPhoto && parseFloat(f.widthTotal) > 0 && parseFloat(f.heightLeft) > 0;
-                return (
-                  <div key={f.id} style={{background: ok ? "rgba(0,229,160,0.06)" : "rgba(255,71,87,0.08)", border:"1px solid " + (ok ? "#00E5A0" : "#FF4757"), borderRadius:6, padding:6, textAlign:"center"}}>
-                    <div style={{fontSize:12, fontWeight:800, color: ok ? "#00E5A0" : "#FF4757"}}>{ok ? "✓" : "⛔"} {si.short}</div>
-                    <div style={{fontFamily:"monospace", fontSize:10, color:"#E8EDF5", marginTop:2}}>{f.widthTotal ? f.widthTotal + "×" + (f.heightLeft||"?") : "—"}</div>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column", gap:4, overflow:"hidden"}}>
-              {alerts.filter(function(a){return a.type==="error";}).slice(0, 4).map(function(a, i){
-                return <div key={"e"+i} style={{background:"rgba(255,71,87,0.10)", border:"1px solid #FF4757", borderRadius:5, padding:"6px 10px", fontSize:11, color:"#FF8080"}}>⛔ {a.msg}</div>;
-              })}
-              {alerts.filter(function(a){return a.type==="warning";}).slice(0, Math.max(0, 4 - alerts.filter(function(a){return a.type==="error";}).length)).map(function(a, i){
-                return <div key={"w"+i} style={{background:"rgba(245,196,0,0.10)", border:"1px solid #F5C400", borderRadius:5, padding:"6px 10px", fontSize:11, color:"#FFCC44"}}>⚠ {a.msg}</div>;
-              })}
-              {alerts.length === 0 ? <div style={{background:"rgba(0,229,160,0.08)", border:"1px solid #00E5A0", borderRadius:5, padding:"10px 14px", fontSize:12, color:"#00E5A0", textAlign:"center"}}>✓ Toutes les façades + toiture sont renseignées</div> : null}
-            </div>
-          </>
-        ) : null}
-      </div>
-
-      <div style={FOOT}>
-        {(phase !== "config" || subStep > 0) ? (
-          <Btn onClick={prev} style={{flex:0, padding:"10px 16px"}}>←</Btn>
-        ) : (
-          <span style={{flex:0, padding:"10px 16px", fontSize:11, color:"#2E4A6A"}}>Début</span>
-        )}
-        {phase !== "valid" ? (
-          <Btn primary={canNext} onClick={next} style={{flex:1, opacity: canNext ? 1 : 0.4}}>Suivant →</Btn>
-        ) : (
-          <Btn primary={true} onClick={function(){}} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ Relevé terminé</Btn>
-        )}
-      </div>
-    </div>
-  );
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -9880,6 +9284,77 @@ function roomsFromWDH(W, D, H, roofArea) {
     { n:"Mur Ouest", a:dH, l:D.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
     { n:"Toiture",   a:String(Math.round(roofArea)), l:"---", h:"---", t:"r" }
   ];
+}
+
+/* Extrait une longueur numérique d'un room dont le nom matche la regex
+   (mur de façade uniquement, t!=="r"). \b évite ouest⊃est. */
+function _roomLenByName(rooms, re) {
+  var r = (rooms || []).find(function(x){
+    return x && x.t !== "r" && re.test(x.n || "");
+  });
+  if (!r) return 0;
+  var v = parseFloat(String(r.l || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+  return isFinite(v) && v > 0 ? v : 0;
+}
+function _roomHeightByName(rooms, re) {
+  var r = (rooms || []).find(function(x){
+    return x && x.t !== "r" && re.test(x.n || "");
+  });
+  if (!r) return 0;
+  var v = parseFloat(String(r.h || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+  return isFinite(v) && v > 0 ? v : 0;
+}
+
+/* Régénère rooms[] cohérent depuis meas. Préserve les dimensions W/D
+   réelles des rooms existantes (cadastre) si l'emprise n'a pas changé ;
+   sinon recalcule W/D depuis foot (+ perim pour les vraies proportions).
+   C'est CE pont qui fait réagir les plans 2D/3D aux sliders + onglet Mesures. */
+function roomsFromMeas(meas, prevRooms) {
+  meas = meas || {};
+  var foot = parseFloat(meas.foot) || 0;
+  var H = parseFloat(meas.h) || 6;
+  var perim = parseFloat(meas.perim) || 0;
+  var roofArea = parseFloat(meas.roof) || 0;
+  var W = _roomLenByName(prevRooms, /\bsud\b/i) || _roomLenByName(prevRooms, /\bnord\b/i);
+  var D = _roomLenByName(prevRooms, /\best\b/i) || _roomLenByName(prevRooms, /\bouest\b/i);
+  /* Recalcule W/D si absents OU si l'emprise a bougé de plus de 5 %. */
+  if (!(W > 0 && D > 0) || (foot > 0 && Math.abs(W * D - foot) > foot * 0.05)) {
+    if (foot > 0 && perim > 0) {
+      var half = perim / 2;
+      var disc = half * half - 4 * foot;
+      if (disc >= 0) { W = (half + Math.sqrt(disc)) / 2; D = (half - Math.sqrt(disc)) / 2; }
+      else { W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6); }
+    } else if (foot > 0) {
+      W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6);
+    }
+  }
+  if (!(W > 0) || !(D > 0)) return prevRooms || [];
+  if (!(roofArea > 0)) roofArea = W * D * 1.15;
+  return roomsFromWDH(W, D, H, roofArea);
+}
+
+/* Sens inverse : recalcule meas agrégé depuis rooms[] (édition directe
+   d'une longueur de mur dans l'onglet Mesures). Garde meas ↔ rooms synchro. */
+function measFromRooms(rooms, prevMeas) {
+  var next = Object.assign({}, prevMeas || {});
+  var W = _roomLenByName(rooms, /\bsud\b/i) || _roomLenByName(rooms, /\bnord\b/i);
+  var D = _roomLenByName(rooms, /\best\b/i) || _roomLenByName(rooms, /\bouest\b/i);
+  var H = _roomHeightByName(rooms, /\bsud\b/i) || _roomHeightByName(rooms, /\bnord\b/i)
+       || _roomHeightByName(rooms, /\best\b/i) || _roomHeightByName(rooms, /\bouest\b/i);
+  if (W > 0 && D > 0) {
+    next.foot = (W * D).toFixed(1);
+    next.perim = (2 * (W + D)).toFixed(1);
+    if (H > 0) {
+      next.h = H.toFixed(1);
+      next.walls = (2 * (W + D) * H).toFixed(1);
+    }
+  }
+  var roofRoom = (rooms || []).find(function(x){ return x && x.t === "r"; });
+  if (roofRoom) {
+    var ra = parseFloat(String(roofRoom.a || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+    if (isFinite(ra) && ra > 0) next.roof = String(Math.round(ra));
+  }
+  return next;
 }
 
 /* Mappe une forme de toit OSM (roof:shape) vers les types MesurePro. */
