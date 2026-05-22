@@ -3597,9 +3597,13 @@ function TabModel({ project, mat, setMat, onUpdate }) {
       next.walls = walls.toFixed(1);
       if (!m.roof || m.roof === "") next.roof = (f * 1.3).toFixed(1);
     }
-    /* Régénère rooms[] — sans ça les plans 2D/3D (qui lisent rooms) ne
-       réagissent pas aux sliders. */
-    onUpdate && onUpdate({ meas: next, rooms: roomsFromMeas(next, project.rooms) });
+    /* Synchronise meas ↔ rooms — sans ça les plans 2D/3D (qui lisent
+       rooms) ne réagissent pas aux sliders. */
+    if (onUpdate) {
+      var sync = syncMeasRooms(next, project.rooms);
+      sync.meas[key] = String(val);   /* le slider reste la valeur de référence */
+      onUpdate({ meas: sync.meas, rooms: sync.rooms });
+    }
   }
   return (
     <div style={{display:"flex",height:"calc(100vh - 92px)"}}>
@@ -3771,11 +3775,30 @@ function TabMeas({ project, onUpdate }) {
     {key:"doors", lbl:"Portes",       unit:"",   col:"#E8EDF5"},
   ];
 
+  var GEOM_KEYS = ["foot", "h", "perim", "roof"];
+
+  /* Saisie clavier EN COURS — écrit juste meas[key], léger : le champ reste
+     fluide, pas de régénération rooms à chaque caractère. */
+  function setMeasFieldLive(key, val) {
+    onUpdate({ meas: Object.assign({}, m, {[key]: val}) });
+  }
+
+  /* Fin de saisie (blur) — synchronise rooms[] + meas dérivés une seule fois. */
+  function commitMeasField(key) {
+    if (GEOM_KEYS.indexOf(key) !== -1) {
+      var sync = syncMeasRooms(m, rooms);
+      sync.meas[key] = m[key];   /* garde la valeur saisie par l'utilisateur */
+      onUpdate({ meas: sync.meas, rooms: sync.rooms });
+    }
+  }
+
+  /* Écriture atomique complète (laser BLE, programmatique) — sync immédiat. */
   function setMeasField(key, val) {
     var next = Object.assign({}, m, {[key]: val});
-    /* Les champs géométriques régénèrent rooms[] pour garder 2D/3D synchro. */
-    if (key === "foot" || key === "h" || key === "perim" || key === "roof") {
-      onUpdate({ meas: next, rooms: roomsFromMeas(next, rooms) });
+    if (GEOM_KEYS.indexOf(key) !== -1) {
+      var sync = syncMeasRooms(next, rooms);
+      sync.meas[key] = val;   /* ne jamais écraser la valeur fournie */
+      onUpdate({ meas: sync.meas, rooms: sync.rooms });
     } else {
       onUpdate({ meas: next });
     }
@@ -3930,7 +3953,8 @@ function TabMeas({ project, onUpdate }) {
                   step="any"
                   value={v === "" || v == null ? "" : v}
                   onFocus={function(){ setActiveMeasField(f.key); }}
-                  onChange={function(e){ setMeasField(f.key, e.target.value); }}
+                  onChange={function(e){ setMeasFieldLive(f.key, e.target.value); }}
+                  onBlur={function(){ setActiveMeasField(null); commitMeasField(f.key); }}
                   placeholder="0"
                   style={{
                     flex:1, background:"#0A1828",
@@ -9305,9 +9329,13 @@ function _roomHeightByName(rooms, re) {
   return isFinite(v) && v > 0 ? v : 0;
 }
 
-/* Régénère rooms[] cohérent depuis meas. Préserve les dimensions W/D
-   réelles des rooms existantes (cadastre) si l'emprise n'a pas changé ;
-   sinon recalcule W/D depuis foot (+ perim pour les vraies proportions).
+/* Régénère rooms[] cohérent depuis meas.
+   - Emprise inchangée (ex: seule la hauteur a bougé) → dimensions W/D
+     des rooms existantes préservées telles quelles.
+   - Emprise changée → on conserve la FORME (ratio W/D) du bâtiment et on
+     rescale à la nouvelle emprise (évite les rectangles dégénérés).
+   - Pas de rooms de référence → perim+foot si le rectangle reste plausible,
+     sinon ratio résidentiel standard 1.6.
    C'est CE pont qui fait réagir les plans 2D/3D aux sliders + onglet Mesures. */
 function roomsFromMeas(meas, prevRooms) {
   meas = meas || {};
@@ -9315,18 +9343,27 @@ function roomsFromMeas(meas, prevRooms) {
   var H = parseFloat(meas.h) || 6;
   var perim = parseFloat(meas.perim) || 0;
   var roofArea = parseFloat(meas.roof) || 0;
-  var W = _roomLenByName(prevRooms, /\bsud\b/i) || _roomLenByName(prevRooms, /\bnord\b/i);
-  var D = _roomLenByName(prevRooms, /\best\b/i) || _roomLenByName(prevRooms, /\bouest\b/i);
-  /* Recalcule W/D si absents OU si l'emprise a bougé de plus de 5 %. */
-  if (!(W > 0 && D > 0) || (foot > 0 && Math.abs(W * D - foot) > foot * 0.05)) {
-    if (foot > 0 && perim > 0) {
+  var Wp = _roomLenByName(prevRooms, /\bsud\b/i) || _roomLenByName(prevRooms, /\bnord\b/i);
+  var Dp = _roomLenByName(prevRooms, /\best\b/i) || _roomLenByName(prevRooms, /\bouest\b/i);
+  var W = 0, D = 0;
+  if (Wp > 0 && Dp > 0) {
+    if (foot > 0 && Math.abs(Wp * Dp - foot) > foot * 0.02) {
+      var ratio = Wp / Dp;            /* emprise changée → garde la forme */
+      D = Math.sqrt(foot / ratio);
+      W = D * ratio;
+    } else {
+      W = Wp; D = Dp;                 /* emprise inchangée → préserve W/D */
+    }
+  } else if (foot > 0) {
+    if (perim > 0) {
       var half = perim / 2;
       var disc = half * half - 4 * foot;
-      if (disc >= 0) { W = (half + Math.sqrt(disc)) / 2; D = (half - Math.sqrt(disc)) / 2; }
-      else { W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6); }
-    } else if (foot > 0) {
-      W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6);
+      if (disc >= 0) {
+        var w1 = (half + Math.sqrt(disc)) / 2, d1 = (half - Math.sqrt(disc)) / 2;
+        if (d1 > 0 && w1 / d1 <= 4) { W = w1; D = d1; }   /* rejette les dégénérés */
+      }
     }
+    if (!(W > 0 && D > 0)) { W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6); }
   }
   if (!(W > 0) || !(D > 0)) return prevRooms || [];
   if (!(roofArea > 0)) roofArea = W * D * 1.15;
@@ -9355,6 +9392,14 @@ function measFromRooms(rooms, prevMeas) {
     if (isFinite(ra) && ra > 0) next.roof = String(Math.round(ra));
   }
   return next;
+}
+
+/* Couple {meas, rooms} parfaitement cohérent depuis un meas (potentiellement
+   partiel après édition d'un champ) + les rooms précédentes. À utiliser à
+   CHAQUE édition de meas pour garantir l'invariant meas ↔ rooms. */
+function syncMeasRooms(meas, prevRooms) {
+  var rooms = roomsFromMeas(meas, prevRooms);
+  return { rooms: rooms, meas: measFromRooms(rooms, meas) };
 }
 
 /* Mappe une forme de toit OSM (roof:shape) vers les types MesurePro. */
