@@ -2888,7 +2888,7 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
       <div style={{minHeight:"calc(100vh - 92px)"}}>
         {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
         {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
-        {tab === "plans"  && <TabPlans  project={project} setToast={setToast}/>}
+        {tab === "plans"  && <TabPlans  project={project} setToast={setToast} onUpdate={onUpdate}/>}
         {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
         {tab === "exterior" && <TabExteriorAuto project={project} onUpdate={onUpdate}/>}
         {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
@@ -3141,8 +3141,249 @@ var FACADES = [
   { id:"ouest", label:"FACADE OUEST" },
 ];
 
-function TabPlans({ project, setToast }) {
+/* ═══════════════════════════════════════════════════════════════════
+   Plan de masse — vue aérienne satellite + dessin + import (2026-05-22)
+   Satellite : ESRI World Imagery (FR+BE) ou IGN orthophotos (FR).
+   ═══════════════════════════════════════════════════════════════════ */
+
+function lonLatToMerc(lon, lat) {
+  var R = 6378137;
+  return [ R * lon * Math.PI / 180, R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) ];
+}
+
+/* URL d'une image satellite statique centrée sur lat/lon. spanM = hauteur réelle couverte. */
+function satelliteImageUrl(lat, lon, w, h, spanM, provider) {
+  var c = lonLatToMerc(lon, lat);
+  var halfH = spanM / 2, halfW = halfH * (w / h);
+  var bbox = [c[0] - halfW, c[1] - halfH, c[0] + halfW, c[1] + halfH].map(function(v){ return v.toFixed(2); });
+  if (provider === "ign") {
+    return "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap"
+      + "&LAYERS=ORTHOIMAGERY.ORTHOPHOTOS&STYLES=&CRS=EPSG:3857"
+      + "&BBOX=" + bbox.join(",")
+      + "&WIDTH=" + w + "&HEIGHT=" + h + "&FORMAT=image/jpeg";
+  }
+  return "https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export"
+    + "?bbox=" + bbox.join(",") + "&bboxSR=3857&imageSR=3857"
+    + "&size=" + w + "," + h + "&format=jpg&f=image";
+}
+
+/* Projette un polygone [[lat,lon],...] en coordonnées viewBox (vbW × vbH)
+   pour le centre lat/lon donné et le span vertical en mètres. */
+function polyToViewBox(polygon, cLat, cLon, vbW, vbH, spanM) {
+  var c = lonLatToMerc(cLon, cLat);
+  var halfH = spanM / 2, halfW = halfH * (vbW / vbH);
+  return polygon.map(function(pt){
+    var mp = lonLatToMerc(pt[1], pt[0]);
+    var x = ((mp[0] - (c[0] - halfW)) / (2 * halfW)) * vbW;
+    var y = (((c[1] + halfH) - mp[1]) / (2 * halfH)) * vbH;
+    return [x, y];
+  });
+}
+
+/* Aire d'un polygone (coords planes), formule du lacet. */
+function shoelaceArea(pts) {
+  if (!pts || pts.length < 3) return 0;
+  var a = 0;
+  for (var i = 0; i < pts.length; i++) {
+    var p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    a += p1[0] * p2[1] - p2[0] * p1[1];
+  }
+  return Math.abs(a) / 2;
+}
+
+function PlanMasse({ project, onUpdate }) {
+  var VB_W = 1000, VB_H = 640, SPAN_M = 140;
+  var meta = project.exterior_meta || {};
+  var hasGeo = !!(meta.lat && meta.lon);
+
+  var saved = project.plan_masse || {};
+  var [view, setView]       = useState(saved.importImg ? "import" : "satellite");
+  var [provider, setProvider] = useState(saved.provider || "esri");
+  var [drawPts, setDrawPts] = useState(saved.drawPts || []);
+  var [closed, setClosed]   = useState(!!saved.closed);
+  var [importImg, setImportImg] = useState(saved.importImg || null);
+  var [satReady, setSatReady] = useState(true);
+  var fileRef = useRef();
+
+  var satUrl = hasGeo ? satelliteImageUrl(meta.lat, meta.lon, VB_W, VB_H, SPAN_M, provider) : null;
+  var bldgPoly = (meta.polygon && meta.polygon.length >= 3 && hasGeo)
+    ? polyToViewBox(meta.polygon, meta.lat, meta.lon, VB_W, VB_H, SPAN_M)
+    : null;
+
+  /* mètres par unité viewBox (échelle verticale) */
+  var mPerUnit = SPAN_M / VB_H;
+  var drawAreaM2 = closed && drawPts.length >= 3
+    ? Math.round(shoelaceArea(drawPts) * mPerUnit * mPerUnit)
+    : 0;
+
+  function persist(patch) {
+    onUpdate({ plan_masse: Object.assign({}, saved, {
+      provider: provider, drawPts: drawPts, closed: closed, importImg: importImg
+    }, patch) });
+  }
+
+  function svgClick(e) {
+    if (view === "satellite") return;
+    if (closed) return;
+    var svg = e.currentTarget;
+    var rect = svg.getBoundingClientRect();
+    var rx = Math.round(((e.clientX - rect.left) / rect.width) * VB_W);
+    var ry = Math.round(((e.clientY - rect.top) / rect.height) * VB_H);
+    /* forme fonctionnelle : robuste aux clics rapprochés (pas de stale closure) */
+    setDrawPts(function(prev){ return prev.concat([[rx, ry]]); });
+  }
+  function closePoly() {
+    if (drawPts.length < 3) return;
+    setClosed(true);
+    persist({ closed: true, drawPts: drawPts });
+  }
+  function resetDraw() {
+    setDrawPts([]); setClosed(false);
+    persist({ drawPts: [], closed: false });
+  }
+  function undoPoint() {
+    if (closed || !drawPts.length) return;
+    setDrawPts(drawPts.slice(0, -1));
+  }
+  function onImportFile(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function(ev){
+      setImportImg(ev.target.result);
+      setView("import");
+      onUpdate({ plan_masse: Object.assign({}, saved, { importImg: ev.target.result, provider: provider, drawPts: drawPts, closed: closed }) });
+    };
+    r.readAsDataURL(f);
+  }
+  function applyAsEmprise() {
+    if (drawAreaM2 <= 0) return;
+    var prevMeas = project.meas || {};
+    onUpdate({ meas: Object.assign({}, prevMeas, { foot: String(drawAreaM2) }) });
+  }
+
+  var TOOL = function(active){ return {
+    flex:1, padding:"8px 6px", borderRadius:7, fontSize:12, fontWeight:700,
+    cursor:"pointer", outline:"none", border:"1px solid " + (active ? "#1a6fd4" : "#d6d2c7"),
+    background: active ? "#1a6fd4" : "#fff", color: active ? "#fff" : "#555"
+  };};
+
+  return (
+    <div>
+      {/* Barre d'outils */}
+      <div style={{display:"flex", gap:8, marginBottom:12}}>
+        <button type="button" style={TOOL(view === "satellite")} onClick={function(){ setView("satellite"); }}>🛰 Vue satellite</button>
+        <button type="button" style={TOOL(view === "draw")} onClick={function(){ setView("draw"); }}>✏️ Dessiner le plan</button>
+        <button type="button" style={TOOL(view === "import")} onClick={function(){ fileRef.current && fileRef.current.click(); }}>📂 Importer un plan</button>
+        <input ref={fileRef} type="file" accept="image/*" onChange={onImportFile} style={{display:"none"}}/>
+      </div>
+
+      {!hasGeo && view === "satellite" && (
+        <div style={{background:"#fff8e8", border:"1px solid #e8c97a", borderRadius:8, padding:"14px 16px", fontSize:13, color:"#7a5c1a"}}>
+          📍 Lance d'abord l'autofill cadastre dans l'onglet <strong>Extérieur</strong> (bouton « Appliquer ») pour géolocaliser le bâtiment et afficher la vue satellite.
+        </div>
+      )}
+
+      {(hasGeo || view !== "satellite") && (
+        <div style={{position:"relative", border:"1px solid #d6d2c7", borderRadius:8, overflow:"hidden", background:"#1a1a1a"}}>
+          <svg viewBox={"0 0 " + VB_W + " " + VB_H} onClick={svgClick}
+            style={{width:"100%", display:"block", cursor: view === "satellite" ? "default" : (closed ? "default" : "crosshair")}}>
+            {/* Fond : satellite ou image importée */}
+            {view === "import" && importImg && (
+              <image href={importImg} x="0" y="0" width={VB_W} height={VB_H} preserveAspectRatio="xMidYMid slice"/>
+            )}
+            {view !== "import" && satUrl && (
+              <image href={satUrl} x="0" y="0" width={VB_W} height={VB_H}
+                onError={function(){ setSatReady(false); }}
+                onLoad={function(){ setSatReady(true); }}/>
+            )}
+            {view === "import" && !importImg && (
+              <rect x="0" y="0" width={VB_W} height={VB_H} fill="#2a2a2a"/>
+            )}
+
+            {/* Polygone bâtiment (cadastre) — affiché en vue satellite */}
+            {view === "satellite" && bldgPoly && (
+              <polygon points={bldgPoly.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                fill="rgba(0,194,255,0.22)" stroke="#00C2FF" strokeWidth="2.5"/>
+            )}
+
+            {/* Polygone en cours de dessin */}
+            {view !== "satellite" && drawPts.length > 0 && (
+              <>
+                {(closed || drawPts.length >= 3) && (
+                  <polygon points={drawPts.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                    fill="rgba(0,229,160,0.25)" stroke="#00E5A0" strokeWidth="2.5"/>
+                )}
+                {!closed && drawPts.length < 3 && drawPts.length > 1 && (
+                  <polyline points={drawPts.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                    fill="none" stroke="#00E5A0" strokeWidth="2.5"/>
+                )}
+                {drawPts.map(function(p, i){
+                  return <circle key={i} cx={p[0]} cy={p[1]} r="6" fill="#00E5A0" stroke="#fff" strokeWidth="2"/>;
+                })}
+              </>
+            )}
+          </svg>
+
+          {/* Bandeau attribution + infos */}
+          <div style={{position:"absolute", bottom:0, left:0, right:0, padding:"5px 10px",
+            background:"rgba(0,0,0,0.55)", color:"#cfd8e3", fontSize:9,
+            display:"flex", justifyContent:"space-between"}}>
+            <span>
+              {view === "import" ? "Plan importé"
+                : provider === "ign" ? "© IGN / Géoplateforme"
+                : "© Esri, Maxar, Earthstar Geographics"}
+            </span>
+            <span>{view === "satellite" ? "Échelle ≈ " + Math.round(SPAN_M) + " m de haut" : ""}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Contrôles contextuels */}
+      <div style={{display:"flex", alignItems:"center", gap:10, marginTop:12, flexWrap:"wrap"}}>
+        {view === "satellite" && hasGeo && (
+          <>
+            <span style={{fontSize:11, color:"#666"}}>Source image :</span>
+            <button type="button" onClick={function(){ setProvider("esri"); persist({provider:"esri"}); }}
+              style={TOOL(provider === "esri")}>ESRI (FR+BE)</button>
+            <button type="button" onClick={function(){ setProvider("ign"); persist({provider:"ign"}); }}
+              style={TOOL(provider === "ign")}>IGN HD (France)</button>
+          </>
+        )}
+        {view !== "satellite" && (
+          <>
+            <span style={{fontSize:12, color:"#444", fontWeight:600}}>
+              {closed ? "Plan fermé · " + drawPts.length + " points"
+                : "Clique pour poser les coins · " + drawPts.length + " point(s)"}
+            </span>
+            {!closed && <Btn onClick={undoPoint} style={{padding:"6px 12px"}}>↶ Annuler point</Btn>}
+            {!closed && drawPts.length >= 3 && <Btn primary={true} onClick={closePoly} style={{padding:"6px 12px"}}>✓ Fermer le polygone</Btn>}
+            {drawPts.length > 0 && <Btn onClick={resetDraw} style={{padding:"6px 12px"}}>🗑 Recommencer</Btn>}
+            {closed && drawAreaM2 > 0 && (
+              <span style={{fontSize:13, fontWeight:800, color:"#1a6fd4"}}>
+                Surface tracée ≈ {drawAreaM2} m²
+              </span>
+            )}
+            {closed && drawAreaM2 > 0 && view !== "import" && (
+              <Btn primary={true} onClick={applyAsEmprise} style={{padding:"6px 12px", background:"#00A878"}}>
+                ✓ Définir comme emprise sol
+              </Btn>
+            )}
+          </>
+        )}
+      </div>
+      {view !== "satellite" && view !== "import" && (
+        <div style={{fontSize:10, color:"#999", marginTop:6, fontStyle:"italic"}}>
+          💡 Le dessin se fait sur le fond satellite — l'échelle réelle ({Math.round(SPAN_M)} m de haut) permet le calcul automatique de surface.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabPlans({ project, setToast, onUpdate }) {
   var [zoom, setZoom] = useState(null);
+  var [planView, setPlanView] = useState("elevations");
 
   function exportAllPlansPdf() {
     /* Render each facade SVG to a dataURL via canvas, place 2 per A4 page. */
@@ -3198,17 +3439,36 @@ function TabPlans({ project, setToast }) {
     next(0);
   }
 
+  var TAB = function(active){ return {
+    padding:"7px 16px", borderRadius:7, fontSize:13, fontWeight:700,
+    cursor:"pointer", outline:"none", border:"1px solid " + (active ? "#1a1a1a" : "#d6d2c7"),
+    background: active ? "#1a1a1a" : "#fff", color: active ? "#fff" : "#666"
+  };};
+
   return (
     <div style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box",background:"#F0EFEA"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
         <div>
-          <div style={{fontSize:18,fontWeight:900,color:"#1a1a1a"}}>Plans d'elevations</div>
+          <div style={{fontSize:18,fontWeight:900,color:"#1a1a1a"}}>
+            {planView === "elevations" ? "Plans d'elevations" : "Plan de masse"}
+          </div>
           <div style={{fontSize:11,color:"#666",marginTop:3}}>
-            {project.addr} - 4 facades cotees, niveau ±0.00 = TN, limites propriete en orange
+            {planView === "elevations"
+              ? (project.addr || "") + " - 4 facades cotees, niveau ±0.00 = TN, limites propriete en orange"
+              : (project.addr || "") + " - vue aérienne géolocalisée, dessin et import de plan"}
           </div>
         </div>
-        <Btn primary={true} onClick={exportAllPlansPdf}>Telecharger PDF</Btn>
+        {planView === "elevations" && <Btn primary={true} onClick={exportAllPlansPdf}>Telecharger PDF</Btn>}
       </div>
+
+      <div style={{display:"flex", gap:8, marginBottom:16}}>
+        <button type="button" style={TAB(planView === "elevations")} onClick={function(){ setPlanView("elevations"); }}>📐 Élévations 2D</button>
+        <button type="button" style={TAB(planView === "masse")} onClick={function(){ setPlanView("masse"); }}>🗺️ Plan de masse</button>
+      </div>
+
+      {planView === "masse" && <PlanMasse project={project} onUpdate={onUpdate}/>}
+
+      {planView === "elevations" && (
       <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
         {FACADES.map(function(f) {
           /* Find a project photo tagged for this facade. The user can
@@ -3255,6 +3515,7 @@ function TabPlans({ project, setToast }) {
           );
         })}
       </div>
+      )}
       {zoom && (
         <div onClick={function(){setZoom(null);}}
           style={{position:"fixed",inset:0,background:"rgba(20,20,20,0.92)",zIndex:300,
