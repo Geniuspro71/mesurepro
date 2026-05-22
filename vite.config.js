@@ -31,4 +31,9 @@ export default defineConfig({
     },
     chunkSizeWarningLimit: 1500,
   },
+  /* Vitest : environnement jsdom pour que window/localStorage existent
+     (tests de saveStored, signature locale, etc.). */
+  test: {
+    environment: "jsdom",
+  },
 })

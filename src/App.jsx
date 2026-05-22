@@ -19,6 +19,19 @@ function publicAsset(path) {
   return BASE_URL + String(path == null ? "" : path).replace(/^\/+/, "");
 }
 
+/* ── Laser BLE : champs autorisés ────────────────────────────────────
+   Un télémètre mesure une DISTANCE. Il ne doit écrire que dans des
+   champs de distance (longueur "l", hauteur "h") — jamais dans des
+   comptes (fenêtres/portes) ni des surfaces, sinon 3,7 m deviendrait
+   "4 fenêtres". isLaserField() accepte les clés "h", "sud:l",
+   "rooms:0:h" — le sous-champ final doit être une distance. */
+const LASER_DISTANCE_FIELDS = ["l", "h"];
+function isLaserField(fieldKey) {
+  if (!fieldKey) return false;
+  var parts = String(fieldKey).split(":");
+  return LASER_DISTANCE_FIELDS.indexOf(parts[parts.length - 1]) !== -1;
+}
+
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
 /* Demo photos: real Unsplash images, downloaded into /public/photos/
@@ -419,9 +432,21 @@ function exportCsv(rows, filename) {
   downloadBlob(new Blob([content], {type:"text/csv;charset=utf-8"}), filename);
 }
 
+/* Garde-fou export : si les surfaces sont faiblement estimées, demande
+   confirmation avant de produire un document final (PDF/Excel/DXF). */
+function confirmExportIfLowConfidence(project) {
+  if (getMeasurementConfidence(project) === "estimated_low"
+      && typeof window !== "undefined" && window.confirm) {
+    return window.confirm("Les surfaces de ce projet sont faiblement estimées (à vérifier sur site). Confirmer tout de même l'export ?");
+  }
+  return true;
+}
+
 function exportProjectPdf(project) {
+  if (!confirmExportIfLowConfidence(project)) return;
   var doc = new jsPDF();
   var m = project.meas || {};
+  var _conf = confidenceMeta(getMeasurementConfidence(project));
   /* Métadonnées PDF — rendent le document indexable par Spotlight, Windows
      Search, Google Drive, etc. + apparaissent dans Aperçu / Acrobat.
      Le contenu lui-même est du vrai texte (pas une image rasterisée), donc
@@ -437,6 +462,9 @@ function exportProjectPdf(project) {
   doc.setFontSize(10); doc.setTextColor(100);
   doc.text(project.addr || "", 14, 26);
   doc.text(project.city || "", 14, 31);
+  /* Fiabilité des mesures — ne jamais présenter une estimation comme une
+     mesure exacte (sans accent : compat encodage PDF par défaut). */
+  doc.text("Fiabilite des mesures : " + _conf.label.replace(/[éè]/g,"e").replace(/—/g,"-"), 14, 36);
   doc.setTextColor(0);
   autoTable(doc, {
     startY: 38,
@@ -514,6 +542,7 @@ function exportProjectPdf(project) {
    l'ancien alias CSV. Garde des cellules numériques (parseFloat) pour que
    les formules Excel marchent directement. */
 function exportProjectXlsx(project) {
+  if (!confirmExportIfLowConfidence(project)) return;
   var m = project.meas || {};
   var wb = XLSX.utils.book_new();
   var synthese = [
@@ -2854,6 +2883,7 @@ function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
           <span style={{fontSize:14,fontWeight:700,color:"#E8EDF5"}}>{project.addr}</span>
           <span style={{fontSize:11,color:"#607898",marginLeft:8}}>{project.city}</span>
         </div>
+        <ConfidenceBadge project={project} compact={true}/>
         <Badge s={project.status}/>
         {project.status === "draft" && (
           <Btn sm={true} primary={true}
@@ -3864,21 +3894,23 @@ function TabMeas({ project, onUpdate }) {
   function writeLaserToActive(meters) {
     var f = activeFieldRef.current;
     if (!f) {
-      setBleStatus("⚠️ Cliquez d'abord dans un champ avant de tirer le laser.");
+      setBleStatus("⚠️ Cliquez d'abord dans un champ de distance avant de tirer le laser.");
       return;
     }
+    /* Refuse les champs non métriques (fenêtres, portes, nom, surface) :
+       le laser ne doit jamais transformer 3,7 m en "4 fenêtres". */
+    if (!isLaserField(f)) {
+      setBleStatus("⚠️ Sélectionnez un champ de distance (longueur ou hauteur) avant d'utiliser le laser.");
+      return;
+    }
+    var val = meters.toFixed(2);
     if (f.indexOf("rooms:") === 0) {
       var parts = f.split(":");          /* "rooms:0:l" */
-      var idx = parseInt(parts[1], 10);
-      var fld = parts[2];
-      var val = meters.toFixed(2);
-      setRoomField(idx, fld, val);
+      setRoomField(parseInt(parts[1], 10), parts[2], val);
     } else {
-      /* champs principaux : win/doors = entier, autres = 2 décimales */
-      var v = (f === "win" || f === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
-      setMeasField(f, v);
+      setMeasField(f, val);
     }
-    setBleStatus("✓ " + meters.toFixed(2) + " m → " + f);
+    setBleStatus("✓ " + val + " m → " + f);
   }
   function connectMeasLaser() {
     if (bleConn) {
@@ -4262,15 +4294,26 @@ function TabDevis({ project, mat, setToast }) {
   var tot = sub + tva;
   var sell= Math.round(sub * (1 + margin/100) * (1 + tvaRate));
   var f   = function(n){ return n.toLocaleString("fr-FR"); };
+  var devisConf = getMeasurementConfidence(project);
   return (
     <div style={{padding:"22px 24px"}}>
+      {devisConf !== "measured" && (
+        <div style={{background:"rgba(245,196,0,0.10)",border:"1px solid " + confidenceMeta(devisConf).color,
+          borderRadius:9,padding:"9px 13px",marginBottom:14,fontSize:11,
+          color:"#E8EDF5",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>⚠️</span>
+          <span>Surfaces <strong>{confidenceMeta(devisConf).label.toLowerCase()}</strong> — ce devis est indicatif. Vérifiez les mesures sur site avant un devis ferme.</span>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20}}>
         <div>
           <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
             overflow:"hidden",marginBottom:14}}>
             <div style={{padding:"10px 16px",borderBottom:"1px solid #1C3050",
-              fontSize:12,fontWeight:700,color:"#E8EDF5"}}>
-              Detail - {M.lbl}
+              fontSize:12,fontWeight:700,color:"#E8EDF5",display:"flex",
+              justifyContent:"space-between",alignItems:"center"}}>
+              <span>Detail - {M.lbl}</span>
+              <ConfidenceBadge project={project} compact={true}/>
             </div>
             {[
               ["Revetement murs",walls+" m² × "+M.price+" "+cur+"/m²",wc2],
@@ -6572,6 +6615,47 @@ function parseSolarBuilding(solar, loc, formatted) {
   };
 }
 
+/* Niveau de confiance des mesures d'un projet, d'après le nombre de murs
+   réellement renseignés (longueur ET hauteur > 0). Empêche de présenter
+   une estimation comme une mesure certaine.
+   - "measured"         : 4 murs complets
+   - "estimated_medium" : 2-3 murs (extrapolation partielle)
+   - "estimated_low"    : 0-1 mur (grosse estimation, à vérifier sur site) */
+function getMeasurementConfidence(project) {
+  var rooms = (project && project.rooms) || [];
+  var complete = rooms.filter(function(r){
+    return r && r.t !== "r" && parseFloat(r.l) > 0 && parseFloat(r.h) > 0;
+  }).length;
+  if (complete >= 4) return "measured";
+  if (complete >= 2) return "estimated_medium";
+  return "estimated_low";
+}
+
+var CONFIDENCE_META = {
+  measured:         { label: "Mesuré",                                 color: "#00E5A0" },
+  estimated_medium: { label: "Estimation partielle",                   color: "#F5C400" },
+  estimated_low:    { label: "Estimation faible — à vérifier sur site", color: "#FF8C42" },
+};
+function confidenceMeta(level) {
+  return CONFIDENCE_META[level] || CONFIDENCE_META.estimated_low;
+}
+
+/* Petit badge réutilisable indiquant le niveau de confiance des mesures. */
+function ConfidenceBadge({ project, compact }) {
+  var meta = confidenceMeta(getMeasurementConfidence(project));
+  return (
+    <span title="Fiabilité des surfaces calculées"
+      style={{display:"inline-flex",alignItems:"center",gap:5,
+        background:"rgba(255,255,255,0.04)",border:"1px solid " + meta.color,
+        color:meta.color,borderRadius:6,padding: compact ? "2px 7px" : "3px 9px",
+        fontSize: compact ? 9 : 10,fontWeight:800,letterSpacing:0.3,
+        textTransform:"uppercase",whiteSpace:"nowrap"}}>
+      <span style={{width:6,height:6,borderRadius:"50%",background:meta.color}}/>
+      {meta.label}
+    </span>
+  );
+}
+
 /* True si AUCUNE façade n'a de saisie (longueur/hauteur/fenêtres/portes).
    Sert à décider si l'autoremplissage peut s'appliquer sans rien écraser :
    les mesures manuelles de l'utilisateur sont toujours prioritaires. */
@@ -6840,16 +6924,20 @@ function Modal({ onClose, onCreate }) {
     function onMeasurement(meters) {
       var f = activeFieldRef.current;
       if (!f) {
-        setBleStatus("⚠️ Sélectionnez un champ avant de tirer le laser.");
+        setBleStatus("⚠️ Sélectionnez un champ de distance avant de tirer le laser.");
+        return;
+      }
+      /* Le laser ne remplit que les champs de distance (longueur/hauteur) :
+         jamais fenêtres/portes — sinon une distance deviendrait un compte. */
+      if (!isLaserField(f)) {
+        setBleStatus("⚠️ Sélectionnez un champ de distance (longueur ou hauteur) avant d'utiliser le laser.");
         return;
       }
       var parts = f.split(":");
       var side = parts[0], field = parts[1];
-      /* Pour fenêtres/portes le laser n'a pas de sens : on écrit quand même
-         la valeur entière comme indicateur, le user corrigera. */
-      var val = (field === "win" || field === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
+      var val = meters.toFixed(2);
       setFacadeField(side, field, val);
-      setBleStatus("✓ " + meters.toFixed(2) + " m → " + side + " / " + field);
+      setBleStatus("✓ " + val + " m → " + side + " / " + field);
     }
     function onStatus(s) { setBleStatus((s.ok ? "" : "⚠️ ") + s.msg); }
     connectBleLaser(onMeasurement, onStatus).then(function(conn){
@@ -8263,31 +8351,45 @@ function loadStored(key, fallback) {
   }
 }
 
+/* Sauvegarde robuste : ne JAMAIS avaler une erreur en silence — si le
+   quota localStorage est dépassé, l'utilisateur risque de perdre des
+   données. Retourne true/false ; signale l'échec via un event global
+   que l'App racine convertit en bannière visible. */
 function saveStored(key, value) {
-  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    console.error("[MesurePro] Sauvegarde locale échouée pour « " + key + " »", e);
+    try {
+      window.dispatchEvent(new CustomEvent("mesurepro:storage-error", { detail: { key: key } }));
+    } catch (e2) { /* CustomEvent indisponible — au moins la console a l'erreur */ }
+    return false;
+  }
 }
 
-/* Merge stored items with hardcoded defaults: keeps user-created or
-   user-edited entries from localStorage, but adds any default item
-   whose id is not present yet. Lets new demo projects/reports show
-   up automatically on next reload without wiping user data. */
+/* Fusionne les éléments stockés (localStorage) avec les valeurs par
+   défaut codées en dur. Règle : migration NON DESTRUCTIVE.
+   - Tout projet stocké est conservé tel quel.
+   - Pour un projet démo connu, on ajoute UNIQUEMENT les champs absents
+     (migration de schéma) — jamais d'écrasement de photos, mesures,
+     client, adresse, devis, rapports, notes ou statut.
+   - Les projets démo encore absents du stockage sont ajoutés.
+   Avant, le champ `photos` était force-réécrit depuis les défauts à
+   chaque reload : les photos modifiées par l'utilisateur revenaient. */
 function mergeWithDefaults(stored, defaults) {
   if (!stored || !Array.isArray(stored)) return defaults;
   var defMap = {};
   defaults.forEach(function(d){ if (d && d.id != null) defMap[String(d.id)] = d; });
-  /* For known demo entries, force-refresh the `photos` field from defaults
-     so iterations to the bundled demo content (e.g. swapping inline-SVG
-     placeholders for real Unsplash URLs) reach the user without wiping
-     their other edits to the same project. User-created entries
-     (id not in defMap) are left untouched. */
   var merged = stored.map(function(s){
     var d = defMap[String(s.id)];
-    if (!d) return s;
-    var refreshed = Object.assign({}, s);
-    if (Array.isArray(d.photos)) refreshed.photos = d.photos;
-    return refreshed;
+    if (!d) return s;                       /* projet créé par l'utilisateur */
+    var out = Object.assign({}, s);
+    Object.keys(d).forEach(function(k){
+      if (out[k] === undefined) out[k] = d[k];   /* ajoute SEULEMENT le manquant */
+    });
+    return out;
   });
-  /* Add any default that is not yet present */
   var ids = {};
   merged.forEach(function(x){ if (x && x.id != null) ids[String(x.id)] = true; });
   var missing = defaults.filter(function(d){ return d && d.id != null && !ids[String(d.id)]; });
@@ -8408,9 +8510,18 @@ export default function App() {
      global de l'arbre pour propager les changements de langue/thème vers
      tous les consommateurs de t() et applyTheme() sans context API lourd. */
   var [, setPrefsTick] = useState(0);
+  /* Bannière d'erreur de stockage (quota localStorage dépassé). */
+  var [storageError, setStorageError] = useState(false);
 
   useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
   useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
+
+  /* Écoute les échecs de sauvegarde localStorage → bannière visible. */
+  useEffect(function(){
+    function onErr(){ setStorageError(true); }
+    window.addEventListener("mesurepro:storage-error", onErr);
+    return function(){ window.removeEventListener("mesurepro:storage-error", onErr); };
+  }, []);
 
   /* Boot: applique thème + langue dès le premier render + écoute les
      changements de prefs pour ré-rendre l'app entière. */
@@ -8514,7 +8625,12 @@ export default function App() {
 
   function updateProject(id, patch) {
     setProjects(function(ps) {
-      return ps.map(function(p){ return p.id === id ? Object.assign({},p,patch) : p; });
+      /* userModified : marque toute modification utilisateur — signal
+         d'intention explicite que ce projet ne doit plus jamais recevoir
+         de contenu démo par-dessus (cf. mergeWithDefaults). */
+      return ps.map(function(p){
+        return p.id === id ? Object.assign({}, p, patch, { userModified: true }) : p;
+      });
     });
   }
 
@@ -8580,6 +8696,19 @@ export default function App() {
   return (
     <div style={{fontFamily:"system-ui,-apple-system,sans-serif",
       background:"#08111E",color:"#E8EDF5",minHeight:"100vh"}}>
+      {storageError && (
+        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:99999,
+          background:"#A82318",color:"#fff",padding:"10px 16px",
+          fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:12,
+          boxShadow:"0 2px 12px rgba(0,0,0,0.4)"}}>
+          <span style={{flex:1}}>⚠️ Sauvegarde impossible : stockage local plein. Supprimez des photos ou exportez vos projets (JSON) pour libérer de l'espace — sinon vos dernières modifications ne seront pas conservées.</span>
+          <button type="button" onClick={function(){ setStorageError(false); }}
+            style={{background:"rgba(255,255,255,0.2)",border:"none",color:"#fff",
+              borderRadius:5,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+            Fermer
+          </button>
+        </div>
+      )}
       <Sidebar view={view} setView={nav}/>
       <div style={{marginLeft:W,minHeight:"100vh"}}>
         {view === "dash" && (
@@ -9864,6 +9993,10 @@ export {
   csvEscape,
   publicAsset,
   facadesAreEmpty,
+  isLaserField,
+  mergeWithDefaults,
+  saveStored,
+  getMeasurementConfidence,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,

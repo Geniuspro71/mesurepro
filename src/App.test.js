@@ -1,12 +1,16 @@
 /* Smoke tests Vitest — helpers purs exportés depuis App.jsx.
    Lance : npm test (ou npx vitest run pour CI).
    Pas de DOM ici, donc inutile de monter les composants React. */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   slug,
   csvEscape,
   publicAsset,
   facadesAreEmpty,
+  isLaserField,
+  mergeWithDefaults,
+  saveStored,
+  getMeasurementConfidence,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,
@@ -773,5 +777,130 @@ describe("facadesAreEmpty() — protection des mesures manuelles", () => {
     const f = JSON.parse(JSON.stringify(empty));
     f.sud.l = "0"; f.sud.h = "abc";
     expect(facadesAreEmpty(f)).toBe(true);
+  });
+});
+
+describe("isLaserField() — le laser ne remplit que les distances", () => {
+  it("accepte longueur et hauteur (tous formats de clé)", () => {
+    expect(isLaserField("l")).toBe(true);
+    expect(isLaserField("h")).toBe(true);
+    expect(isLaserField("sud:l")).toBe(true);
+    expect(isLaserField("est:h")).toBe(true);
+    expect(isLaserField("rooms:0:l")).toBe(true);
+    expect(isLaserField("rooms:3:h")).toBe(true);
+  });
+
+  it("refuse fenêtres et portes (comptes, pas des distances)", () => {
+    expect(isLaserField("win")).toBe(false);
+    expect(isLaserField("doors")).toBe(false);
+    expect(isLaserField("sud:win")).toBe(false);
+    expect(isLaserField("ouest:doors")).toBe(false);
+  });
+
+  it("refuse les surfaces et champs non métriques", () => {
+    expect(isLaserField("walls")).toBe(false);
+    expect(isLaserField("roof")).toBe(false);
+    expect(isLaserField("foot")).toBe(false);
+    expect(isLaserField("perim")).toBe(false);
+    expect(isLaserField("rooms:0:n")).toBe(false);
+    expect(isLaserField("rooms:0:a")).toBe(false);
+  });
+
+  it("refuse les entrées vides ou nulles", () => {
+    expect(isLaserField("")).toBe(false);
+    expect(isLaserField(null)).toBe(false);
+    expect(isLaserField(undefined)).toBe(false);
+  });
+});
+
+describe("mergeWithDefaults() — migration non destructive des projets", () => {
+  const defaults = [
+    { id: 1, addr: "Démo 1", photos: ["demo-a.jpg"], roof: "Pignon" },
+    { id: 2, addr: "Démo 2", photos: ["demo-b.jpg"] },
+  ];
+
+  it("ne réécrit JAMAIS les photos d'un projet démo modifié", () => {
+    const stored = [{ id: 1, addr: "Démo 1", photos: ["user-photo.jpg"], roof: "Pignon" }];
+    const merged = mergeWithDefaults(stored, defaults);
+    const p1 = merged.find(p => p.id === 1);
+    expect(p1.photos).toEqual(["user-photo.jpg"]);   /* photo utilisateur conservée */
+  });
+
+  it("ne réécrit pas les mesures/client modifiés", () => {
+    const stored = [{ id: 1, addr: "Adresse changée", meas: { foot: "200" }, photos: [], roof: "Pignon" }];
+    const merged = mergeWithDefaults(stored, defaults);
+    const p1 = merged.find(p => p.id === 1);
+    expect(p1.addr).toBe("Adresse changée");
+    expect(p1.meas).toEqual({ foot: "200" });
+  });
+
+  it("ajoute uniquement les champs manquants (migration de schéma)", () => {
+    const stored = [{ id: 1, addr: "Démo 1", photos: ["user.jpg"] }];   /* pas de roof */
+    const merged = mergeWithDefaults(stored, defaults);
+    const p1 = merged.find(p => p.id === 1);
+    expect(p1.roof).toBe("Pignon");          /* champ manquant ajouté */
+    expect(p1.photos).toEqual(["user.jpg"]); /* champ existant intact */
+  });
+
+  it("ajoute les projets démo absents du stockage", () => {
+    const stored = [{ id: 1, addr: "Démo 1", photos: [] }];
+    const merged = mergeWithDefaults(stored, defaults);
+    expect(merged.find(p => p.id === 2)).toBeTruthy();
+  });
+
+  it("conserve les projets créés par l'utilisateur (id hors défauts)", () => {
+    const stored = [{ id: 999, addr: "Mon projet", photos: ["x.jpg"] }];
+    const merged = mergeWithDefaults(stored, defaults);
+    expect(merged.find(p => p.id === 999).addr).toBe("Mon projet");
+  });
+
+  it("retourne les défauts si rien n'est stocké", () => {
+    expect(mergeWithDefaults(null, defaults)).toBe(defaults);
+  });
+});
+
+describe("saveStored() — sauvegarde robuste localStorage", () => {
+  it("retourne true quand la sauvegarde réussit", () => {
+    expect(saveStored("mesurepro.test.key", { ok: 1 })).toBe(true);
+    window.localStorage.removeItem("mesurepro.test.key");
+  });
+
+  it("retourne false sans planter si setItem échoue (quota)", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("QuotaExceededError");
+    });
+    let result;
+    expect(() => { result = saveStored("k", { big: "x" }); }).not.toThrow();
+    expect(result).toBe(false);
+    spy.mockRestore();
+  });
+});
+
+describe("getMeasurementConfidence() — fiabilité des surfaces", () => {
+  const wall = (l, h) => ({ n: "Mur", l: String(l), h: String(h), t: "w" });
+
+  it("'measured' quand les 4 murs sont complets", () => {
+    const p = { rooms: [wall(10,6), wall(10,6), wall(8,6), wall(8,6)] };
+    expect(getMeasurementConfidence(p)).toBe("measured");
+  });
+
+  it("'estimated_medium' avec 2 ou 3 murs complets", () => {
+    expect(getMeasurementConfidence({ rooms: [wall(10,6), wall(8,6)] })).toBe("estimated_medium");
+    expect(getMeasurementConfidence({ rooms: [wall(10,6), wall(8,6), wall(8,6)] })).toBe("estimated_medium");
+  });
+
+  it("'estimated_low' avec 0 ou 1 mur complet", () => {
+    expect(getMeasurementConfidence({ rooms: [] })).toBe("estimated_low");
+    expect(getMeasurementConfidence({ rooms: [wall(10,6)] })).toBe("estimated_low");
+    expect(getMeasurementConfidence({})).toBe("estimated_low");
+  });
+
+  it("ne compte pas la toiture ni les murs incomplets", () => {
+    const p = { rooms: [
+      wall(10,6), wall(10,6), wall(8,6), wall(8,6),
+      { n: "Toiture", l: "---", h: "---", t: "r" },   /* exclu */
+      { n: "Mur incomplet", l: "5", h: "", t: "w" },  /* hauteur manquante */
+    ]};
+    expect(getMeasurementConfidence(p)).toBe("measured");
   });
 });
