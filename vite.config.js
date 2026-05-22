@@ -32,8 +32,10 @@ export default defineConfig({
     chunkSizeWarningLimit: 1500,
   },
   /* Vitest : environnement jsdom pour que window/localStorage existent
-     (tests de saveStored, signature locale, etc.). */
+     (tests de saveStored, signature locale, etc.). `include` restreint
+     à src/ pour ne pas ramasser les specs Playwright du dossier e2e/. */
   test: {
     environment: "jsdom",
+    include: ["src/**/*.test.{js,jsx}"],
   },
 })

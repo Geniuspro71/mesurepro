@@ -10,7 +10,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "test:e2e": "VITE_BASE=/mesurepro/ vite build && playwright test"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",
@@ -23,6 +24,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
