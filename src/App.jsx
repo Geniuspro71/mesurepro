@@ -9418,7 +9418,7 @@ function polygonBBoxM_v2(ring) {
 }
 
 function nearestPolygonRing(features, lat, lon, extractRing) {
-  var best = null, bestD = Infinity;
+  var best = null, bestFeat = null, bestD = Infinity;
   for (var i = 0; i < features.length; i++) {
     var ring = extractRing(features[i]);
     if (!ring || ring.length < 3) continue;
@@ -9426,14 +9426,43 @@ function nearestPolygonRing(features, lat, lon, extractRing) {
     for (var j = 0; j < ring.length; j++) { cLat += ring[j][0]; cLon += ring[j][1]; }
     cLat /= ring.length; cLon /= ring.length;
     var d = (cLat - lat) * (cLat - lat) + (cLon - lon) * (cLon - lon);
-    if (d < bestD) { bestD = d; best = ring; }
+    if (d < bestD) { bestD = d; best = ring; bestFeat = features[i]; }
   }
-  return best;
+  return best ? { ring: best, feature: bestFeat } : null;
 }
 
 function geojsonRingToLatLng(coords) {
   if (!coords || !coords.length) return null;
   return coords.map(function(p){ return [p[1], p[0]]; });
+}
+
+/* Extrait les données bâtiment disponibles selon la source.
+   Retourne { hauteur, etages, usage, matToit, nature } — clés absentes si non fournies. */
+function extractBuildingProps(feature, source) {
+  if (!feature) return {};
+  var p = feature.properties || feature.tags || {};
+  var out = {};
+  if (source === "fr-ign") {
+    if (p.hauteur != null && p.hauteur > 0) out.hauteur = parseFloat(p.hauteur);
+    if (p.nombre_d_etages != null && p.nombre_d_etages > 0) out.etages = parseInt(p.nombre_d_etages);
+    if (p.usage_1) out.usage = p.usage_1;
+    if (p.materiaux_de_la_toiture) out.matToit = p.materiaux_de_la_toiture;
+    if (p.nature) out.nature = p.nature;
+  } else if (source === "osm") {
+    if (p.height) out.hauteur = parseFloat(p.height);
+    if (p["building:levels"]) out.etages = parseInt(p["building:levels"]);
+    if (p.building && p.building !== "yes") out.usage = p.building;
+    if (p["roof:material"]) out.matToit = p["roof:material"];
+    if (p["roof:shape"]) out.formeToit = p["roof:shape"];
+    if (p["roof:angle"]) out.penteToit = parseFloat(p["roof:angle"]);
+    if (p["roof:levels"]) out.etagesToit = parseInt(p["roof:levels"]);
+  } else if (source === "be-picc") {
+    if (p.NATUR_DESC) out.usage = p.NATUR_DESC;
+    if (p.HAUTEUR != null && p.HAUTEUR > 0) out.hauteur = parseFloat(p.HAUTEUR);
+  } else if (source === "be-urbis") {
+    if (p.NB_FLOORS != null && p.NB_FLOORS > 0) out.etages = parseInt(p.NB_FLOORS);
+  }
+  return out;
 }
 
 function fetchFootprintIGN(lat, lon) {
@@ -9444,14 +9473,14 @@ function fetchFootprintIGN(lat, lon) {
     + "&outputFormat=application/json&count=20";
   return fetch(url).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
-    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
       var c = f.geometry.coordinates;
       if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
       if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
       return null;
     });
-    return ring ? { ring: ring, source: "fr-ign" } : null;
+    return hit ? { ring: hit.ring, source: "fr-ign", props: extractBuildingProps(hit.feature, "fr-ign") } : null;
   });
 }
 
@@ -9464,14 +9493,14 @@ function fetchFootprintUrbIS(lat, lon) {
     + "&outputFormat=application/json&count=20";
   return fetch(url).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
-    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
       var c = f.geometry.coordinates;
       if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
       if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
       return null;
     });
-    return ring ? { ring: ring, source: "be-urbis" } : null;
+    return hit ? { ring: hit.ring, source: "be-urbis", props: extractBuildingProps(hit.feature, "be-urbis") } : null;
   });
 }
 
@@ -9483,11 +9512,11 @@ function fetchFootprintPICC(lat, lon) {
     + "&outFields=*&returnGeometry=true&resultRecordCount=10";
   return fetch(url).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
-    var ring = nearestPolygonRing(j.features, lat, lon, function(f){
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
       return geojsonRingToLatLng(f.geometry.coordinates[0]);
     });
-    return ring ? { ring: ring, source: "be-picc" } : null;
+    return hit ? { ring: hit.ring, source: "be-picc", props: extractBuildingProps(hit.feature, "be-picc") } : null;
   });
 }
 
@@ -9499,11 +9528,11 @@ function fetchFootprintOSM(lat, lon) {
     body: "data=" + encodeURIComponent(query)
   }).then(function(r){ return r.json(); }).then(function(j){
     if (!j.elements || !j.elements.length) return null;
-    var ring = nearestPolygonRing(j.elements, lat, lon, function(e){
+    var hit = nearestPolygonRing(j.elements, lat, lon, function(e){
       if (!e.geometry) return null;
       return e.geometry.map(function(p){ return [p.lat, p.lon]; });
     });
-    return ring ? { ring: ring, source: "osm" } : null;
+    return hit ? { ring: hit.ring, source: "osm", props: extractBuildingProps(hit.feature, "osm") } : null;
   });
 }
 
@@ -9545,6 +9574,36 @@ function sourceLabel(src) {
   return m[src] || src;
 }
 
+/* Génère project.rooms[] (4 murs + toit) au format lu par Elevation + buildBuildingScene.
+   C'est CE tableau que les plans 2D et la 3D consultent — sans lui ils ne réagissent pas. */
+function roomsFromWDH(W, D, H, roofArea) {
+  var wH = (W * H).toFixed(1), dH = (D * H).toFixed(1);
+  return [
+    { n:"Mur Sud",   a:wH, l:W.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Nord",  a:wH, l:W.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Est",   a:dH, l:D.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Ouest", a:dH, l:D.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Toiture",   a:String(Math.round(roofArea)), l:"---", h:"---", t:"r" }
+  ];
+}
+
+/* Mappe une forme de toit OSM (roof:shape) vers les types MesurePro. */
+function roofShapeToType(shape) {
+  if (!shape) return null;
+  var s = String(shape).toLowerCase();
+  if (s.indexOf("flat") !== -1) return "Terrasse";
+  if (s.indexOf("hip") !== -1) return "4 pans";
+  if (s.indexOf("mansard") !== -1) return "Mansart";
+  if (s.indexOf("gabl") !== -1 || s.indexOf("pitch") !== -1) return "Pignon";
+  return null;
+}
+
+/* Mappe le code matériau toiture IGN BDTOPO vers un libellé lisible. */
+function ignRoofMaterialLabel(code) {
+  var m = { "10":"Béton", "20":"Ardoise", "30":"Tuile", "40":"Métal", "50":"Verre/translucide", "60":"Végétalisé" };
+  return m[String(code)] || String(code);
+}
+
 function TabExteriorAuto({ project, onUpdate }) {
   var [busy, setBusy] = useState(false);
   var [error, setError] = useState("");
@@ -9563,7 +9622,10 @@ function TabExteriorAuto({ project, onUpdate }) {
       var area = polygonAreaM2_v2(r.ring);
       var perim = polygonPerimM_v2(r.ring);
       var bbox = polygonBBoxM_v2(r.ring);
-      setResult({ ring: r.ring, source: r.source, areaM2: area, perimM: perim, W: bbox.W, D: bbox.D, lat: r.lat, lon: r.lon });
+      var props = r.props || {};
+      setResult({ ring: r.ring, source: r.source, areaM2: area, perimM: perim, W: bbox.W, D: bbox.D, lat: r.lat, lon: r.lon, props: props });
+      /* Si le cadastre fournit le nombre d'étages réel, on cale le slider dessus. */
+      if (props.etages && props.etages >= 1 && props.etages <= 6) setFloors(props.etages);
       setBusy(false);
     }).catch(function(err){
       setError(err.message || "Aucun bâtiment trouvé");
@@ -9578,11 +9640,15 @@ function TabExteriorAuto({ project, onUpdate }) {
 
   function computeMetrics() {
     if (!result) return null;
-    var H = floors * 2.7 + 0.5;
+    var props = result.props || {};
+    /* Hauteur RÉELLE du cadastre prioritaire ; sinon estimée depuis nb étages. */
+    var realH = (props.hauteur && props.hauteur > 2) ? props.hauteur : null;
+    var H = realH || (floors * 2.7 + 0.5);
     var emp = result.areaM2;
     var perim = result.perimM;
     return {
       H: Math.round(H * 10) / 10,
+      hSource: realH ? "cadastre" : "estimée",
       perim: Math.round(perim * 10) / 10,
       W: Math.round(result.W * 10) / 10,
       D: Math.round(result.D * 10) / 10,
@@ -9596,7 +9662,11 @@ function TabExteriorAuto({ project, onUpdate }) {
     var m = computeMetrics();
     if (!m) return;
     var prevMeas = project.meas || {};
-    onUpdate({
+    var props = result.props || {};
+    /* FIX réactivité plans 2D/3D : Elevation + buildBuildingScene lisent project.rooms[].
+       Sans réécrire rooms[], les plans restent figés sur les anciennes dimensions. */
+    var rooms = roomsFromWDH(m.W, m.D, m.H, m.toit);
+    var patch = {
       meas: Object.assign({}, prevMeas, {
         foot: String(m.empriseM2),
         walls: String(m.murs),
@@ -9604,9 +9674,34 @@ function TabExteriorAuto({ project, onUpdate }) {
         perim: String(m.perim),
         h: String(m.H)
       }),
+      rooms: rooms,
       floors: floors,
-      exterior_meta: { source: result.source, lat: result.lat, lon: result.lon, polygon: result.ring, fetched_at: new Date().toISOString() }
-    });
+      exterior_meta: {
+        source: result.source,
+        lat: result.lat, lon: result.lon,
+        polygon: result.ring,
+        building: props,
+        fetched_at: new Date().toISOString()
+      }
+    };
+    /* Type de toit déduit si la source le fournit (OSM roof:shape). */
+    var roofType = roofShapeToType(props.formeToit);
+    if (roofType) patch.roof = roofType;
+    onUpdate(patch);
+  }
+
+  /* Lignes de données bâtiment disponibles selon la source (pour affichage). */
+  function buildingDataRows() {
+    if (!result || !result.props) return [];
+    var p = result.props, rows = [];
+    if (p.hauteur)  rows.push(["Hauteur réelle", p.hauteur.toFixed(1) + " m"]);
+    if (p.etages)   rows.push(["Étages", String(p.etages)]);
+    if (p.usage)    rows.push(["Usage", String(p.usage)]);
+    if (p.nature)   rows.push(["Nature", String(p.nature)]);
+    if (p.matToit)  rows.push(["Matériau toit", result.source === "fr-ign" ? ignRoofMaterialLabel(p.matToit) : String(p.matToit)]);
+    if (p.formeToit) rows.push(["Forme toit", String(p.formeToit)]);
+    if (p.penteToit) rows.push(["Pente toit", p.penteToit + "°"]);
+    return rows;
   }
 
   function ringToSvgPath(ring) {
@@ -9702,7 +9797,12 @@ function TabExteriorAuto({ project, onUpdate }) {
             <div style={{background:"#0A1828", border:"1px solid #1C3050", borderRadius:9, padding:"12px 14px", flexShrink:0}}>
               <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6}}>
                 <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>Nombre d'étages</span>
-                <span style={{fontFamily:"monospace", fontSize:18, fontWeight:800, color:"#00C2FF"}}>{floors} · h ≈ {m.H} m</span>
+                <span style={{fontFamily:"monospace", fontSize:18, fontWeight:800, color:"#00C2FF"}}>
+                  {floors} · h {m.hSource === "cadastre" ? "=" : "≈"} {m.H} m
+                  <span style={{fontSize:9, fontWeight:600, color: m.hSource === "cadastre" ? "#00E5A0" : "#607898", marginLeft:6}}>
+                    {m.hSource === "cadastre" ? "réelle" : "estimée"}
+                  </span>
+                </span>
               </div>
               <input type="range" min="1" max="6" value={floors} onChange={function(e){ setFloors(parseInt(e.target.value)); }} style={{width:"100%", accentColor:"#00C2FF"}}/>
             </div>
@@ -9718,8 +9818,26 @@ function TabExteriorAuto({ project, onUpdate }) {
               </div>
             </div>
 
+            {buildingDataRows().length > 0 && (
+              <div style={{background:"#0A1828", border:"1px solid #1C3050", borderRadius:9, padding:"9px 12px", flexShrink:0}}>
+                <div style={{fontSize:9, fontWeight:700, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginBottom:6}}>
+                  🏢 Données bâtiment — {sourceLabel(result.source)}
+                </div>
+                <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
+                  {buildingDataRows().map(function(row, i){
+                    return (
+                      <span key={i} style={{display:"inline-flex", alignItems:"baseline", gap:5, background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:6, padding:"4px 9px"}}>
+                        <span style={{fontSize:9, color:"#607898", textTransform:"uppercase", letterSpacing:0.5}}>{row[0]}</span>
+                        <span style={{fontSize:12, fontWeight:700, color:"#E8EDF5"}}>{row[1]}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div style={{background:"rgba(0,194,255,0.04)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:7, padding:"8px 12px", fontSize:11, color:"#8DAFC8", flexShrink:0}}>
-              💡 Polygone réel récupéré depuis {sourceLabel(result.source)}. Mesures calculées géométriquement. Précision pro = retouche par façade dans onglet Mesures.
+              💡 « Appliquer » met à jour mesures, plans 2D, modèle 3D et façades du projet. Retouche fine par façade dans l'onglet Mesures.
             </div>
           </>
         )}
