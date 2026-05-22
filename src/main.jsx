@@ -10,15 +10,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 )
 
-/* Service worker — uniquement en production (Vite gère son propre
-   HMR/cache en dev, le SW interférerait). */
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', function(){
-    var swUrl = (import.meta.env.BASE_URL || '/') + 'sw.js';
-    navigator.serviceWorker.register(swUrl, { scope: import.meta.env.BASE_URL || '/' })
-      .catch(function(err){
-        // eslint-disable-next-line no-console
-        console.warn('SW registration échouée :', err);
-      });
-  });
+/* Service Worker DÉSACTIVÉ — en phase de développement actif, le cache SW
+   masquait les déploiements (l'utilisateur voyait l'ancienne version).
+   On désinstalle tout SW résiduel + on purge les caches à chaque chargement
+   pour garantir que la dernière version est toujours servie. */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(function(regs){ regs.forEach(function(r){ r.unregister(); }); })
+    .catch(function(){});
+}
+if (window.caches && caches.keys) {
+  caches.keys()
+    .then(function(keys){ keys.forEach(function(k){ caches.delete(k); }); })
+    .catch(function(){});
 }
