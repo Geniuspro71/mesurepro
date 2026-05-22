@@ -1,32 +1,43 @@
-# MesurePro — Clone Hover
+# MesurePro
 
-Application de mesure immobilière professionnelle avec modèle 3D isométrique.
+Application web de mesure immobilière professionnelle : modèle 3D, plans
+d'élévation, devis, rapports et exports — pour couvreurs et métreurs (BE/Europe).
+
+**Prod :** https://geniuspro71.github.io/mesurepro/
 
 ## Démarrage rapide
 
 ```bash
 npm install
-npm run dev
+npm run dev          # http://localhost:3000
 ```
 
-Ouvre automatiquement http://localhost:3000
+## Scripts
 
-## Fonctionnalités
+| Commande | Rôle |
+|---|---|
+| `npm run dev` | Serveur de développement |
+| `npm test` | Tests unitaires Vitest (107) |
+| `npm run test:e2e` | Tests E2E Playwright |
+| `npm run build` | Build de production |
+| `npm run lint` | ESLint |
 
-- **Tableau de bord** : 4 projets exemples avec statuts
-- **Modèle 3D** : Vue isométrique SVG pivotable (slider + boutons)
-- **Mesures** : 7 champs de saisie + tableau des façades CRUD
-- **Design** : Prévisualisation de 6 matériaux sur la maison
-- **Devis** : Calcul automatique HT/TVA/TTC + marge commerciale
-- **Rapports** : 4 rapports complets et éditables in-place
+## Déploiement (GitHub Pages, sous-chemin `/mesurepro/`)
 
-## Contexte Claude Code
-
-Voir **CLAUDE_CODE_CONTEXT.md** pour la documentation complète,
-l'architecture, les bugs résolus, la roadmap et les conventions de code.
+```bash
+VITE_BASE=/mesurepro/ npm run build
+npx gh-pages -d dist
+```
 
 ## Stack
 
 - React 18 + Vite 5
-- Zéro dépendance UI (CSS-in-JS pur)
-- Zéro canvas (SVG isométrique)
+- React-Three-Fiber + Three.js (modèle 3D)
+- jsPDF / SheetJS (exports PDF / Excel)
+- Vitest + Playwright (tests)
+- Pas de backend — persistance localStorage
+
+## Documentation
+
+- **`CLAUDE.md`** — contexte projet, architecture, pièges connus (à lire en premier).
+- **`HANDOFF.md`** — état de la dernière session et reste à faire.
