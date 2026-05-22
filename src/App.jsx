@@ -1808,9 +1808,11 @@ function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
      ou projets sans rooms détaillés). Sans ça, IsoModel afficherait toujours
      la même boîte ~12.9×8.1 m pour toute emprise de 104 m². */
   function _getRoomLen(needle) {
+    /* \b évite que "ouest" matche "est" (o-u-est) */
+    var re = new RegExp("\\b" + needle + "\\b", "i");
     var r = (rooms || []).find(function(x){
       if (!x || x.t === "r") return false;
-      return (x.n || "").toLowerCase().indexOf(needle) !== -1;
+      return re.test(x.n || "");
     });
     if (!r) return null;
     var v = parseFloat(String(r.l || "").replace(/[^\d.,-]/g,"").replace(",","."));
@@ -1964,9 +1966,11 @@ function Elevation({ project, facadeId, label, downloadFileName }) {
     return isFinite(v) && v > 0 ? v : null;
   }
   function findFacadeRoom(needle) {
+    /* \b évite que "ouest" matche "est" (o-u-est) */
+    var re = new RegExp("\\b" + needle + "\\b", "i");
     return (project.rooms||[]).find(function(x){
       if (!x || x.t === "r") return false;
-      return (x.n||"").toLowerCase().indexOf(needle) !== -1;
+      return re.test(x.n || "");
     }) || null;
   }
   function findFacadeLen(needle) {
@@ -9726,13 +9730,24 @@ function extractBuildingProps(feature, source) {
   return out;
 }
 
+/* fetch avec timeout dur — sans ça un endpoint lent/down bloque l'UI à l'infini. */
+function fetchWithTimeout(url, opts, ms) {
+  var ctrl = new AbortController();
+  var to = setTimeout(function(){ ctrl.abort(); }, ms || 10000);
+  var merged = Object.assign({}, opts || {}, { signal: ctrl.signal });
+  return fetch(url, merged).then(
+    function(r){ clearTimeout(to); return r; },
+    function(e){ clearTimeout(to); throw e; }
+  );
+}
+
 function fetchFootprintIGN(lat, lon) {
   var d = 0.0004;
   var url = "https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetFeature"
     + "&typeName=BDTOPO_V3:batiment&srsName=EPSG:4326"
     + "&bbox=" + (lat - d) + "," + (lon - d) + "," + (lat + d) + "," + (lon + d)
     + "&outputFormat=application/json&count=20";
-  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
     var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
@@ -9752,7 +9767,7 @@ function fetchFootprintUrbIS(lat, lon) {
     + "&typeName=URBAN_DCC_ER:VM_URBIS_M8_BUILDINGS&srsName=EPSG:4326"
     + "&CQL_FILTER=" + encodeURIComponent(cql)
     + "&outputFormat=application/json&count=20";
-  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
     var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
@@ -9771,7 +9786,7 @@ function fetchFootprintPICC(lat, lon) {
     + "&geometryType=esriGeometryPoint&inSR=4326&outSR=4326"
     + "&distance=30&units=esriSRUnit_Meter&spatialRel=esriSpatialRelIntersects"
     + "&outFields=*&returnGeometry=true&resultRecordCount=10";
-  return fetch(url).then(function(r){ return r.json(); }).then(function(j){
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
     if (!j.features || !j.features.length) return null;
     var hit = nearestPolygonRing(j.features, lat, lon, function(f){
       if (!f.geometry || !f.geometry.coordinates) return null;
@@ -9782,12 +9797,12 @@ function fetchFootprintPICC(lat, lon) {
 }
 
 function fetchFootprintOSM(lat, lon) {
-  var query = "[out:json][timeout:25];way(around:40," + lat + "," + lon + ")[\"building\"];out geom;";
-  return fetch("https://overpass-api.de/api/interpreter", {
+  var query = "[out:json][timeout:20];way(around:40," + lat + "," + lon + ")[\"building\"];out geom;";
+  return fetchWithTimeout("https://overpass-api.de/api/interpreter", {
     method: "POST",
     headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded" },
     body: "data=" + encodeURIComponent(query)
-  }).then(function(r){ return r.json(); }).then(function(j){
+  }, 14000).then(function(r){ return r.json(); }).then(function(j){
     if (!j.elements || !j.elements.length) return null;
     var hit = nearestPolygonRing(j.elements, lat, lon, function(e){
       if (!e.geometry) return null;
@@ -9797,22 +9812,41 @@ function fetchFootprintOSM(lat, lon) {
   });
 }
 
-function geocodeNominatim(query) {
-  var url = "https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(query)
-    + "&format=json&limit=1&countrycodes=be,fr";
-  return fetch(url).then(function(r){ return r.json(); }).then(function(arr){
-    if (!arr || !arr.length) throw new Error("Adresse introuvable via Nominatim");
-    return { lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon), displayName: arr[0].display_name };
+/* Géocodage adresse → lat/lon. Photon (komoot) en premier — toléré pour
+   les apps browser, contrairement à Nominatim qui throttle/bloque sans
+   User-Agent applicatif. Nominatim en secours. Timeout dur des deux côtés. */
+function geocodeAddress(query) {
+  var pUrl = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query) + "&limit=1&lang=fr";
+  return fetchWithTimeout(pUrl, {}, 9000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.features || !j.features.length) throw new Error("photon-empty");
+    var f = j.features[0];
+    var c = (f.geometry && f.geometry.coordinates) || [];
+    var p = f.properties || {};
+    if (c.length < 2) throw new Error("photon-nocoord");
+    return {
+      lat: c[1], lon: c[0],
+      displayName: [p.name, p.street, p.city, p.country].filter(Boolean).join(", ") || query,
+      country: (p.countrycode || "").toLowerCase()
+    };
+  }).catch(function(){
+    var nUrl = "https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(query)
+      + "&format=json&limit=1&countrycodes=be,fr";
+    return fetchWithTimeout(nUrl, {}, 9000).then(function(r){ return r.json(); }).then(function(arr){
+      if (!arr || !arr.length) throw new Error("Adresse introuvable");
+      var dn = (arr[0].display_name || "").toLowerCase();
+      return {
+        lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon),
+        displayName: arr[0].display_name,
+        country: dn.indexOf("belgi") !== -1 ? "be" : dn.indexOf("france") !== -1 ? "fr" : ""
+      };
+    });
   });
 }
 
 function fetchBuildingFootprint(address, prefCountry) {
-  return geocodeNominatim(address).then(function(geo){
-    var displayLower = (geo.displayName || "").toLowerCase();
-    var country = prefCountry
-      || (displayLower.indexOf("belgi") !== -1 || displayLower.indexOf("brussel") !== -1 ? "be"
-        : displayLower.indexOf("france") !== -1 ? "fr"
-        : "auto");
+  return geocodeAddress(address).then(function(geo){
+    var country = prefCountry || geo.country || "auto";
+    if (country !== "fr" && country !== "be") country = "auto";
     var chain;
     if (country === "fr") chain = [fetchFootprintIGN, fetchFootprintOSM];
     else if (country === "be") chain = [fetchFootprintUrbIS, fetchFootprintPICC, fetchFootprintOSM];
@@ -9894,10 +9928,12 @@ function TabExteriorAuto({ project, onUpdate }) {
     });
   }
 
+  /* Auto-fetch au mount ET à chaque changement de projet (chaque projet
+     a ses propres mesures — règle non négociable). */
   useEffect(function(){
-    if (hasAddress && !result && !busy && !error) runFetch();
+    if (hasAddress) runFetch();
     // eslint-disable-next-line
-  }, []);
+  }, [project.id]);
 
   function computeMetrics() {
     if (!result) return null;

@@ -11,7 +11,7 @@
    versions sont remplacées automatiquement — pas de purge manuelle à faire.
 */
 
-const VERSION = "mesurepro-v3.8-plan-masse-satellite";
+const VERSION = "mesurepro-v3.9-geoloc-timeout-photon";
 const RUNTIME_CACHE = VERSION + "-runtime";
 
 self.addEventListener("install", function(event){
