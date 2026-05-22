@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
   slug,
   csvEscape,
+  publicAsset,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,
@@ -704,5 +705,30 @@ describe("exteriorTotalBrute / exteriorTotalNet / exteriorCount / roofPitchFromF
       hasPignon: true, heightFaitage: "5"
     })]);
     expect(roofPitchFromFacades(p)).toBeNull();
+  });
+});
+
+describe("publicAsset() — chemins assets compatibles sous-chemin", () => {
+  it("préfixe un chemin relatif avec BASE_URL", () => {
+    /* En test, import.meta.env.BASE_URL vaut "/" → résultat racine. */
+    expect(publicAsset("photos/x.jpg")).toBe("/photos/x.jpg");
+    expect(publicAsset("data/be-postal-codes.json")).toBe("/data/be-postal-codes.json");
+    expect(publicAsset("textures/")).toBe("/textures/");
+  });
+
+  it("retire le slash initial pour éviter un double slash", () => {
+    expect(publicAsset("/photos/x.jpg")).toBe("/photos/x.jpg");
+    expect(publicAsset("///data/x.json")).toBe("/data/x.json");
+    expect(publicAsset("/photos/x.jpg").indexOf("//")).toBe(-1);
+  });
+
+  it("gère les entrées vides ou nulles sans planter", () => {
+    expect(publicAsset("")).toBe("/");
+    expect(publicAsset(null)).toBe("/");
+    expect(publicAsset(undefined)).toBe("/");
+  });
+
+  it("ne perd pas les sous-dossiers ni l'extension", () => {
+    expect(publicAsset("photos/sub/dir/photo.jpg")).toBe("/photos/sub/dir/photo.jpg");
   });
 });

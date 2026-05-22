@@ -7,6 +7,18 @@ import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 
+/* ── Chemins des assets publics ──────────────────────────────────────
+   L'app est servie sous un sous-chemin sur GitHub Pages (/mesurepro/).
+   import.meta.env.BASE_URL vaut "/" en dev/test et "/mesurepro/" en
+   build prod. publicAsset() préfixe tout chemin du dossier /public pour
+   qu'il résolve correctement quelle que soit la racine de déploiement —
+   sans ça /photos, /textures, /data pointent vers la racine du domaine
+   (404 sur GitHub Pages). */
+const BASE_URL = (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.BASE_URL) || "/";
+function publicAsset(path) {
+  return BASE_URL + String(path == null ? "" : path).replace(/^\/+/, "");
+}
+
 const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
 
 /* Demo photos: real Unsplash images, downloaded into /public/photos/
@@ -14,7 +26,7 @@ const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"
    on the 3D building they go straight through THREE.TextureLoader
    without the WebGLRenderer choking on cross-origin pixels. */
 function unsplash(id) {
-  return "/photos/" + id + ".jpg";
+  return publicAsset("photos/" + id + ".jpg");
 }
 
 /* Demo photos: every entry is a *real* facade photo (visually inspected),
@@ -450,10 +462,11 @@ function exportProjectPdf(project) {
   }
 
   /* Annexe photos — uniquement celles qui sont en data URL (compressées
-     localement, persistées en localStorage) ou en chemin /photos/ (démo).
-     Les blob URLs sont skippées car elles ne survivent pas à un reload. */
+     localement, persistées en localStorage) ou en chemin photos/ (démo,
+     préfixé /mesurepro/ en prod). Les blob URLs sont skippées car elles
+     ne survivent pas à un reload. */
   var photos = (project.photos || []).filter(function(p){
-    return p && p.url && (p.url.indexOf("data:") === 0 || p.url.indexOf("/photos/") === 0);
+    return p && p.url && (p.url.indexOf("data:") === 0 || p.url.indexOf("photos/") !== -1);
   });
   if (photos.length > 0) {
     doc.addPage();
@@ -1381,7 +1394,7 @@ var TEX_RES = 1024;
    Each material has a diffuse map + a displacement map (used as
    bumpMap for relief without geometry cost). Falls back to the
    Canvas2D drawers if the bundled file is missing. */
-var POLYHAVEN_BASE = "/textures/";
+var POLYHAVEN_BASE = publicAsset("textures/");
 var POLYHAVEN_SLUGS = {
   brick: "red_brick_03",
   wood:  "wood_planks",
@@ -8007,7 +8020,7 @@ function getPrefs() {
 var BE_POSTAL_CACHE = null;
 function loadBePostalCodes() {
   if (BE_POSTAL_CACHE) return Promise.resolve(BE_POSTAL_CACHE);
-  return fetch("/data/be-postal-codes.json")
+  return fetch(publicAsset("data/be-postal-codes.json"))
     .then(function(r){ return r.ok ? r.json() : []; })
     .then(function(j){ BE_POSTAL_CACHE = j; return j; })
     .catch(function(){ BE_POSTAL_CACHE = []; return []; });
@@ -9697,6 +9710,7 @@ function TabExteriorAuto({ project, onUpdate }) {
 export {
   slug,
   csvEscape,
+  publicAsset,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,
