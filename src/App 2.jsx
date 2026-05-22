@@ -1,0 +1,9677 @@
+import { useState, useEffect, useRef, useMemo, Component } from "react";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
+import { Canvas } from "@react-three/fiber";
+import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
+import * as THREE from "three";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
+
+const EMPTY_MEAS = { walls:"", roof:"", perim:"", h:"", foot:"", win:"", doors:"" };
+
+/* Demo photos: real Unsplash images, downloaded into /public/photos/
+   so they load same-origin (no CORS dance). When applied as a material
+   on the 3D building they go straight through THREE.TextureLoader
+   without the WebGLRenderer choking on cross-origin pixels. */
+function unsplash(id) {
+  return "/photos/" + id + ".jpg";
+}
+
+/* Demo photos: every entry is a *real* facade photo (visually inspected),
+   tagged with its orientation so TabPlans can pair it with the matching
+   architectural elevation drawing automatically. */
+var DEMO_PHOTOS_PARIS = [
+  { name:"Façade Sud (rue)",     facade:"sud",   url: unsplash("1572120360610-d971b9d7767c") },
+  { name:"Façade Nord (jardin)", facade:"nord",  url: unsplash("1568605114967-8130f3a36994") },
+  { name:"Façade Est",           facade:"est",   url: unsplash("1564013799919-ab600027ffc6") },
+  { name:"Façade Ouest",         facade:"ouest", url: unsplash("1494526585095-c41746248156") },
+];
+
+var DEMO_PHOTOS_LYON = [
+  { name:"Façade Sud (entrée)",  facade:"sud",   url: unsplash("1605276374104-dee2a0ed3cd6") },
+  { name:"Vue 3/4 (jardin)",     facade:"vue",   url: unsplash("1580587771525-78b9dba3b914") },
+];
+
+/* Demo: a real Haussmannian apartment building (5 stories, mansard roof) */
+var DEMO_PHOTOS_HAUSSMANN = [
+  { name:"Façade Sud (rue)",         facade:"sud",   url: unsplash("1551038247-3d9af20df552") },
+  { name:"Façade Nord (cour)",       facade:"nord",  url: unsplash("1571055107559-3e67626fa8be") },
+  { name:"Façade Est (mitoyen)",     facade:"est",   url: unsplash("1518780664697-55e3ad937233") },
+];
+
+const PROJS = [
+  { id:1, addr:"142 Rue de la Paix", city:"Paris 75001", status:"done",
+    date:"2 mai 2026", area:284, floors:2, roof:"Pignon", shape:"L",
+    client:"M. Laurent Bernard",
+    meas:{ walls:"412.6", roof:"186.4", perim:"68.2", h:"7.4", foot:"142.3", win:"12", doors:"3" },
+    rooms:[
+      {n:"Mur Nord", a:"94.2", l:"16.4 m", h:"5.7 m", t:"w"},
+      {n:"Mur Sud",  a:"94.2", l:"16.4 m", h:"5.7 m", t:"w"},
+      {n:"Mur Est",  a:"78.4", l:"13.8 m", h:"5.7 m", t:"w"},
+      {n:"Mur Ouest",a:"78.4", l:"13.8 m", h:"5.7 m", t:"w"},
+      {n:"Toit",     a:"186.4",l:"---",    h:"---",    t:"r"},
+    ],
+    photos: DEMO_PHOTOS_PARIS },
+  { id:2, addr:"88 Avenue Victor Hugo", city:"Lyon 69006", status:"done",
+    date:"28 avr. 2026", area:196, floors:1, roof:"4 pans", shape:"S",
+    client:"Mme. Isabelle Moreau",
+    meas:{ walls:"298.1", roof:"124.8", perim:"56.4", h:"4.8", foot:"196.0", win:"8", doors:"2" },
+    rooms:[
+      {n:"Mur Nord",  a:"72.4", l:"14.8 m", h:"4.8 m", t:"w"},
+      {n:"Mur Sud",   a:"72.4", l:"14.8 m", h:"4.8 m", t:"w"},
+      {n:"Mur Est",   a:"64.2", l:"13.4 m", h:"4.8 m", t:"w"},
+      {n:"Mur Ouest", a:"64.2", l:"13.4 m", h:"4.8 m", t:"w"},
+      {n:"Toiture",   a:"124.8",l:"---",    h:"---",    t:"r"},
+    ],
+    photos: DEMO_PHOTOS_LYON },
+  { id:3, addr:"23 Boulevard Carnot", city:"Bordeaux 33000", status:"processing",
+    date:"6 mai 2026", area:320, floors:3, roof:"Terrasse", shape:"M",
+    meas:{...EMPTY_MEAS}, rooms:[] },
+  { id:4, addr:"7 Impasse des Tilleuls", city:"Nantes 44000", status:"draft",
+    date:"7 mai 2026", area:0, floors:0, roof:"--", shape:"F",
+    meas:{...EMPTY_MEAS}, rooms:[] },
+  /* Demo: full Haussmannian apartment building */
+  { id:5, addr:"15 Boulevard Haussmann", city:"Paris 75009", status:"done",
+    date:"3 mai 2026", area:780, floors:5, roof:"Mansart", shape:"M",
+    client:"SCI Haussmann Patrimoine",
+    meas:{ walls:"1240", roof:"360", perim:"112", h:"18.5", foot:"640", win:"42", doors:"4" },
+    rooms:[
+      {n:"Mur Sud (rue)",        a:"347", l:"32 m", h:"18.5 m", t:"w"},
+      {n:"Mur Nord (cour)",      a:"347", l:"32 m", h:"18.5 m", t:"w"},
+      {n:"Mur Est (mitoyen)",    a:"260", l:"20 m", h:"18.5 m", t:"w"},
+      {n:"Mur Ouest (mitoyen)",  a:"260", l:"20 m", h:"18.5 m", t:"w"},
+      {n:"Toiture mansardee",    a:"360", l:"---",  h:"---",    t:"r"},
+    ],
+    photos: DEMO_PHOTOS_HAUSSMANN },
+];
+
+const MATS = [
+  {id:"wood",  lbl:"Bardage Bois",     col:"#C68642", price:45,  fill:"url(#mat-wood)"},
+  {id:"stone", lbl:"Pierre Naturelle", col:"#9E8E7E", price:120, fill:"url(#mat-stone)"},
+  {id:"brick", lbl:"Brique Rouge",     col:"#C04A2B", price:85,  fill:"url(#mat-brick)"},
+  {id:"white", lbl:"Enduit Blanc",     col:"#E8E4DC", price:35,  fill:"url(#mat-white)"},
+  {id:"grey",  lbl:"Beton Cire",       col:"#7A8899", price:55,  fill:"url(#mat-grey)"},
+  {id:"slate", lbl:"Clin Gris",        col:"#4A5568", price:62,  fill:"url(#mat-slate)"},
+];
+
+/* ---- Material SVG patterns (procedural textures) ----
+   Defined as a <defs> block to be embedded inside each SVG that
+   wants to fill="url(#mat-XXX)". For uploaded photos, pass them
+   as `photos` and they'll be exposed as url(#mat-photo-{id}). */
+function MatDefs({ photos }) {
+  return (
+    <defs>
+      {/* Wood: horizontal lap siding with shadow lines (US clapboard) */}
+      <pattern id="mat-wood" patternUnits="userSpaceOnUse" width="60" height="14">
+        <rect width="60" height="14" fill="#C68642"/>
+        {/* Plank gradient (top lighter, bottom darker for relief) */}
+        <rect width="60" height="14" fill="url(#mat-wood-grad)"/>
+        {/* Cast shadow line at bottom of each plank */}
+        <rect x="0" y="12" width="60" height="2" fill="#5a3a1a" opacity="0.85"/>
+        <rect x="0" y="11" width="60" height="1" fill="#3a2410" opacity="0.5"/>
+        {/* Subtle horizontal grain */}
+        <line x1="0" y1="3" x2="60" y2="3.2" stroke="#a86c34" strokeWidth="0.25" opacity="0.5"/>
+        <line x1="0" y1="7" x2="60" y2="6.8" stroke="#a86c34" strokeWidth="0.25" opacity="0.4"/>
+        {/* Knots */}
+        <ellipse cx="14" cy="6" rx="1.4" ry="0.5" fill="#8a5828" opacity="0.55"/>
+        <ellipse cx="42" cy="9" rx="1.6" ry="0.5" fill="#8a5828" opacity="0.55"/>
+      </pattern>
+      <linearGradient id="mat-wood-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%"  stopColor="#dba463" stopOpacity="0.55"/>
+        <stop offset="100%" stopColor="#8a5828" stopOpacity="0.35"/>
+      </linearGradient>
+
+      {/* Stone: rich irregular ashlar masonry with cast shadow */}
+      <pattern id="mat-stone" patternUnits="userSpaceOnUse" width="50" height="34">
+        <rect width="50" height="34" fill="#9E8E7E"/>
+        <path d="M 0 0  L 22 0  L 26 5  L 24 16 L 0 16  Z"  fill="#aa9886" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 26 5 L 50 0  L 50 16 L 24 16 Z"          fill="#92816e" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 0 16 L 16 16 L 20 26 L 14 34 L 0 34 Z"   fill="#98876f" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 16 16 L 36 16 L 38 26 L 30 34 L 14 34 L 20 26 Z" fill="#a89683" stroke="#5e564b" strokeWidth="0.6"/>
+        <path d="M 36 16 L 50 16 L 50 34 L 30 34 L 38 26 Z" fill="#8d7c6a" stroke="#5e564b" strokeWidth="0.6"/>
+        {/* Texture noise inside each stone */}
+        <circle cx="8"  cy="6"  r="0.4" fill="#5e564b" opacity="0.5"/>
+        <circle cx="18" cy="11" r="0.3" fill="#5e564b" opacity="0.4"/>
+        <circle cx="34" cy="9"  r="0.4" fill="#5e564b" opacity="0.5"/>
+        <circle cx="42" cy="4"  r="0.3" fill="#5e564b" opacity="0.4"/>
+        <circle cx="6"  cy="22" r="0.5" fill="#5e564b" opacity="0.5"/>
+        <circle cx="22" cy="28" r="0.4" fill="#5e564b" opacity="0.45"/>
+        <circle cx="40" cy="20" r="0.4" fill="#5e564b" opacity="0.5"/>
+        {/* Cast shadow under each top edge */}
+        <line x1="0"  y1="0.6"  x2="22" y2="0.6"  stroke="#5e564b" strokeWidth="0.4" opacity="0.4"/>
+        <line x1="26" y1="5.4"  x2="50" y2="0.6"  stroke="#5e564b" strokeWidth="0.4" opacity="0.4"/>
+        <line x1="0"  y1="16.6" x2="50" y2="16.6" stroke="#5e564b" strokeWidth="0.4" opacity="0.5"/>
+      </pattern>
+
+      {/* Brick: 5-shade variation, deep mortar, cast shadow under each course */}
+      <pattern id="mat-brick" patternUnits="userSpaceOnUse" width="48" height="20">
+        <rect width="48" height="20" fill="#c4ad88"/>
+        {/* Row 1 */}
+        <rect x="0.7"  y="0.7"  width="14.6" height="8.6" fill="#a0381f"/>
+        <rect x="16.7" y="0.7"  width="14.6" height="8.6" fill="#b14528"/>
+        <rect x="32.7" y="0.7"  width="14.6" height="8.6" fill="#933020"/>
+        {/* Row 2 (staggered, half-brick offset) */}
+        <rect x="0.7"  y="10.7" width="6.6"  height="8.6" fill="#a0381f"/>
+        <rect x="8.7"  y="10.7" width="14.6" height="8.6" fill="#b14528"/>
+        <rect x="24.7" y="10.7" width="14.6" height="8.6" fill="#a8401f"/>
+        <rect x="40.7" y="10.7" width="6.6"  height="8.6" fill="#933020"/>
+        {/* Highlight on top edge of each brick (sun lit) */}
+        <rect x="0.7"  y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="16.7" y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="32.7" y="0.7"  width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="0.7"  y="10.7" width="6.6"  height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="8.7"  y="10.7" width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="24.7" y="10.7" width="14.6" height="1.2" fill="#d05f3e" opacity="0.55"/>
+        <rect x="40.7" y="10.7" width="6.6"  height="1.2" fill="#d05f3e" opacity="0.55"/>
+        {/* Shadow on bottom edge */}
+        <rect x="0.7"  y="8.1"  width="46.6" height="1.2" fill="#3a1208" opacity="0.45"/>
+        <rect x="0.7"  y="18.1" width="46.6" height="1.2" fill="#3a1208" opacity="0.45"/>
+      </pattern>
+
+      {/* White stucco: rich granular finish with subtle shadows */}
+      <pattern id="mat-white" patternUnits="userSpaceOnUse" width="10" height="10">
+        <rect width="10" height="10" fill="#E8E4DC"/>
+        <circle cx="1.5" cy="1.8" r="0.5" fill="#bcb6a7" opacity="0.55"/>
+        <circle cx="6"   cy="2.2" r="0.4" fill="#bcb6a7" opacity="0.5"/>
+        <circle cx="3.5" cy="5"   r="0.55" fill="#a8a294" opacity="0.55"/>
+        <circle cx="8"   cy="5.5" r="0.45" fill="#bcb6a7" opacity="0.45"/>
+        <circle cx="2"   cy="8"   r="0.4" fill="#a8a294" opacity="0.55"/>
+        <circle cx="6.5" cy="8.5" r="0.5" fill="#bcb6a7" opacity="0.55"/>
+        <circle cx="9.2" cy="0.8" r="0.3" fill="#cdc6b7" opacity="0.5"/>
+        <circle cx="0.5" cy="6.5" r="0.3" fill="#cdc6b7" opacity="0.45"/>
+      </pattern>
+
+      {/* Grey concrete: poured slabs with control joints */}
+      <pattern id="mat-grey" patternUnits="userSpaceOnUse" width="40" height="40">
+        <rect width="40" height="40" fill="#7A8899"/>
+        {/* Aggregate dots */}
+        <circle cx="4"  cy="6"  r="0.45" fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="11" cy="13" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="20" cy="9"  r="0.55" fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="28" cy="20" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="34" cy="6"  r="0.5"  fill="#5e6c7a" opacity="0.7"/>
+        <circle cx="6"  cy="24" r="0.5"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="14" cy="32" r="0.45" fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="24" cy="34" r="0.4"  fill="#5e6c7a" opacity="0.65"/>
+        <circle cx="32" cy="28" r="0.55" fill="#5e6c7a" opacity="0.7"/>
+        {/* Control joint */}
+        <line x1="0"  y1="20" x2="40" y2="20" stroke="#3a4452" strokeWidth="0.6" opacity="0.6"/>
+        <line x1="20" y1="0"  x2="20" y2="40" stroke="#3a4452" strokeWidth="0.6" opacity="0.55"/>
+      </pattern>
+
+      {/* Slate: overlapping shingles with cast shadow under each row */}
+      <pattern id="mat-slate" patternUnits="userSpaceOnUse" width="22" height="14">
+        <rect width="22" height="14" fill="#4A5568"/>
+        {/* Top row of shingles */}
+        <path d="M 0 0  L 11 0  L 11 8 L 0 8  Z"  fill="#3f4a5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 11 0 L 22 0  L 22 8 L 11 8 Z"  fill="#475164" stroke="#2a323e" strokeWidth="0.3"/>
+        {/* Bottom row staggered */}
+        <path d="M -5.5 8  L 5.5 8  L 5.5 14 L -5.5 14 Z" fill="#414b5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 5.5 8   L 16.5 8 L 16.5 14 L 5.5 14 Z" fill="#3f4a5a" stroke="#2a323e" strokeWidth="0.3"/>
+        <path d="M 16.5 8  L 27.5 8 L 27.5 14 L 16.5 14 Z" fill="#475164" stroke="#2a323e" strokeWidth="0.3"/>
+        {/* Highlight at the top of each shingle (slight gloss) */}
+        <line x1="0" y1="0.5"  x2="22" y2="0.5"  stroke="#5a677c" strokeWidth="0.4" opacity="0.5"/>
+        <line x1="0" y1="8.5"  x2="22" y2="8.5"  stroke="#5a677c" strokeWidth="0.4" opacity="0.5"/>
+        {/* Shadow under each row */}
+        <line x1="0" y1="7.7"  x2="22" y2="7.7"  stroke="#1a1f28" strokeWidth="0.5" opacity="0.7"/>
+        <line x1="0" y1="13.7" x2="22" y2="13.7" stroke="#1a1f28" strokeWidth="0.5" opacity="0.7"/>
+      </pattern>
+      {/* Photo-based custom material patterns */}
+      {(photos || []).map(function(p, i) {
+        return (
+          <pattern key={p.id || ("photo-"+i)} id={"mat-photo-"+(p.id || i)}
+            patternUnits="userSpaceOnUse" width="80" height="80">
+            <image href={p.url} width="80" height="80" preserveAspectRatio="xMidYMid slice"/>
+          </pattern>
+        );
+      })}
+    </defs>
+  );
+}
+
+const RPTS = [
+  { id:"R1", kind:"meas", status:"sent", ref:"RPT-2026-001",
+    title:"Rapport de Mesures Complet", updated:"2 mai 2026",
+    co:{nom:"MesurePro SAS",adr:"12 Rue Beaubourg 75004",tel:"01 42 71 00 00",email:"contact@mesurepro.fr"},
+    cl:{nom:"M. Laurent Bernard",adr:"142 Rue de la Paix 75001",tel:"06 12 34 56 78",email:"l.bernard@email.fr"},
+    tech:"Antoine Roussel", techDate:"2 mai 2026",
+    notes:"Batiment en bon etat. Legeres fissures mur Nord au 1er etage. Aucune infiltration visible.",
+    data:{"Surface murs":"412.6 m2","Surface toit":"186.4 m2","Perimetre":"68.2 m","Hauteur":"7.4 m","Emprise sol":"142.3 m2","Fenetres":"12","Portes":"3"},
+    rows:[
+      {n:"Mur Nord", s:"94.2 m2", l:"16.4 m", h:"5.7 m", m:"Enduit"},
+      {n:"Mur Sud",  s:"94.2 m2", l:"16.4 m", h:"5.7 m", m:"Enduit"},
+      {n:"Mur Est",  s:"78.4 m2", l:"13.8 m", h:"5.7 m", m:"Pierre"},
+      {n:"Mur Ouest",s:"78.4 m2", l:"13.8 m", h:"5.7 m", m:"Pierre"},
+      {n:"Toit",     s:"186.4 m2",l:"---",    h:"---",   m:"Tuile"},
+    ]},
+  { id:"R2", kind:"devis", status:"draft", ref:"DEV-2026-047",
+    title:"Devis Commercial Detaille", updated:"29 avr. 2026",
+    validity:"30 jours",
+    co:{nom:"MesurePro SAS",adr:"12 Rue Beaubourg 75004",tel:"01 42 71 00 00",email:"contact@mesurepro.fr"},
+    cl:{nom:"Mme. Isabelle Moreau",adr:"88 Av. Victor Hugo 69006",tel:"06 98 76 54 32",email:"i.moreau@email.fr"},
+    lines:[
+      {d:"Revetement mural Enduit blanc", q:"298.1",u:"m2", pu:"35.00", t:"10433.50"},
+      {d:"Toiture Tuile 4 pans",          q:"124.8",u:"m2", pu:"95.00", t:"11856.00"},
+      {d:"Refection joints",              q:"1",    u:"fft",pu:"1800.00",t:"1800.00"},
+      {d:"Main oeuvre revetement",        q:"298.1",u:"m2", pu:"28.00", t:"8346.80"},
+      {d:"Main oeuvre toiture",           q:"124.8",u:"m2", pu:"45.00", t:"5616.00"},
+      {d:"Frais de chantier",             q:"1",    u:"fft",pu:"650.00", t:"650.00"},
+    ],
+    discount:"5", acompte:"30",
+    payTerms:"Acompte 30% a la commande, solde a reception.",
+    notes:"Delai 3 semaines. Garantie decennale incluse. TVA 20%.",
+  },
+  { id:"R3", kind:"insp", status:"review", ref:"INS-2026-012",
+    title:"Rapport Inspection Technique", updated:"6 mai 2026",
+    co:{nom:"MesurePro SAS",adr:"12 Rue Beaubourg 75004",tel:"01 42 71 00 00",email:"contact@mesurepro.fr"},
+    cl:{nom:"SCI Carnot",adr:"23 Bd Carnot 33000",tel:"05 56 00 11 22",email:"gestion@sci-carnot.fr"},
+    tech:"Nadia Fontaine", techDate:"6 mai 2026",
+    checks:[
+      {z:"Facade",       it:"Fissures en facade",             s:"warn",note:"Microfissures horizontales RDC"},
+      {z:"Facade",       it:"Etat de l enduit",               s:"ok",  note:"Bon etat general"},
+      {z:"Facade",       it:"Alignement menuiseries",         s:"ok",  note:"Conforme"},
+      {z:"Toiture",      it:"Etat tuiles ardoises",           s:"crit",note:"Plusieurs tuiles cassees urgent"},
+      {z:"Toiture",      it:"Evacuation eaux pluviales",      s:"warn",note:"Gouttiere obstruee cote Est"},
+      {z:"Toiture",      it:"Etancheite faitiere",            s:"ok",  note:"RAS"},
+      {z:"Murs porteurs",it:"Humidite remontees capillaires", s:"warn",note:"Traces humidite pied mur Nord"},
+      {z:"Murs porteurs",it:"Integrite structurelle",         s:"ok",  note:"Aucun desordre visible"},
+      {z:"Ouvertures",   it:"Etancheite fenetres",            s:"ok",  note:"Joints en bon etat"},
+      {z:"Ouvertures",   it:"Etat des volets",                s:"warn",note:"3 volets a repeindre cote Sud"},
+    ],
+    reco:"1. Remplacer tuiles endommagees en urgence\n2. Deboucher gouttieres cote Est\n3. Traiter remontees capillaires mur Nord\n4. Reprendre enduit fissure facade RDC",
+  },
+  { id:"R4", kind:"prop", status:"draft", ref:"PRO-2026-003",
+    title:"Proposition Commerciale et Contrat", updated:"7 mai 2026",
+    version:"v1.2",
+    co:{nom:"MesurePro SAS",adr:"12 Rue Beaubourg 75004",tel:"01 42 71 00 00",email:"contact@mesurepro.fr"},
+    cl:{nom:"Groupement Immobilier IdF",adr:"8 Place de la Bourse 75002",tel:"01 55 00 44 33",email:"acquisitions@giif.fr"},
+    intro:"MesurePro SAS propose une solution complete de mesure et estimation pour votre portefeuille immobilier. Notre technologie transforme de simples photos en modeles 3D precis en moins de 10 minutes.",
+    projs:[
+      {n:"142 Rue de la Paix Paris",  s:"412.6 m2",b:"38 500 EUR",d:"3 semaines",p:"Haute"},
+      {n:"88 Av. Victor Hugo Lyon",   s:"298.1 m2",b:"28 900 EUR",d:"2 semaines",p:"Moyenne"},
+    ],
+    gantt:[
+      {t:"Audit relevés",    s:1,dur:2,col:"#00C2FF"},
+      {t:"Modelisation 3D",  s:2,dur:3,col:"#00E5A0"},
+      {t:"Chiffrage devis",  s:4,dur:2,col:"#FF8C42"},
+      {t:"Travaux Paris",    s:5,dur:3,col:"#a855f7"},
+      {t:"Travaux Lyon",     s:7,dur:2,col:"#a855f7"},
+      {t:"Reception cloture",s:9,dur:1,col:"#00E5A0"},
+    ],
+    cgu:"Tout devis accepte engage le client. Prix fermes 30 jours. MesurePro est assuree en RC professionnelle et decennale.",
+    sigCl:"", sigPro:"7 mai 2026",
+  },
+];
+
+/* ---- utilities ---- */
+const sh = (hex, p) => {
+  const n = parseInt(hex.replace("#",""),16);
+  const cl = v => Math.min(255,Math.max(0,v));
+  return "rgb("+cl((n>>16)+p)+","+cl(((n>>8)&255)+p)+","+cl((n&255)+p)+")";
+};
+const W = 210; /* sidebar width */
+
+function slug(s) {
+  return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"")
+    .replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase() || "export";
+}
+
+/* Compresse une image File en data URL JPEG, longueur max contrôlée.
+   Pourquoi : avant ce helper, on stockait `URL.createObjectURL(file)`
+   qui produit un blob URL — invalide après reload, donc les photos
+   uploadées disparaissaient à chaque refresh. Pire, une photo iPhone
+   brute (5-10 MB en HEIC/JPEG) saturerait le quota localStorage (5-10 MB
+   total). On compresse à 1280 px max + JPEG 75 % → ~200-400 KB / photo
+   en data URL, persiste correctement en localStorage. */
+function compressImageFile(file, maxWidth, quality) {
+  maxWidth = maxWidth || 1280;
+  quality  = quality  || 0.75;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || file.type.indexOf("image/") !== 0) {
+      reject(new Error("Fichier non-image"));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onerror = function(){ reject(new Error("Lecture fichier échouée")); };
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onerror = function(){ reject(new Error("Décodage image échoué")); };
+      img.onload = function() {
+        var w = img.naturalWidth || img.width;
+        var h = img.naturalHeight || img.height;
+        if (w > maxWidth) {
+          h = Math.round(h * (maxWidth / w));
+          w = maxWidth;
+        }
+        try {
+          var canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          var ctx = canvas.getContext("2d");
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          var dataUrl = canvas.toDataURL("image/jpeg", quality);
+          var approxBytes = Math.round(dataUrl.length * 0.75);
+          resolve({
+            name: file.name,
+            size: approxBytes,
+            originalSize: file.size,
+            url: dataUrl,
+            width: w,
+            height: h,
+            compressed: true,
+          });
+        } catch (e) { reject(e); }
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* Estime la place totale prise par les photos d'un projet (en KB).
+   Utilisé pour avertir l'utilisateur quand on approche du quota
+   localStorage. */
+function estimatePhotosSizeKB(photos) {
+  if (!photos || !Array.isArray(photos)) return 0;
+  var total = 0;
+  photos.forEach(function(p){
+    if (p && typeof p.url === "string" && p.url.indexOf("data:") === 0) {
+      total += p.url.length * 0.75;
+    } else if (p && p.size) {
+      total += p.size;
+    }
+  });
+  return Math.round(total / 1024);
+}
+
+function downloadBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+}
+
+function csvEscape(v) {
+  var s = String(v == null ? "" : v);
+  if (s.indexOf('"') !== -1 || s.indexOf(";") !== -1 || s.indexOf("\n") !== -1) {
+    return '"' + s.replace(/"/g,'""') + '"';
+  }
+  return s;
+}
+
+function exportCsv(rows, filename) {
+  var content = "﻿" + rows.map(function(r){ return r.map(csvEscape).join(";"); }).join("\n");
+  downloadBlob(new Blob([content], {type:"text/csv;charset=utf-8"}), filename);
+}
+
+function exportProjectPdf(project) {
+  var doc = new jsPDF();
+  var m = project.meas || {};
+  /* Métadonnées PDF — rendent le document indexable par Spotlight, Windows
+     Search, Google Drive, etc. + apparaissent dans Aperçu / Acrobat.
+     Le contenu lui-même est du vrai texte (pas une image rasterisée), donc
+     déjà OCR-équivalent et copy-pasteable. */
+  doc.setProperties({
+    title:    "MesurePro — Rapport de mesures — " + (project.addr || ""),
+    subject:  "Rapport de mesures, plans d'élévation et synthèse projet",
+    author:   "MesurePro",
+    keywords: ["mesure","façade","plan","devis","BLE laser",project.city||"",project.client||""].filter(function(s){return s;}).join(", "),
+    creator:  "MesurePro v2.7",
+  });
+  doc.setFontSize(18); doc.setTextColor(0); doc.text("MesurePro - Rapport mesures", 14, 18);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text(project.addr || "", 14, 26);
+  doc.text(project.city || "", 14, 31);
+  doc.setTextColor(0);
+  autoTable(doc, {
+    startY: 38,
+    head: [["Mesure","Valeur","Unite"]],
+    body: [
+      ["Surface murs", m.walls||"-", "m2"],
+      ["Surface toit", m.roof||"-", "m2"],
+      ["Perimetre",    m.perim||"-","m"],
+      ["Hauteur",      m.h||"-",    "m"],
+      ["Emprise sol",  m.foot||"-", "m2"],
+      ["Fenetres",     m.win||"-",  ""],
+      ["Portes",       m.doors||"-",""],
+    ],
+    headStyles: {fillColor: [21,33,53]},
+  });
+  if (project.rooms && project.rooms.length > 0) {
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 8,
+      head: [["Facade","Surface","Long.","Haut.","Type"]],
+      body: project.rooms.map(function(r){ return [r.n||"",r.a||"",r.l||"",r.h||"",r.t==="r"?"Toit":"Mur"]; }),
+      headStyles: {fillColor: [21,33,53]},
+    });
+  }
+
+  /* Annexe photos — uniquement celles qui sont en data URL (compressées
+     localement, persistées en localStorage) ou en chemin /photos/ (démo).
+     Les blob URLs sont skippées car elles ne survivent pas à un reload. */
+  var photos = (project.photos || []).filter(function(p){
+    return p && p.url && (p.url.indexOf("data:") === 0 || p.url.indexOf("/photos/") === 0);
+  });
+  if (photos.length > 0) {
+    doc.addPage();
+    doc.setFontSize(15);
+    doc.setTextColor(21, 33, 53);
+    doc.text("Annexe — Photos du chantier", 14, 18);
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text(photos.length + " photo(s) attachée(s)", 14, 25);
+    var pageW = 210, pageH = 297, margin = 14;
+    var thumbW = (pageW - margin*2 - 10) / 2;   /* 2 photos par ligne */
+    var thumbH = thumbW * 0.7;                   /* aspect 10:7 */
+    var x = margin, y = 32;
+    photos.forEach(function(p, i){
+      if (y + thumbH > pageH - 14) {
+        doc.addPage();
+        y = 16;
+      }
+      try {
+        /* jsPDF accepte les data URLs directement, ainsi que des PNG/JPEG
+           via leur URL si CORS ok. On utilise JPEG pour compression. */
+        doc.addImage(p.url, "JPEG", x, y, thumbW, thumbH, undefined, "MEDIUM");
+        /* Légende avec tag façade s'il existe */
+        doc.setFontSize(8);
+        doc.setTextColor(100);
+        var caption = (p.facade ? "[" + p.facade.toUpperCase() + "] " : "") + (p.name || "photo");
+        if (caption.length > 35) caption = caption.slice(0, 33) + "…";
+        doc.text(caption, x, y + thumbH + 4);
+      } catch(e){
+        /* Image non décodable — on saute silencieusement */
+      }
+      if (i % 2 === 0) {
+        x = margin + thumbW + 10;
+      } else {
+        x = margin;
+        y += thumbH + 12;
+      }
+    });
+  }
+
+  doc.save("mesurepro-" + slug(project.addr) + ".pdf");
+}
+
+/* Vrai export Excel via SheetJS — 2 feuilles : Synthèse + Façades. Remplace
+   l'ancien alias CSV. Garde des cellules numériques (parseFloat) pour que
+   les formules Excel marchent directement. */
+function exportProjectXlsx(project) {
+  var m = project.meas || {};
+  var wb = XLSX.utils.book_new();
+  var synthese = [
+    ["MesurePro — Fiche projet"],
+    [],
+    ["Adresse",   project.addr  || ""],
+    ["Ville",     project.city  || ""],
+    ["Client",    project.client|| ""],
+    ["Statut",    project.status|| ""],
+    ["Date",      project.date  || ""],
+    [],
+    ["Mesures globales"],
+    ["Surface murs (m²)",  parseFloat(m.walls) || ""],
+    ["Surface toit (m²)",  parseFloat(m.roof)  || ""],
+    ["Périmètre (m)",      parseFloat(m.perim) || ""],
+    ["Hauteur (m)",        parseFloat(m.h)     || ""],
+    ["Emprise sol (m²)",   parseFloat(m.foot)  || ""],
+    ["Fenêtres",           parseFloat(m.win)   || ""],
+    ["Portes",             parseFloat(m.doors) || ""],
+    [],
+    ["Étages",  parseInt(project.floors) || ""],
+    ["Toit",    project.roof || ""],
+    ["Photos",  (project.photos || []).length],
+  ];
+  var ws1 = XLSX.utils.aoa_to_sheet(synthese);
+  ws1["!cols"] = [{ wch: 22 }, { wch: 28 }];
+  XLSX.utils.book_append_sheet(wb, ws1, "Synthèse");
+  var rows = [["Façade", "Surface (m²)", "Longueur (m)", "Hauteur (m)", "Type"]];
+  (project.rooms || []).forEach(function(r){
+    rows.push([r.n || "", parseFloat(r.a) || "", parseFloat(r.l) || "", parseFloat(r.h) || "", r.t === "r" ? "Toit" : "Mur"]);
+  });
+  var ws2 = XLSX.utils.aoa_to_sheet(rows);
+  ws2["!cols"] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Façades");
+  XLSX.writeFile(wb, "mesurepro-" + slug(project.addr) + ".xlsx");
+}
+
+/* Export JSON — backup machine-readable du projet entier (toutes les
+   propriétés sans modification). Utile pour : sauvegarde, transfert vers
+   un autre device, debug, import par un script tiers. Format pretty-printed
+   pour lisibilité humaine. */
+function exportProjectJson(project) {
+  var payload = {
+    schema: "mesurepro.project.v1",
+    exportedAt: new Date().toISOString(),
+    project: project,
+  };
+  var content = JSON.stringify(payload, null, 2);
+  var blob = new Blob([content], { type: "application/json" });
+  downloadBlob(blob, "mesurepro-" + slug(project.addr) + ".json");
+}
+
+/* Export DXF — 4 élévations + fenêtres + portes au format DXF AC1009
+   (R12, le plus compatible : AutoCAD, LibreCAD, FreeCAD, QCAD,
+   ARES Commander, BricsCAD…). Texte pur, taille minuscule, ouvre les
+   plans dans n'importe quel logiciel CAO. Unités = mètres. */
+function exportProjectDxf(project) {
+  var rooms = project.rooms || [];
+  var meas  = project.meas || {};
+  var hMax  = parseFloat(meas.h) || 6;
+  var fl    = Math.max(1, parseInt(project.floors) || 2);
+
+  function find(needle) {
+    return rooms.find(function(x){
+      return x && x.t !== "r" && (x.n||"").toLowerCase().indexOf(needle) !== -1;
+    });
+  }
+  function num(s, fb) {
+    var v = parseFloat(s);
+    return isFinite(v) && v > 0 ? v : fb;
+  }
+  var rSud = find("sud"), rEst = find("est"), rNord = find("nord"), rOuest = find("ouest");
+  var sides = [
+    { id:"sud",   label:"FACADE SUD",   l: num(rSud   && rSud.l,   10), h: num(rSud   && rSud.h,   hMax) },
+    { id:"est",   label:"FACADE EST",   l: num(rEst   && rEst.l,    8), h: num(rEst   && rEst.h,   hMax) },
+    { id:"nord",  label:"FACADE NORD",  l: num(rNord  && rNord.l,  10), h: num(rNord  && rNord.h,  hMax) },
+    { id:"ouest", label:"FACADE OUEST", l: num(rOuest && rOuest.l,  8), h: num(rOuest && rOuest.h, hMax) },
+  ];
+
+  var lines = [];
+  function emit() {
+    for (var i = 0; i < arguments.length; i++) lines.push(String(arguments[i]));
+  }
+  function line(layer, x1, y1, x2, y2) {
+    emit(0,"LINE", 8,layer, 10,x1.toFixed(3), 20,y1.toFixed(3), 11,x2.toFixed(3), 21,y2.toFixed(3));
+  }
+  function rect(layer, x, y, w, h) {
+    line(layer, x,   y,   x+w, y);
+    line(layer, x+w, y,   x+w, y+h);
+    line(layer, x+w, y+h, x,   y+h);
+    line(layer, x,   y+h, x,   y);
+  }
+  function text(layer, x, y, height, content) {
+    /* DXF group code 1 = text content. AC1009 supports basic ASCII. */
+    emit(0,"TEXT", 8,layer, 10,x.toFixed(3), 20,y.toFixed(3), 40,height.toFixed(3), 1,String(content));
+  }
+
+  /* Header — version + units (6 = meters) */
+  emit(0,"SECTION", 2,"HEADER",
+       9,"$ACADVER", 1,"AC1009",
+       9,"$INSUNITS", 70, 6,
+       0,"ENDSEC");
+
+  /* Layer table — 4 calques colorés (AutoCAD index colors) */
+  emit(0,"SECTION", 2,"TABLES", 0,"TABLE", 2,"LAYER", 70, 5,
+       0,"LAYER", 2,"0",          70, 0, 62, 7, 6,"CONTINUOUS",
+       0,"LAYER", 2,"WALLS",      70, 0, 62, 7, 6,"CONTINUOUS",
+       0,"LAYER", 2,"WINDOWS",    70, 0, 62, 5, 6,"CONTINUOUS",
+       0,"LAYER", 2,"DOORS",      70, 0, 62, 1, 6,"CONTINUOUS",
+       0,"LAYER", 2,"DIMENSIONS", 70, 0, 62, 3, 6,"CONTINUOUS",
+       0,"ENDTAB", 0,"ENDSEC");
+
+  /* Entities — 4 élévations placées côte à côte avec un écart de 5 m */
+  emit(0,"SECTION", 2,"ENTITIES");
+  var spacing = 5;
+  var xOff = 0;
+  sides.forEach(function(s){
+    /* Mur */
+    rect("WALLS", xOff, 0, s.l, s.h);
+    /* Toit pignon : 2 lignes obliques */
+    line("WALLS", xOff,         s.h, xOff + s.l/2, s.h + s.h * 0.4);
+    line("WALLS", xOff + s.l/2, s.h + s.h * 0.4, xOff + s.l, s.h);
+    /* Fenêtres : grille cols × fl */
+    var cols = 4;
+    var winW = s.l * 0.13;
+    var winH = (s.h / fl) * 0.55;
+    var pad  = (s.l - winW * cols) / (cols + 1);
+    for (var f = 0; f < fl; f++) {
+      var winY = (s.h / fl) * f + ((s.h / fl) - winH) / 2;
+      for (var c = 0; c < cols; c++) {
+        if (s.id === "sud" && f === 0 && c === Math.floor(cols/2)) continue;  /* place pour la porte */
+        var winX = xOff + pad + c * (winW + pad);
+        rect("WINDOWS", winX, winY, winW, winH);
+      }
+    }
+    /* Porte (façade Sud uniquement) */
+    if (s.id === "sud") {
+      var dC = Math.floor(cols/2);
+      var dW = winW * 1.1;
+      var dH = (s.h / fl) * 0.78;
+      var dX = xOff + pad + dC * (winW + pad) + (winW - dW) / 2;
+      rect("DOORS", dX, 0, dW, dH);
+    }
+    /* Titre + cote */
+    text("DIMENSIONS", xOff + s.l / 2 - s.l * 0.18, -0.7, 0.35, s.label);
+    text("DIMENSIONS", xOff + s.l / 2 - s.l * 0.20, -1.4, 0.25,
+         s.l.toFixed(2) + " m x " + s.h.toFixed(2) + " m");
+    /* Cote au sol — ligne + flèches simples */
+    line("DIMENSIONS", xOff,       -0.3, xOff + s.l, -0.3);
+    line("DIMENSIONS", xOff,       -0.4, xOff,        0);
+    line("DIMENSIONS", xOff + s.l, -0.4, xOff + s.l,  0);
+    xOff += s.l + spacing;
+  });
+  emit(0,"ENDSEC", 0,"EOF");
+
+  var content = lines.join("\n") + "\n";
+  var blob = new Blob([content], { type: "application/dxf" });
+  var fname = "mesurepro-" + slug(project.addr) + "-elevations.dxf";
+  downloadBlob(blob, fname);
+}
+
+function exportReportPdf(r) {
+  var doc = new jsPDF();
+  doc.setFontSize(16); doc.text(r.title||"Rapport", 14, 18);
+  doc.setFontSize(10); doc.setTextColor(100);
+  doc.text("Reference: " + (r.ref||""), 14, 26);
+  if (r.updated) doc.text("Mise a jour: " + r.updated, 14, 31);
+  doc.setTextColor(0);
+  var y = 38;
+  if (r.co || r.cl) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Entreprise", r.co ? (r.co.nom||"") : "", "Client", r.cl ? (r.cl.nom||"") : ""]],
+      body: [
+        ["Adresse", r.co?(r.co.adr||""):"", "Adresse", r.cl?(r.cl.adr||""):""],
+        ["Tel",     r.co?(r.co.tel||""):"", "Tel",     r.cl?(r.cl.tel||""):""],
+        ["Email",   r.co?(r.co.email||""):"","Email",  r.cl?(r.cl.email||""):""],
+      ],
+      headStyles: {fillColor: [21,33,53]},
+      styles: {fontSize: 9},
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+  if (r.kind === "meas") {
+    if (r.data) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Mesure","Valeur"]],
+        body: Object.keys(r.data).map(function(k){ return [k, r.data[k]]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    }
+    if (r.rows) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Facade","Surface","Long.","Haut.","Materiau"]],
+        body: r.rows.map(function(row){ return [row.n,row.s,row.l,row.h,row.m]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    }
+    if (r.notes) {
+      doc.setFontSize(10);
+      var notes = doc.splitTextToSize("Notes: " + r.notes, 180);
+      doc.text(notes, 14, y);
+    }
+  }
+  if (r.kind === "devis") {
+    if (r.lines) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Description","Qte","Unite","P.U. EUR","Total EUR"]],
+        body: r.lines.map(function(l){ return [l.d,l.q,l.u,l.pu,l.t]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+      y = doc.lastAutoTable.finalY + 6;
+    }
+    var sub = (r.lines||[]).reduce(function(a,l){ return a + parseFloat(l.t||0); }, 0);
+    var disc = parseFloat(r.discount||0);
+    var ad = sub*(1-disc/100), tva = ad*0.2, tot = ad+tva;
+    autoTable(doc, {
+      startY: y,
+      body: [
+        ["Sous-total HT", sub.toFixed(2)+" EUR"],
+        ["Remise "+disc+"%", "-"+(sub*disc/100).toFixed(2)+" EUR"],
+        ["TVA 20%", tva.toFixed(2)+" EUR"],
+        ["TOTAL TTC", tot.toFixed(2)+" EUR"],
+      ],
+      styles: {fontSize: 11, fontStyle: "bold"},
+      columnStyles: {1: {halign: "right"}},
+    });
+  }
+  if (r.kind === "insp" && r.checks) {
+    var STAT = {ok:"Conforme",warn:"Surveiller",crit:"Critique"};
+    autoTable(doc, {
+      startY: y,
+      head: [["Zone","Item","Statut","Note"]],
+      body: r.checks.map(function(c){ return [c.z,c.it,STAT[c.s]||c.s,c.note||""]; }),
+      headStyles: {fillColor: [21,33,53]},
+      styles: {fontSize: 9},
+    });
+    y = doc.lastAutoTable.finalY + 8;
+    if (r.reco) {
+      doc.setFontSize(11); doc.text("Recommandations:", 14, y);
+      doc.setFontSize(9);
+      doc.text(doc.splitTextToSize(r.reco, 180), 14, y + 6);
+    }
+  }
+  if (r.kind === "prop") {
+    if (r.intro) {
+      doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(r.intro, 180), 14, y);
+      y += 24;
+    }
+    if (r.projs) {
+      autoTable(doc, {
+        startY: y,
+        head: [["Projet","Surface","Budget","Delai","Priorite"]],
+        body: r.projs.map(function(p){ return [p.n,p.s,p.b,p.d,p.p]; }),
+        headStyles: {fillColor: [21,33,53]},
+      });
+    }
+  }
+  doc.save("mesurepro-" + slug(r.ref || r.title) + ".pdf");
+}
+
+const BM = {
+  done:      {lbl:"Termine",     col:"#00E5A0", bg:"rgba(0,229,160,0.12)"},
+  sent:      {lbl:"Envoye",      col:"#00E5A0", bg:"rgba(0,229,160,0.12)"},
+  processing:{lbl:"En cours",    col:"#FF8C42", bg:"rgba(255,140,66,0.12)"},
+  review:    {lbl:"En revision", col:"#00C2FF", bg:"rgba(0,194,255,0.13)"},
+  draft:     {lbl:"Brouillon",   col:"#607898", bg:"rgba(96,120,152,0.14)"},
+};
+
+function Badge({ s }) {
+  const b = BM[s] || BM.draft;
+  return (
+    <span style={{fontSize:10,fontWeight:700,color:b.col,background:b.bg,
+      padding:"3px 9px",borderRadius:20,textTransform:"uppercase",whiteSpace:"nowrap"}}>
+      {b.lbl}
+    </span>
+  );
+}
+
+function Btn({ onClick, children, primary, sm, style:ex }) {
+  const bg = primary ? "#00C2FF" : "#152135";
+  const col = primary ? "#000" : "#E8EDF5";
+  return (
+    <button type="button" onClick={onClick} style={{
+      display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,
+      background:bg, color:col,
+      border:primary ? "none" : "1px solid #1C3050",
+      borderRadius:7, cursor:"pointer",
+      padding:sm ? "4px 11px" : "8px 16px",
+      fontSize:sm ? 11 : 13, fontWeight:primary ? 800 : 500,
+      lineHeight:1.2, outline:"none", flexShrink:0,
+      ...ex
+    }}>{children}</button>
+  );
+}
+
+function Toast({ msg, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 2400);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return (
+    <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,
+      background:"#00E5A0",color:"#000",fontWeight:700,fontSize:13,
+      padding:"10px 20px",borderRadius:8,pointerEvents:"none"}}>
+      OK {msg}
+    </div>
+  );
+}
+
+/* ---- EF: click-to-edit, confirm with OK button, no onBlur ---- */
+function EF({ val, onSave, multi, style:ex }) {
+  const [editing, setEditing] = useState(false);
+  const [v, setV] = useState(String(val == null ? "" : val));
+  useEffect(() => { if (!editing) setV(String(val == null ? "" : val)); }, [val]);
+
+  const commit = () => { onSave(v); setEditing(false); };
+  const cancel = () => { setV(String(val == null ? "" : val)); setEditing(false); };
+
+  if (editing) {
+    const inp = {
+      fontFamily:"inherit",fontSize:"inherit",fontWeight:"inherit",
+      color:"#E8EDF5",background:"#152135",
+      border:"2px solid #00C2FF",borderRadius:5,
+      padding:"3px 8px",outline:"none",boxSizing:"border-box",...ex,
+    };
+    return (
+      <span style={{display:"inline-flex",alignItems:"center",gap:4,width:"100%"}}>
+        {multi
+          ? <textarea value={v} onChange={e => setV(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === "Escape") cancel(); }}
+              style={{...inp,resize:"vertical",minHeight:60,lineHeight:1.5,width:"100%"}}/>
+          : <input value={v} onChange={e => setV(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+              style={{...inp,minWidth:50,flex:1}}/>
+        }
+        <button type="button" onClick={commit}
+          style={{background:"#00C2FF",color:"#000",border:"none",borderRadius:4,
+            padding:"2px 8px",fontSize:12,fontWeight:800,cursor:"pointer",flexShrink:0}}>
+          OK
+        </button>
+        <button type="button" onClick={cancel}
+          style={{background:"#152135",color:"#607898",border:"1px solid #1C3050",
+            borderRadius:4,padding:"2px 7px",fontSize:11,cursor:"pointer",flexShrink:0}}>
+          X
+        </button>
+      </span>
+    );
+  }
+  const display = (val !== null && val !== undefined && String(val).trim() !== "") ? String(val) : null;
+  return (
+    <span onClick={() => { setV(String(val == null ? "" : val)); setEditing(true); }}
+      title="Cliquer pour modifier"
+      style={{cursor:"pointer",borderBottom:"1px dashed #2E4A6A",display:"inline-block",minWidth:20,...ex}}>
+      {display || <span style={{color:"#2E4A6A",fontStyle:"italic"}}>---</span>}
+    </span>
+  );
+}
+
+/* ---- House SVG (4 shapes) ---- */
+function House({ shape, mat, matCol, small, photos }) {
+  /* Wall fill: prefer pattern (mat.fill) > color (mat.col / matCol fallback) */
+  const colFallback = (mat && mat.col) || matCol || "#BFB09A";
+  const wc = (mat && mat.fill) || colFallback;
+  const wcDark = (mat && mat.fill) || sh(colFallback, -15);
+  const rc = "#2E1E10";
+  const win = "#7BBCE8";
+  const dr = "#6B4226";
+  const sc = small ? 0.5 : 1;
+  const W2 = 320 * sc;
+  const H2 = 200 * sc;
+  if (shape === "S") {
+    return (
+      <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
+        <rect x="25" y="85" width="270" height="115" fill={wc} rx="2"/>
+        <polygon points="25,86 160,16 295,86" fill={rc}/>
+        <rect x="55"  y="108" width="54" height="44" fill={win} rx="3" opacity="0.88"/>
+        <line x1="55"  x2="109" y1="130" y2="130" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <line x1="82"  x2="82"  y1="108" y2="152" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <rect x="215" y="108" width="54" height="44" fill={win} rx="3" opacity="0.88"/>
+        <line x1="215" x2="269" y1="130" y2="130" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <line x1="242" x2="242" y1="108" y2="152" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <rect x="128" y="138" width="64" height="62" fill={dr} rx="2"/>
+        <circle cx="184" cy="172" r="3" fill="#DAA520"/>
+        <rect x="205"  y="32"  width="22" height="30" fill={rc}/>
+      </svg>
+    );
+  }
+  if (shape === "M") {
+    return (
+      <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
+        <rect x="10" y="72" width="300" height="118" fill={wc} rx="4"/>
+        <rect x="8"  y="63" width="304" height="13"  fill={rc} rx="2"/>
+        <rect x="20" y="90" width="68"  height="50"  fill={win} rx="4" opacity="0.9"/>
+        <line x1="54"  x2="54"  y1="90" y2="140" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <line x1="20"  x2="88"  y1="115" y2="115" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <rect x="108" y="90" width="68"  height="50"  fill={win} rx="4" opacity="0.9"/>
+        <line x1="142" x2="142" y1="90" y2="140" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <line x1="108" x2="176" y1="115" y2="115" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <rect x="196" y="90" width="98"  height="50"  fill={win} rx="4" opacity="0.9"/>
+        <line x1="245" x2="245" y1="90" y2="140" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <line x1="196" x2="294" y1="115" y2="115" stroke="#fff" strokeWidth="0.8" opacity="0.4"/>
+        <rect x="125" y="150" width="55" height="40" fill={dr} rx="3"/>
+        <rect x="62"  y="26"  width="196" height="8"  fill={rc} rx="2"/>
+      </svg>
+    );
+  }
+  if (shape === "F") {
+    return (
+      <svg width={W2} height={H2} viewBox="0 0 320 200">
+        <MatDefs photos={photos}/>
+        <rect x="10" y="92" width="300" height="98" fill={wc} rx="2"/>
+        <polygon points="10,93 160,25 310,93" fill={rc}/>
+        <rect x="22"  y="110" width="58" height="46" fill={win} rx="2" opacity="0.85"/>
+        <line x1="51"  x2="51"  y1="110" y2="156" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <line x1="22"  x2="80"  y1="133" y2="133" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <rect x="98"  y="110" width="50" height="44" fill={win} rx="2" opacity="0.85"/>
+        <line x1="123" x2="123" y1="110" y2="154" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <line x1="98"  x2="148" y1="132" y2="132" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <rect x="172" y="110" width="50" height="44" fill={win} rx="2" opacity="0.85"/>
+        <line x1="197" x2="197" y1="110" y2="154" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <line x1="172" x2="222" y1="132" y2="132" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <rect x="240" y="110" width="58" height="46" fill={win} rx="2" opacity="0.85"/>
+        <line x1="269" x2="269" y1="110" y2="156" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <line x1="240" x2="298" y1="133" y2="133" stroke="#fff" strokeWidth="0.7" opacity="0.38"/>
+        <rect x="133" y="148" width="54" height="42" fill={dr} rx="2"/>
+        <circle cx="178" cy="172" r="2.5" fill="#DAA520"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width={W2} height={H2} viewBox="0 0 320 200">
+      <MatDefs photos={photos}/>
+      <rect x="18"  y="98"  width="194" height="92" fill={wc}/>
+      <rect x="212" y="118" width="88"  height="72" fill={wcDark} rx="1"/>
+      <polygon points="8,99 122,35 214,99" fill={rc}/>
+      <polygon points="208,119 255,84 308,119" fill={rc}/>
+      <rect x="36"  y="117" width="52" height="41" fill={win} rx="3" opacity="0.88"/>
+      <line x1="62"  x2="62"  y1="117" y2="158" stroke="#fff" strokeWidth="0.8" opacity="0.42"/>
+      <line x1="36"  x2="88"  y1="138" y2="138" stroke="#fff" strokeWidth="0.8" opacity="0.42"/>
+      <rect x="103" y="117" width="52" height="41" fill={win} rx="3" opacity="0.88"/>
+      <line x1="129" x2="129" y1="117" y2="158" stroke="#fff" strokeWidth="0.8" opacity="0.42"/>
+      <line x1="103" x2="155" y1="138" y2="138" stroke="#fff" strokeWidth="0.8" opacity="0.42"/>
+      <rect x="221" y="136" width="46" height="36" fill={win} rx="3" opacity="0.88"/>
+      <line x1="244" x2="244" y1="136" y2="172" stroke="#fff" strokeWidth="0.8" opacity="0.42"/>
+      <rect x="160" y="146" width="42" height="44" fill={dr} rx="2"/>
+      <circle cx="195" cy="170" r="2.5" fill="#DAA520"/>
+      <rect x="86"  y="44"  width="20" height="28" fill={sh(rc,-8)}/>
+    </svg>
+  );
+}
+
+/* ---- Iso 3D model (SVG, no canvas) ---- */
+/* ---- Building3D: walls + roof + foundation as Three.js meshes ---- */
+/* ---- Canvas 2D pattern drawers (procedural texture maps)
+   Designed for high-res tiles (1024 px). Each function paints a
+   tileable albedo. The matching draw*Bump function paints a greyscale
+   bump map encoding relief depth (white = peak, black = valley/joint).
+   meshStandardMaterial uses both: map (color) + bumpMap (depth). */
+
+/* Tiny seedable PRNG for deterministic noise */
+function seededRand(seed) {
+  var s = seed | 0;
+  return function() {
+    s = (s * 1664525 + 1013904223) | 0;
+    return ((s >>> 0) / 4294967296);
+  };
+}
+
+/* --- BRICK --- */
+function drawBrickTex(ctx, W, H) {
+  var brickW = W / 6, brickH = H / 18, mortar = 2.2;
+  /* Mortar background with subtle variation */
+  ctx.fillStyle = "#b8a37e"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(42);
+  /* Mortar speckle */
+  for (var i = 0; i < 800; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    ctx.fillStyle = "rgba(" + (160 + Math.floor(rng()*40)) + "," + (140 + Math.floor(rng()*30)) + "," + (110 + Math.floor(rng()*30)) + ",0.6)";
+    ctx.fillRect(rx, ry, 1.5, 1.5);
+  }
+  var palette = [
+    {r:160,g: 56,b: 31},  /* dark red */
+    {r:177,g: 69,b: 40},  /* mid red */
+    {r:147,g: 48,b: 32},  /* very dark */
+    {r:168,g: 64,b: 31},  /* warm */
+    {r:179,g: 74,b: 44},  /* lighter warm */
+    {r:140,g: 50,b: 35},  /* aubergine */
+    {r:185,g: 88,b: 60},  /* salmon-y aged */
+  ];
+  for (var row = 0; row < 18; row++) {
+    var off = (row % 2) ? brickW * 0.5 : 0;
+    for (var col = -1; col <= 6; col++) {
+      var bx = col * brickW + off + mortar;
+      var by = row * brickH + mortar;
+      var bw = brickW - mortar * 2;
+      var bh = brickH - mortar * 2;
+      if (bx + bw < 0 || bx > W) continue;
+      var p = palette[Math.floor(rng() * palette.length)];
+      /* Per-brick subtle hue + value variation */
+      var dR = (rng() - 0.5) * 24, dG = (rng() - 0.5) * 18, dB = (rng() - 0.5) * 14;
+      var br = Math.max(0, Math.min(255, p.r + dR));
+      var bg = Math.max(0, Math.min(255, p.g + dG));
+      var bb = Math.max(0, Math.min(255, p.b + dB));
+      var grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+      grad.addColorStop(0,    "rgb("+Math.min(255,br+22)+","+Math.min(255,bg+18)+","+Math.min(255,bb+15)+")");
+      grad.addColorStop(0.5,  "rgb("+br+","+bg+","+bb+")");
+      grad.addColorStop(1,    "rgb("+Math.max(0,br-30)+","+Math.max(0,bg-22)+","+Math.max(0,bb-18)+")");
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, by, bw, bh);
+      /* Texture noise inside the brick (microvariations) */
+      for (var s = 0; s < 14; s++) {
+        var nx = bx + rng() * bw, ny = by + rng() * bh;
+        ctx.fillStyle = "rgba(0,0,0," + (0.04 + rng() * 0.10) + ")";
+        ctx.fillRect(nx, ny, 1, 1);
+      }
+      /* Edge cast shadow inside mortar joint (left + bottom) */
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(bx, by + bh - 1.5, bw, 1.5);
+      ctx.fillRect(bx, by, 1.2, bh);
+      /* Edge highlight (top + right edge of brick) */
+      ctx.fillStyle = "rgba(255,210,180,0.40)";
+      ctx.fillRect(bx, by, bw, 1);
+      ctx.fillRect(bx + bw - 0.8, by, 0.8, bh);
+      /* Random stains on a few bricks (efflorescence / weathering) */
+      if (rng() < 0.12) {
+        ctx.fillStyle = "rgba(255,255,255,0.20)";
+        ctx.beginPath();
+        ctx.ellipse(bx + bw * (0.3 + rng() * 0.4), by + bh * (0.3 + rng() * 0.4),
+                    bw * 0.25, bh * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (rng() < 0.06) {
+        ctx.fillStyle = "rgba(70,90,40,0.32)"; /* moss tint */
+        ctx.beginPath();
+        ctx.ellipse(bx + bw * 0.2, by + bh * 0.85, bw * 0.35, bh * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+function drawBrickBump(ctx, W, H) {
+  /* Black mortar joints, white bricks (with slight slope highlight) */
+  var brickW = W / 6, brickH = H / 18, mortar = 2.2;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  for (var row = 0; row < 18; row++) {
+    var off = (row % 2) ? brickW * 0.5 : 0;
+    for (var col = -1; col <= 6; col++) {
+      var bx = col * brickW + off + mortar;
+      var by = row * brickH + mortar;
+      var bw = brickW - mortar * 2;
+      var bh = brickH - mortar * 2;
+      if (bx + bw < 0 || bx > W) continue;
+      var grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+      grad.addColorStop(0,   "#fff");
+      grad.addColorStop(0.7, "#cccccc");
+      grad.addColorStop(1,   "#888");
+      ctx.fillStyle = grad;
+      ctx.fillRect(bx, by, bw, bh);
+    }
+  }
+}
+
+/* --- WOOD (horizontal lap siding) --- */
+function drawWoodTex(ctx, W, H) {
+  var planks = 14;
+  var planeH = H / planks;
+  var rng = seededRand(7);
+  ctx.fillStyle = "#8a5828"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < planks; i++) {
+    var y = i * planeH;
+    /* Per-plank base hue/value variation */
+    var dR = (rng() - 0.5) * 22, dG = (rng() - 0.5) * 16, dB = (rng() - 0.5) * 12;
+    var br = Math.max(0, Math.min(255, 198 + dR));
+    var bg = Math.max(0, Math.min(255, 134 + dG));
+    var bb = Math.max(0, Math.min(255,  66 + dB));
+    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
+    grad.addColorStop(0,    "rgb("+Math.min(255,br+34)+","+Math.min(255,bg+24)+","+Math.min(255,bb+18)+")");
+    grad.addColorStop(0.5,  "rgb("+br+","+bg+","+bb+")");
+    grad.addColorStop(0.95, "rgb("+Math.max(0,br-46)+","+Math.max(0,bg-32)+","+Math.max(0,bb-22)+")");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, planeH);
+    /* Wood grain — long horizontal streaks */
+    for (var g = 0; g < 28; g++) {
+      var gy = y + rng() * planeH;
+      ctx.strokeStyle = "rgba(58,38,18," + (0.10 + rng() * 0.15) + ")";
+      ctx.lineWidth = 0.5 + rng();
+      ctx.beginPath();
+      ctx.moveTo(0, gy);
+      ctx.bezierCurveTo(W*0.3, gy + (rng()-0.5)*1.5, W*0.7, gy + (rng()-0.5)*1.5, W, gy + (rng()-0.5)*1.5);
+      ctx.stroke();
+    }
+    /* Cast shadow at the bottom of each plank (siding overlap) */
+    ctx.fillStyle = "rgba(30,18,8,0.85)"; ctx.fillRect(0, y + planeH - 3, W, 3);
+    ctx.fillStyle = "rgba(80,50,24,0.5)"; ctx.fillRect(0, y + planeH - 5, W, 2);
+    /* Knots (random positions per plank) */
+    if (rng() < 0.4) {
+      var kx = rng() * W, ky = y + planeH * (0.3 + rng() * 0.4);
+      ctx.fillStyle = "rgba(58,30,12,0.65)";
+      ctx.beginPath(); ctx.ellipse(kx, ky, 7 + rng()*5, 3 + rng()*2, 0, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = "rgba(110,68,30,0.55)";
+      ctx.beginPath(); ctx.ellipse(kx, ky, 4 + rng()*3, 2, 0, 0, Math.PI*2); ctx.fill();
+    }
+    /* Vertical butt joint occasionally */
+    if (rng() < 0.5) {
+      var jx = rng() * W;
+      ctx.strokeStyle = "rgba(20,12,4,0.7)"; ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(jx, y + 1); ctx.lineTo(jx, y + planeH - 3); ctx.stroke();
+    }
+  }
+}
+function drawWoodBump(ctx, W, H) {
+  var planks = 14, planeH = H / planks;
+  ctx.fillStyle = "#cccccc"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < planks; i++) {
+    var y = i * planeH;
+    var grad = ctx.createLinearGradient(0, y, 0, y + planeH);
+    grad.addColorStop(0,    "#dddddd");
+    grad.addColorStop(0.85, "#aaaaaa");
+    grad.addColorStop(1,    "#000000");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, planeH);
+  }
+}
+
+/* --- STONE (rubble masonry) --- */
+function drawStoneTex(ctx, W, H) {
+  ctx.fillStyle = "#5e564b"; ctx.fillRect(0, 0, W, H); /* mortar */
+  var rng = seededRand(99);
+  /* Lay out irregular stones by rows of varying heights */
+  var y = 0;
+  while (y < H) {
+    var rowH = H * (0.10 + rng() * 0.10);
+    var x = 0;
+    while (x < W) {
+      var stoneW = W * (0.08 + rng() * 0.18);
+      var stoneH = rowH * (0.85 + rng() * 0.15);
+      var sx = x + 2, sy = y + 2;
+      var sw = Math.min(stoneW - 4, W - sx - 2);
+      var sh = stoneH - 4;
+      if (sw < 4 || sh < 4) { x += stoneW; continue; }
+      /* Pick a stone shade family */
+      var shade = 110 + Math.floor(rng() * 60); /* 110-170 grey */
+      var warm  = Math.floor(rng() * 25);
+      var br = Math.min(255, shade + warm + 8);
+      var bg = Math.min(255, shade + warm * 0.6);
+      var bb = Math.min(255, shade);
+      /* Polygonal stone (slightly irregular) */
+      ctx.beginPath();
+      ctx.moveTo(sx + rng()*3,        sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + sh - rng()*3);
+      ctx.lineTo(sx + rng()*3,        sy + sh - rng()*3);
+      ctx.closePath();
+      var grad = ctx.createRadialGradient(sx + sw/2, sy + sh/2, 1, sx + sw/2, sy + sh/2, Math.max(sw, sh));
+      grad.addColorStop(0,    "rgb("+Math.min(255,br+20)+","+Math.min(255,bg+18)+","+Math.min(255,bb+15)+")");
+      grad.addColorStop(0.7,  "rgb("+br+","+bg+","+bb+")");
+      grad.addColorStop(1,    "rgb("+Math.max(0,br-40)+","+Math.max(0,bg-32)+","+Math.max(0,bb-25)+")");
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(35,30,22,0.8)";
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+      /* Speckle texture inside */
+      for (var n = 0; n < 18; n++) {
+        var nx = sx + rng() * sw, ny = sy + rng() * sh;
+        ctx.fillStyle = "rgba(0,0,0," + (0.06 + rng() * 0.18) + ")";
+        ctx.fillRect(nx, ny, 1, 1);
+      }
+      /* Random small crack */
+      if (rng() < 0.25) {
+        ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(sx + rng()*sw, sy + rng()*sh);
+        ctx.lineTo(sx + rng()*sw, sy + rng()*sh);
+        ctx.stroke();
+      }
+      x += stoneW;
+    }
+    y += rowH;
+  }
+}
+function drawStoneBump(ctx, W, H) {
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(99);
+  var y = 0;
+  while (y < H) {
+    var rowH = H * (0.10 + rng() * 0.10);
+    var x = 0;
+    while (x < W) {
+      var stoneW = W * (0.08 + rng() * 0.18);
+      var stoneH = rowH * (0.85 + rng() * 0.15);
+      var sx = x + 2, sy = y + 2;
+      var sw = Math.min(stoneW - 4, W - sx - 2);
+      var sh = stoneH - 4;
+      if (sw < 4 || sh < 4) { x += stoneW; continue; }
+      ctx.beginPath();
+      ctx.moveTo(sx + rng()*3,        sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + rng()*3);
+      ctx.lineTo(sx + sw - rng()*3,   sy + sh - rng()*3);
+      ctx.lineTo(sx + rng()*3,        sy + sh - rng()*3);
+      ctx.closePath();
+      var rad = ctx.createRadialGradient(sx + sw/2, sy + sh/2, 1, sx + sw/2, sy + sh/2, Math.max(sw, sh));
+      rad.addColorStop(0,   "#fff");
+      rad.addColorStop(0.6, "#cccccc");
+      rad.addColorStop(1,   "#666");
+      ctx.fillStyle = rad;
+      ctx.fill();
+      x += stoneW;
+    }
+    y += rowH;
+  }
+}
+
+/* --- SLATE (overlapping shingles) --- */
+function drawSlateTex(ctx, W, H) {
+  ctx.fillStyle = "#2c333d"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(31);
+  var rows = 8;
+  var rowH = H / rows;
+  var tileW = W / 11;
+  for (var row = 0; row < rows; row++) {
+    var off = (row % 2) ? tileW * 0.5 : 0;
+    var y = row * rowH;
+    for (var col = -1; col <= 11; col++) {
+      var x = col * tileW + off;
+      /* Per-tile hue variation */
+      var v = 65 + Math.floor(rng() * 35); /* 65-100 grey */
+      var b1 = "rgb(" + (v+15) + "," + (v+22) + "," + (v+30) + ")";
+      var b2 = "rgb(" + v + "," + (v+5) + "," + (v+15) + ")";
+      var b3 = "rgb(" + Math.max(0,v-30) + "," + Math.max(0,v-25) + "," + Math.max(0,v-15) + ")";
+      var grad = ctx.createLinearGradient(0, y, 0, y + rowH);
+      grad.addColorStop(0,    b1);
+      grad.addColorStop(0.55, b2);
+      grad.addColorStop(1,    b3);
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, y, tileW, rowH);
+      /* Subtle vertical edge lines between adjacent shingles */
+      ctx.strokeStyle = "rgba(0,0,0,0.55)";
+      ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(x + tileW, y); ctx.lineTo(x + tileW, y + rowH); ctx.stroke();
+      /* Texture noise on the slate */
+      for (var n = 0; n < 8; n++) {
+        ctx.fillStyle = "rgba(0,0,0," + (0.06 + rng() * 0.10) + ")";
+        ctx.fillRect(x + rng() * tileW, y + rng() * rowH, 1, 1);
+      }
+    }
+    /* Hard cast shadow at the bottom of each row (where the shingles overlap) */
+    var shGrad = ctx.createLinearGradient(0, y + rowH - 5, 0, y + rowH);
+    shGrad.addColorStop(0, "rgba(0,0,0,0)");
+    shGrad.addColorStop(1, "rgba(0,0,0,0.85)");
+    ctx.fillStyle = shGrad;
+    ctx.fillRect(0, y + rowH - 5, W, 5);
+  }
+}
+function drawSlateBump(ctx, W, H) {
+  var rows = 8, rowH = H / rows;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  for (var row = 0; row < rows; row++) {
+    var y = row * rowH;
+    var grad = ctx.createLinearGradient(0, y, 0, y + rowH);
+    grad.addColorStop(0,   "#cccccc");
+    grad.addColorStop(0.7, "#777");
+    grad.addColorStop(1,   "#000");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, y, W, rowH);
+  }
+}
+
+/* --- WHITE STUCCO --- */
+function drawWhiteTex(ctx, W, H) {
+  ctx.fillStyle = "#E8E4DC"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(5);
+  /* Subtle large-scale vignette / patches */
+  for (var i = 0; i < 12; i++) {
+    var px = rng() * W, py = rng() * H;
+    var r = 60 + rng() * 80;
+    var grad = ctx.createRadialGradient(px, py, 1, px, py, r);
+    grad.addColorStop(0, "rgba(232,228,220," + (0.3 + rng() * 0.3) + ")");
+    grad.addColorStop(1, "rgba(220,214,200,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI*2); ctx.fill();
+  }
+  /* Granular finish */
+  for (var i2 = 0; i2 < 1400; i2++) {
+    var rx = rng() * W, ry = rng() * H;
+    var v = 160 + Math.floor(rng() * 50);
+    ctx.fillStyle = "rgba(" + v + "," + (v - 6) + "," + (v - 18) + "," + (0.35 + rng() * 0.25) + ")";
+    ctx.fillRect(rx, ry, 1.4, 1.4);
+  }
+  /* A few darker stains (weathering) */
+  for (var i3 = 0; i3 < 5; i3++) {
+    ctx.fillStyle = "rgba(170,160,140,0.18)";
+    ctx.beginPath();
+    ctx.ellipse(rng() * W, rng() * H, 30 + rng() * 25, 8 + rng() * 12, rng() * Math.PI, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+function drawWhiteBump(ctx, W, H) {
+  var rng = seededRand(5);
+  ctx.fillStyle = "#888"; ctx.fillRect(0, 0, W, H);
+  for (var i = 0; i < 5000; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    ctx.fillStyle = "rgb(" + Math.floor(140 + rng() * 100) + "," + Math.floor(140 + rng() * 100) + "," + Math.floor(140 + rng() * 100) + ")";
+    ctx.fillRect(rx, ry, 1.2, 1.2);
+  }
+}
+
+/* --- GREY CONCRETE --- */
+function drawGreyTex(ctx, W, H) {
+  ctx.fillStyle = "#7A8899"; ctx.fillRect(0, 0, W, H);
+  var rng = seededRand(17);
+  /* Larger aggregate dots */
+  for (var i = 0; i < 200; i++) {
+    var rx = rng() * W, ry = rng() * H;
+    var r = 0.8 + rng() * 1.6;
+    ctx.fillStyle = "rgba(94,108,122,0.7)";
+    ctx.beginPath(); ctx.arc(rx, ry, r, 0, Math.PI*2); ctx.fill();
+  }
+  /* Fine speckle */
+  for (var i2 = 0; i2 < 1500; i2++) {
+    ctx.fillStyle = "rgba(58,68,82," + (0.2 + rng() * 0.4) + ")";
+    ctx.fillRect(rng() * W, rng() * H, 0.7, 0.7);
+  }
+  /* Control joints */
+  ctx.strokeStyle = "rgba(40,48,58,0.8)"; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+  /* Edge highlight inside the joints */
+  ctx.strokeStyle = "rgba(180,190,205,0.35)"; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(0, H/2 + 1.5); ctx.lineTo(W, H/2 + 1.5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2 + 1.5, 0); ctx.lineTo(W/2 + 1.5, H); ctx.stroke();
+  /* Water stains */
+  for (var s = 0; s < 4; s++) {
+    ctx.fillStyle = "rgba(50,60,72,0.15)";
+    ctx.beginPath();
+    ctx.ellipse(rng() * W, rng() * H, 25 + rng() * 30, 10 + rng() * 15, rng() * Math.PI, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+function drawGreyBump(ctx, W, H) {
+  ctx.fillStyle = "#aaa"; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = "#000"; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+}
+
+var TEX_DRAWERS = {
+  brick: { color: drawBrickTex, bump: drawBrickBump },
+  wood:  { color: drawWoodTex,  bump: drawWoodBump  },
+  stone: { color: drawStoneTex, bump: drawStoneBump },
+  slate: { color: drawSlateTex, bump: drawSlateBump },
+  white: { color: drawWhiteTex, bump: drawWhiteBump },
+  grey:  { color: drawGreyTex,  bump: drawGreyBump  },
+};
+
+/* Helper: draw a pattern into a freshly-allocated canvas (Canvas2D fallback) */
+function makeCanvas(W, H, drawer) {
+  var c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  drawer(c.getContext("2d"), W, H);
+  return c;
+}
+
+var TEX_RES = 1024;
+
+/* ---- High-quality PBR textures (CC0, sourced from Polyhaven)
+   Bundled in /public/textures/ for zero-latency, CORS-clean loading.
+   Each material has a diffuse map + a displacement map (used as
+   bumpMap for relief without geometry cost). Falls back to the
+   Canvas2D drawers if the bundled file is missing. */
+var POLYHAVEN_BASE = "/textures/";
+var POLYHAVEN_SLUGS = {
+  brick: "red_brick_03",
+  wood:  "wood_planks",
+  stone: "cobblestone_05",
+  slate: "roof_07",            /* used on the roof regardless of wall material */
+  white: "painted_plaster_wall",
+  grey:  "painted_concrete",
+};
+
+function polyhavenUrl(slug, kind) {
+  return POLYHAVEN_BASE + slug + "_" + kind + ".jpg";
+}
+
+/* Build a Three.js Texture for a given material:
+   - photoUrl provided -> load that photo (custom photo material from
+     a project upload or a demo Unsplash URL).
+   - matId provided    -> load the Polyhaven PBR texture pair (diff + disp).
+   - on load error     -> fall back to the Canvas2D drawers.
+   Returns {map, bumpMap}. */
+function useMatTexture(matId, photoUrl, repeat) {
+  return useMemo(function() {
+    var loader = new THREE.TextureLoader();
+    loader.crossOrigin = "anonymous";
+    var map, bumpMap = null;
+
+    function applyFilters(t) {
+      if (!t) return;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      if (repeat) t.repeat.set(repeat[0], repeat[1]);
+      t.anisotropy = 16;
+      t.needsUpdate = true;
+    }
+    function fallbackDrawers() {
+      var drawers = TEX_DRAWERS[matId] || TEX_DRAWERS.white;
+      var fbMap = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.color));
+      var fbBump = new THREE.CanvasTexture(makeCanvas(TEX_RES, TEX_RES, drawers.bump));
+      applyFilters(fbMap); applyFilters(fbBump);
+      if (THREE.SRGBColorSpace) fbMap.colorSpace = THREE.SRGBColorSpace;
+      return { map: fbMap, bumpMap: fbBump };
+    }
+
+    if (photoUrl) {
+      map = loader.load(
+        photoUrl,
+        function(){ applyFilters(map); },
+        undefined,
+        function(){ console.warn("Photo texture failed:", photoUrl); }
+      );
+    } else {
+      var slug = POLYHAVEN_SLUGS[matId] || POLYHAVEN_SLUGS.white;
+      var diff = polyhavenUrl(slug, "diff");
+      var disp = polyhavenUrl(slug, "disp");
+      var loaded = false;
+      map = loader.load(
+        diff,
+        function(){ loaded = true; applyFilters(map); },
+        undefined,
+        function() {
+          /* Polyhaven CDN unreachable -> swap to Canvas2D drawer fallback */
+          console.warn("Polyhaven texture failed for", slug, "-> using procedural fallback");
+          var fb = fallbackDrawers();
+          map.image = fb.map.image; map.needsUpdate = true;
+          if (bumpMap && fb.bumpMap) { bumpMap.image = fb.bumpMap.image; bumpMap.needsUpdate = true; }
+        }
+      );
+      bumpMap = loader.load(disp, function(){ applyFilters(bumpMap); });
+    }
+    applyFilters(map);
+    applyFilters(bumpMap);
+    if (THREE.SRGBColorSpace) map.colorSpace = THREE.SRGBColorSpace;
+    return { map: map, bumpMap: bumpMap };
+  }, [matId, photoUrl, repeat && repeat[0], repeat && repeat[1]]);
+}
+
+/* ---- Window grid generator (face-local coords)
+   x: relative to wall center, y: from wall bottom */
+function windowsForFace(width, height, fl, hasDoor) {
+  var cols = fl <= 2 ? 4 : 5;
+  var winW = width * 0.13;
+  var winH = (height / fl) * 0.55;
+  var pad  = (width - winW * cols) / (cols + 1);
+  var positions = [];
+  for (var f = 0; f < fl; f++) {
+    var cy = (height / fl) * (f + 0.5);
+    for (var c = 0; c < cols; c++) {
+      if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+      var cx = pad + c * (winW + pad) + winW/2 - width/2;
+      positions.push({ x: cx, y: cy, w: winW, h: winH });
+    }
+  }
+  var doorRect = null;
+  if (hasDoor) {
+    var dCol = Math.floor(cols/2);
+    var dx = pad + dCol * (winW + pad) + winW/2 - width/2;
+    var dW = winW * 1.25;
+    var dH = (height / fl) * 0.85;
+    doorRect = { x: dx, y: dH/2 + 0.05, w: dW, h: dH };
+  }
+  return { positions: positions, doorRect: doorRect };
+}
+
+/* Render windows + door + sills on one facade. The parent <group>
+   transforms it to the right wall in world coordinates. */
+function FacadeFeatures({ side, realW, realD, realH, fl }) {
+  var faceW = (side === "south" || side === "north") ? realW : realD;
+  var hasDoor = (side === "south");
+  var feat = useMemo(function(){ return windowsForFace(faceW, realH, fl, hasDoor); },
+                     [faceW, realH, fl, hasDoor]);
+
+  var groupProps;
+  /* Each facade local +Z points outward */
+  if (side === "south") {
+    groupProps = { position: [0, 0, realD/2 + 0.005] };
+  } else if (side === "east") {
+    groupProps = { position: [realW/2 + 0.005, 0, 0], rotation: [0, Math.PI/2, 0] };
+  } else if (side === "north") {
+    groupProps = { position: [0, 0, -realD/2 - 0.005], rotation: [0, Math.PI, 0] };
+  } else {
+    groupProps = { position: [-realW/2 - 0.005, 0, 0], rotation: [0, -Math.PI/2, 0] };
+  }
+
+  return (
+    <group {...groupProps}>
+      {feat.positions.map(function(p, i) {
+        return (
+          <group key={i} position={[p.x, p.y, 0]}>
+            {/* Window frame */}
+            <mesh castShadow>
+              <planeGeometry args={[p.w + 0.06, p.h + 0.06]} />
+              <meshStandardMaterial color="#ffffff" roughness={0.6} />
+            </mesh>
+            {/* Glass with slight reflection */}
+            <mesh position={[0, 0, 0.005]}>
+              <planeGeometry args={[p.w, p.h]} />
+              <meshStandardMaterial
+                color="#5588ad" roughness={0.05} metalness={0.7}
+                envMapIntensity={1}/>
+            </mesh>
+            {/* Cross mullions */}
+            <mesh position={[0, 0, 0.012]}>
+              <boxGeometry args={[p.w, 0.02, 0.005]} />
+              <meshStandardMaterial color="#ffffff"/>
+            </mesh>
+            <mesh position={[0, 0, 0.012]}>
+              <boxGeometry args={[0.02, p.h, 0.005]} />
+              <meshStandardMaterial color="#ffffff"/>
+            </mesh>
+            {/* Sill: thin protruding ledge under the window */}
+            <mesh position={[0, -p.h/2 - 0.025, 0.04]} castShadow>
+              <boxGeometry args={[p.w + 0.18, 0.05, 0.08]} />
+              <meshStandardMaterial color="#d8d4c8" roughness={0.85}/>
+            </mesh>
+          </group>
+        );
+      })}
+      {feat.doorRect && (
+        <group position={[feat.doorRect.x, feat.doorRect.y, 0]}>
+          <mesh position={[0, 0, 0.012]} castShadow>
+            <planeGeometry args={[feat.doorRect.w, feat.doorRect.h]} />
+            <meshStandardMaterial color="#5a3825" roughness={0.85}/>
+          </mesh>
+          {/* Panels (subtle indents drawn as slightly darker rects) */}
+          <mesh position={[-feat.doorRect.w*0.22, feat.doorRect.h*0.2, 0.013]}>
+            <planeGeometry args={[feat.doorRect.w*0.35, feat.doorRect.h*0.3]} />
+            <meshStandardMaterial color="#3a2614" roughness={0.9}/>
+          </mesh>
+          <mesh position={[ feat.doorRect.w*0.22, feat.doorRect.h*0.2, 0.013]}>
+            <planeGeometry args={[feat.doorRect.w*0.35, feat.doorRect.h*0.3]} />
+            <meshStandardMaterial color="#3a2614" roughness={0.9}/>
+          </mesh>
+          {/* Brass handle */}
+          <mesh position={[feat.doorRect.w*0.35, 0, 0.04]} castShadow>
+            <sphereGeometry args={[0.05, 12, 12]} />
+            <meshStandardMaterial color="#DAA520" metalness={0.85} roughness={0.25}/>
+          </mesh>
+        </group>
+      )}
+    </group>
+  );
+}
+
+function Building3D({ realW, realD, realH, fl, mat, roofType, photos }) {
+  var matColor = (mat && mat.col) || "#BFB09A";
+  var matId = mat && mat.id;
+  var matPhotoUrl = mat && mat.photo && mat.photo.url;
+  var roofColor = "#5a3825";
+
+  /* Photos chantier taggées par façade : si l'utilisateur a uploadé une
+     photo et l'a taggée "sud" / "nord" / "est" / "ouest", on l'utilise
+     comme texture de cette façade — rendu réaliste, pas un Polyhaven générique.
+     Fallback : photo du matériau global si défini, sinon Polyhaven. */
+  var photoArr = Array.isArray(photos) ? photos : [];
+  function findFacadePhoto(side) {
+    var p = photoArr.find(function(x){ return x && x.facade === side && x.url; });
+    return p ? p.url : null;
+  }
+  var sudUrl   = findFacadePhoto("sud")   || matPhotoUrl;
+  var nordUrl  = findFacadePhoto("nord")  || matPhotoUrl;
+  var estUrl   = findFacadePhoto("est")   || matPhotoUrl;
+  var ouestUrl = findFacadePhoto("ouest") || matPhotoUrl;
+
+  /* Wall texture: si photo chantier → repeat [1,1] (la photo couvre toute
+     la façade) ; sinon Polyhaven tile sur ~2.5 m × 3 m. */
+  var wallRepeatH = Math.max(1, Math.round(realW / 2.5));
+  var wallRepeatV = Math.max(1, Math.round(realH / 3));
+  var sideRepeatH = Math.max(1, Math.round(realD / 2.5));
+  var sudTex   = useMatTexture(matId || "white", sudUrl,   sudUrl   ? [1,1] : [wallRepeatH, wallRepeatV]);
+  var nordTex  = useMatTexture(matId || "white", nordUrl,  nordUrl  ? [1,1] : [wallRepeatH, wallRepeatV]);
+  var estTex   = useMatTexture(matId || "white", estUrl,   estUrl   ? [1,1] : [sideRepeatH, wallRepeatV]);
+  var ouestTex = useMatTexture(matId || "white", ouestUrl, ouestUrl ? [1,1] : [sideRepeatH, wallRepeatV]);
+  /* Slate roof texture (always slate regardless of wall material) */
+  var roofTex = useMatTexture("slate", null, [Math.max(2, Math.round(realW / 2)), 2]);
+
+  var rt = (roofType || "").toLowerCase();
+  var isFlat    = rt.indexOf("terras") !== -1;
+  var isMansart = rt.indexOf("mans") !== -1;
+  var is4pans   = rt.indexOf("4 pans") !== -1 || rt.indexOf("4pans") !== -1;
+  var roofH = isFlat ? 0.3 : (isMansart ? realH * 0.45 : Math.min(realW, realD) * 0.5);
+
+  /* Gable (Pignon) extruded triangle, ridge runs along Z */
+  var gableShape = useMemo(function() {
+    var s = new THREE.Shape();
+    s.moveTo(-realW/2 - 0.3, 0);
+    s.lineTo(realW/2 + 0.3, 0);
+    s.lineTo(0, roofH);
+    s.lineTo(-realW/2 - 0.3, 0);
+    return s;
+  }, [realW, roofH]);
+
+  /* 4-pans hipped roof: BufferGeometry with 4 sloped faces meeting at a ridge */
+  var hippedGeom = useMemo(function() {
+    if (!is4pans) return null;
+    var hw = realW/2 + 0.3, hd = realD/2 + 0.3, h = roofH;
+    var rw = realW * 0.15, rd = 0; /* ridge halfwidth + halfdepth (line, not point) */
+    /* 4 base corners + 2 ridge endpoints */
+    var v = [
+      [-hw, 0, -hd], [ hw, 0, -hd], [ hw, 0,  hd], [-hw, 0,  hd],
+      [-rw, h,  0], [ rw, h,  0],
+    ];
+    var f = [
+      [0,1,5],[0,5,4],   /* north slope */
+      [1,2,5],            /* east slope */
+      [2,3,4],[2,4,5],    /* south slope */
+      [3,0,4],            /* west slope */
+    ];
+    var positions = new Float32Array(f.length * 3 * 3);
+    var k = 0;
+    f.forEach(function(face){
+      face.forEach(function(idx){
+        positions[k++] = v[idx][0]; positions[k++] = v[idx][1]; positions[k++] = v[idx][2];
+      });
+    });
+    var g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    g.computeVertexNormals();
+    return g;
+  }, [realW, realD, roofH, is4pans]);
+
+  /* Mansard double-pitch */
+  var mansardLowerShape = useMemo(function() {
+    if (!isMansart) return null;
+    var s = new THREE.Shape();
+    var hw = realW/2 + 0.3, h2 = roofH * 0.55;
+    s.moveTo(-hw, 0);
+    s.lineTo( hw, 0);
+    s.lineTo( hw - 0.5, h2);
+    s.lineTo(-hw + 0.5, h2);
+    s.lineTo(-hw, 0);
+    return s;
+  }, [realW, roofH, isMansart]);
+  var mansardUpperShape = useMemo(function() {
+    if (!isMansart) return null;
+    var s = new THREE.Shape();
+    var hw = realW/2 + 0.3 - 0.5, top = roofH;
+    s.moveTo(-hw, 0);
+    s.lineTo( hw, 0);
+    s.lineTo( hw * 0.3, top - roofH * 0.55);
+    s.lineTo(-hw * 0.3, top - roofH * 0.55);
+    s.lineTo(-hw, 0);
+    return s;
+  }, [realW, roofH, isMansart]);
+
+  return (
+    <group>
+      {/* Walls solid box with per-face textures (BoxGeometry face order:
+          +X, -X, +Y, -Y, +Z, -Z = est, ouest, top, bottom, sud, nord).
+          Les 4 textures murs sont calculées en haut du composant à partir
+          des photos chantier taggées + fallback matériau / Polyhaven. */}
+      <mesh castShadow receiveShadow position={[0, realH/2, 0]}>
+        <boxGeometry args={[realW, realH, realD]} />
+        <meshStandardMaterial attach="material-0" map={estTex.map}   bumpMap={estTex.bumpMap}   bumpScale={estUrl   ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-1" map={ouestTex.map} bumpMap={ouestTex.bumpMap} bumpScale={ouestUrl ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-2" color={matColor} roughness={1}/>
+        <meshStandardMaterial attach="material-3" color="#5a564a" roughness={1}/>
+        <meshStandardMaterial attach="material-4" map={sudTex.map}   bumpMap={sudTex.bumpMap}   bumpScale={sudUrl   ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+        <meshStandardMaterial attach="material-5" map={nordTex.map}  bumpMap={nordTex.bumpMap}  bumpScale={nordUrl  ? 0.02 : 0.06} color="#fff" roughness={0.86} metalness={0.04}/>
+      </mesh>
+
+      {/* Windows + door on each of the 4 facades */}
+      <FacadeFeatures side="south" realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="east"  realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="north" realW={realW} realD={realD} realH={realH} fl={fl}/>
+      <FacadeFeatures side="west"  realW={realW} realD={realD} realH={realH} fl={fl}/>
+
+      {/* Gutter: thin metallic band wrapping the wall top, just below the roof */}
+      <mesh position={[0, realH - 0.05, 0]} receiveShadow>
+        <boxGeometry args={[realW + 0.36, 0.18, realD + 0.36]} />
+        <meshStandardMaterial color="#9aa3ad" roughness={0.5} metalness={0.55}/>
+      </mesh>
+
+      {/* Inter-floor lines as thin dark bands */}
+      {(function(){
+        var bands = [];
+        for (var i = 1; i < fl; i++) {
+          var y = (realH / fl) * i;
+          bands.push(
+            <mesh key={"fl-s-"+i} position={[0, y, realD/2 + 0.005]}>
+              <boxGeometry args={[realW + 0.04, 0.05, 0.01]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-n-"+i} position={[0, y, -realD/2 - 0.005]}>
+              <boxGeometry args={[realW + 0.04, 0.05, 0.01]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-e-"+i} position={[realW/2 + 0.005, y, 0]}>
+              <boxGeometry args={[0.01, 0.05, realD + 0.04]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>,
+            <mesh key={"fl-w-"+i} position={[-realW/2 - 0.005, y, 0]}>
+              <boxGeometry args={[0.01, 0.05, realD + 0.04]} />
+              <meshStandardMaterial color="#3a2614" roughness={1}/>
+            </mesh>
+          );
+        }
+        return bands;
+      })()}
+
+      {/* Foundation strip (concrete grey at base) */}
+      <mesh receiveShadow position={[0, 0.18, 0]}>
+        <boxGeometry args={[realW + 0.08, 0.36, realD + 0.08]} />
+        <meshStandardMaterial color="#5a564a" roughness={0.95} />
+      </mesh>
+
+      {/* Roof */}
+      {isFlat && (
+        <mesh castShadow receiveShadow position={[0, realH + 0.15, 0]}>
+          <boxGeometry args={[realW + 0.6, 0.3, realD + 0.6]} />
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
+        </mesh>
+      )}
+      {!isFlat && !isMansart && !is4pans && (
+        <mesh castShadow receiveShadow position={[0, realH, -realD/2 - 0.3]}>
+          <extrudeGeometry args={[gableShape, {depth: realD + 0.6, bevelEnabled: false}]} />
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
+        </mesh>
+      )}
+      {is4pans && hippedGeom && (
+        <mesh castShadow receiveShadow position={[0, realH, 0]} geometry={hippedGeom}>
+          <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} side={THREE.DoubleSide}/>
+        </mesh>
+      )}
+      {isMansart && mansardLowerShape && mansardUpperShape && (
+        <group position={[0, realH, 0]}>
+          <mesh castShadow receiveShadow position={[0, 0, -realD/2 - 0.3]}>
+            <extrudeGeometry args={[mansardLowerShape, {depth: realD + 0.6, bevelEnabled: false}]} />
+            <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
+          </mesh>
+          <mesh castShadow receiveShadow position={[0, roofH * 0.55, -realD/2 + 0.5]}>
+            <extrudeGeometry args={[mansardUpperShape, {depth: realD - 0.4, bevelEnabled: false}]} />
+            <meshStandardMaterial map={roofTex.map} bumpMap={roofTex.bumpMap} bumpScale={0.10} color="#fff" roughness={0.85} />
+          </mesh>
+        </group>
+      )}
+
+      {/* Ridge cap line (small dark band at the gable apex) */}
+      {!isFlat && !is4pans && (
+        <mesh position={[0, realH + roofH + 0.02, 0]}>
+          <boxGeometry args={[0.15, 0.08, realD + 0.7]} />
+          <meshStandardMaterial color="#1a0f08" roughness={1}/>
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+/* ---- IsoModel: WebGL 3D scene via React Three Fiber ----
+   Replaces the previous SVG iso projection. Real shadows, lights,
+   orbit controls, autorotate. Texture overlays (patterns from MatDefs)
+   and architectural details (windows, door, gutters, sills) come in a
+   follow-up commit — this commit lays the scene infrastructure. */
+function IsoModel({ matCol, mat, photos, floors, meas, rooms, roof }) {
+  var [auto, setAuto] = useState(false);
+
+  var fl = Math.max(1, Math.min(8, parseInt(floors) || 2));
+  var m  = meas || {};
+  var realH = parseFloat(m.h) || (3.5 * fl);
+  var realFoot = parseFloat(m.foot) || 80;   /* fallback neutre, pas la maison démo Haussmann */
+  var ratio = 1.6;
+  /* Priorité : longueurs RÉELLES des façades stockées dans rooms[] (saisie
+     utilisateur côté Modal "Remplir" ou tab Mesures). Fallback : reconstruction
+     d'un rectangle ratio-1.6 à partir de la seule emprise (cas projets démo
+     ou projets sans rooms détaillés). Sans ça, IsoModel afficherait toujours
+     la même boîte ~12.9×8.1 m pour toute emprise de 104 m². */
+  function _getRoomLen(needle) {
+    /* \b évite que "ouest" matche "est" (o-u-est) */
+    var re = new RegExp("\\b" + needle + "\\b", "i");
+    var r = (rooms || []).find(function(x){
+      if (!x || x.t === "r") return false;
+      return re.test(x.n || "");
+    });
+    if (!r) return null;
+    var v = parseFloat(String(r.l || "").replace(/[^\d.,-]/g,"").replace(",","."));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+  var lSud   = _getRoomLen("sud");
+  var lNord  = _getRoomLen("nord");
+  var lEst   = _getRoomLen("est");
+  var lOuest = _getRoomLen("ouest");
+  var roomW = (lSud != null && lNord != null) ? (lSud + lNord) / 2 : (lSud || lNord);
+  var roomD = (lEst != null && lOuest != null) ? (lEst + lOuest) / 2 : (lEst || lOuest);
+  /* Cas 1 façade : on a soit roomW soit roomD, l'autre se déduit de
+     l'emprise pour rester math-cohérent (W × D = foot). Fallback final
+     ratio 1.6 si aucune des deux paires n'est saisie. */
+  var realW, realD;
+  if (roomW != null && roomD != null) {
+    realW = roomW; realD = roomD;
+  } else if (roomW != null) {
+    realW = roomW;
+    realD = realFoot > 0 ? realFoot / roomW : roomW * 0.6;
+  } else if (roomD != null) {
+    realD = roomD;
+    realW = realFoot > 0 ? realFoot / roomD : roomD * 0.6;
+  } else {
+    realW = Math.sqrt(realFoot * ratio);
+    realD = Math.sqrt(realFoot / ratio);
+  }
+
+  /* Camera distance proportional to building size so a Haussmann fits as well as a pavillon */
+  var camDist = Math.max(realW, realD, realH) * 1.7;
+
+  return (
+    <div style={{display:"flex", flexDirection:"column", height:"100%"}}>
+      <div style={{flex:1, minHeight:240, position:"relative"}}>
+        <Canvas
+          shadows
+          dpr={[1, 2]}
+          camera={{position:[camDist*1.05, camDist*0.65, camDist*1.05], fov: 35}}
+          style={{width:"100%", height:"100%", display:"block"}}>
+          <color attach="background" args={["#dce3ec"]}/>
+          <fog attach="fog" args={["#dce3ec", camDist*1.7, camDist*4.5]}/>
+
+          <ambientLight intensity={0.55}/>
+          <hemisphereLight args={["#dce3ec", "#a8a594", 0.45]}/>
+          <directionalLight
+            position={[realW*1.4, realH*2.6, realD*1.5]}
+            intensity={1.05}
+            castShadow
+            shadow-mapSize={[1024, 1024]}
+            shadow-camera-near={0.5}
+            shadow-camera-far={camDist * 4}
+            shadow-camera-left={-realW*1.8}
+            shadow-camera-right={realW*1.8}
+            shadow-camera-top={realH*2.5}
+            shadow-camera-bottom={-realH/2}
+            shadow-bias={-0.0008}
+          />
+
+          <Building3D
+            realW={realW} realD={realD} realH={realH}
+            fl={fl} mat={mat} roofType={roof}
+          />
+
+          {/* HDR environment for realistic reflections on glass + metal.
+              "park" preset is heaviest, "apartment" is lighter and gives
+              warmer indoor-light feel suited to architectural viz. */}
+          <Environment preset="apartment" background={false}/>
+
+          {/* Soft contact shadow under the building. resolution 512
+              keeps it cheap (the directional shadow map already does the
+              heavy lifting). */}
+          <ContactShadows
+            position={[0, 0.001, 0]}
+            opacity={0.45}
+            scale={Math.max(realW, realD) * 3.5}
+            blur={1.6}
+            far={realH * 1.1}
+            resolution={512}
+            frames={1}
+          />
+
+          {/* Ground plane */}
+          <mesh rotation={[-Math.PI/2, 0, 0]} position={[0, -0.005, 0]} receiveShadow>
+            <circleGeometry args={[Math.max(realW, realD) * 4, 48]}/>
+            <meshStandardMaterial color="#a8a594" roughness={0.95}/>
+          </mesh>
+
+          <OrbitControls
+            enablePan={false}
+            enableZoom={true}
+            minDistance={camDist * 0.7}
+            maxDistance={camDist * 3.5}
+            minPolarAngle={0.15}
+            maxPolarAngle={Math.PI/2 - 0.08}
+            target={[0, realH/2, 0]}
+            autoRotate={auto}
+            autoRotateSpeed={0.6}
+          />
+        </Canvas>
+      </div>
+
+      {/* Controls bar */}
+      <div style={{
+        display:"flex", alignItems:"center", gap:10, padding:"10px 16px",
+        borderTop:"1px solid #1C3050", background:"#0A1422", flexShrink:0,
+      }}>
+        <button type="button"
+          onClick={function(){ setAuto(function(a){ return !a; }); }}
+          title={auto ? "Pause rotation" : "Lecture rotation"}
+          style={{
+            background: auto ? "#FF8C42" : "#152135",
+            border: auto ? "none" : "1px solid #1C3050",
+            color: auto ? "#000" : "#E8EDF5",
+            borderRadius:8, padding:"6px 14px", fontSize:13, fontWeight:700,
+            cursor:"pointer", outline:"none", flexShrink:0,
+          }}>
+          {auto ? "⏸ Pause" : "▶ Lecture"}
+        </button>
+        <div style={{flex:1, fontSize:11, color:"#607898", textAlign:"center"}}>
+          Glissez pour tourner — molette pour zoomer
+        </div>
+        <div style={{fontSize:10, color:"#2E4A6A", fontFamily:"monospace"}}>
+          {realW.toFixed(1)} × {realD.toFixed(1)} × {realH.toFixed(1)} m
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ---- Architectural elevation drawing (one facade, 2D, pro look) ----
+   Inspired by CAD facade plans: white background, thin black strokes,
+   tile pattern on roof, vertical dimension lines on both sides with
+   altimetric levels, ground line (TN), property limits in orange,
+   centered italic label at the bottom. */
+
+function Elevation({ project, facadeId, label, downloadFileName }) {
+  var meas = project.meas || {};
+  var fl = Math.max(1, parseInt(project.floors) || 2);
+
+  /* Real dimensions in meters depending on which facade we draw.
+     Fallbacks neutres (pas les valeurs du projet démo Haussmann). */
+  var realFoot = parseFloat(meas.foot) || 80;
+  var ratio = 1.6;
+  var dimW = Math.sqrt(realFoot * ratio); /* facade width Sud/Nord */
+  var dimD = Math.sqrt(realFoot / ratio); /* facade width Est/Ouest */
+  /* Override with the actual rooms.l + rooms.h values when available */
+  function parseM(s) {
+    if (s == null) return null;
+    var v = parseFloat(String(s).replace(/[^\d.,-]/g,"").replace(",","."));
+    return isFinite(v) && v > 0 ? v : null;
+  }
+  function findFacadeRoom(needle) {
+    /* \b évite que "ouest" matche "est" (o-u-est) */
+    var re = new RegExp("\\b" + needle + "\\b", "i");
+    return (project.rooms||[]).find(function(x){
+      if (!x || x.t === "r") return false;
+      return re.test(x.n || "");
+    }) || null;
+  }
+  function findFacadeLen(needle) {
+    var r = findFacadeRoom(needle);
+    return r ? parseM(r.l) : null;
+  }
+  function findFacadeHeight(needle) {
+    var r = findFacadeRoom(needle);
+    return r ? parseM(r.h) : null;
+  }
+  /* Calcule les dimensions plan selon la façade demandée :
+       - Sud / Nord  : largeur du plan = longueur paire Sud/Nord
+       - Est / Ouest : largeur du plan = longueur paire Est/Ouest
+     Avec 1 seule façade saisie, l'autre paire est déduite de l'emprise
+     (foot / known) pour rester cohérent avec l'emprise affichée à l'écran. */
+  var lSud_   = findFacadeLen("sud");
+  var lNord_  = findFacadeLen("nord");
+  var lEst_   = findFacadeLen("est");
+  var lOuest_ = findFacadeLen("ouest");
+  var widthSN = (lSud_ != null && lNord_ != null) ? (lSud_ + lNord_) / 2 : (lSud_ || lNord_);
+  var widthEW = (lEst_ != null && lOuest_ != null) ? (lEst_ + lOuest_) / 2 : (lEst_ || lOuest_);
+  /* Si une seule paire connue, déduire l'autre à partir de l'emprise. */
+  if (widthSN != null && widthEW == null) {
+    widthEW = realFoot > 0 ? realFoot / widthSN : widthSN * 0.6;
+  } else if (widthEW != null && widthSN == null) {
+    widthSN = realFoot > 0 ? realFoot / widthEW : widthEW * 0.6;
+  } else if (widthSN == null && widthEW == null) {
+    widthSN = dimW; widthEW = dimD;
+  }
+  var realW;
+  if (facadeId === "sud" || facadeId === "nord") {
+    realW = findFacadeLen(facadeId) || widthSN;
+  } else {
+    realW = findFacadeLen(facadeId) || widthEW;
+  }
+  /* Hauteur SPÉCIFIQUE à cette façade si saisie (rooms[].h) — sinon hauteur
+     globale du projet (meas.h). Permet de modéliser un bâtiment où une
+     façade est plus basse (ex. extension 1 niveau collée à un corps 2 niveaux). */
+  var realH = findFacadeHeight(facadeId) || parseFloat(meas.h) || 6;
+
+  /* Layout: viewBox 800x600, building drawn 100/520 horizontally, 90/470 vertically. */
+  var VB_W = 800, VB_H = 600;
+  var maxBldgW = 540, maxBldgH = 320;
+  var scaleX = maxBldgW / realW;
+  var scaleY = maxBldgH / realH;
+  var scale  = Math.min(scaleX, scaleY);
+  var bw = realW * scale;
+  var bh = realH * scale;
+  var roofType = (project.roof || "").toLowerCase();
+  var isPignon = roofType.indexOf("pignon") !== -1 || facadeId === "est" || facadeId === "ouest";
+  var isFlat   = roofType.indexOf("terras") !== -1;
+  var isMansart= roofType.indexOf("mans") !== -1;
+  var roofH = isFlat ? 6 : (isMansart ? Math.min(70, bh*0.35) : (isPignon ? Math.min(95, bw*0.32) : Math.min(70, bw*0.18)));
+
+  /* Building origin: centered, ground at y=GROUND_Y */
+  var GROUND_Y = 470;
+  var bx = (VB_W - bw) / 2;
+  var by = GROUND_Y - bh;
+  var roofTopY = by - roofH;
+
+  /* Levels in meters (relative to ±0.00 = ground) */
+  var floorH = realH / fl;
+  var levels = [];
+  for (var i = 0; i <= fl; i++) {
+    levels.push({ m: i * floorH, label: i === 0 ? "±0.00" : "+" + (i*floorH).toFixed(2) });
+  }
+  var ridgeM = realH + (isFlat ? 0 : (isMansart ? realH * 0.25 : realH * 0.45));
+  if (!isFlat) levels.push({ m: ridgeM, label: "+" + ridgeM.toFixed(2), ridge:true });
+
+  /* Convert meters above ground to SVG y */
+  function mToY(m) { return GROUND_Y - m * scale; }
+
+  /* Door: only on south facade. Sliding bay door on south too if available */
+  var hasDoor = (facadeId === "sud");
+
+  /* Window grid */
+  var cols = (facadeId === "est" || facadeId === "ouest") ? Math.max(2, Math.floor(realW/3.5))
+                                                          : Math.max(3, Math.floor(realW/3.5));
+  cols = Math.min(cols, 6);
+  var winW = bw * 0.13;
+  var winH = (bh / fl) * 0.55;
+  var pad  = (bw - winW * cols) / (cols + 1);
+
+  /* Tile pattern id unique per facade so the SVG can be reused inline */
+  var tileId = "tile-" + (facadeId || "x");
+  var hatchId = "hatch-" + (facadeId || "x");
+
+  /* Cote helpers — vertical dimension lines on a side */
+  function VertCote({ x, y1, y2, value, side }) {
+    /* tick lines + arrows + text rotated -90 */
+    var tickLen = 5;
+    var sx = side === "left" ? -1 : 1;
+    return (
+      <g stroke="#222" strokeWidth="0.6" fill="none">
+        <line x1={x} y1={y1} x2={x} y2={y2}/>
+        <line x1={x - tickLen} y1={y1} x2={x + tickLen} y2={y1}/>
+        <line x1={x - tickLen} y1={y2} x2={x + tickLen} y2={y2}/>
+        <polygon points={x+","+y1+" "+(x-3*sx)+","+(y1+5)+" "+(x+3*sx)+","+(y1+5)} fill="#222"/>
+        <polygon points={x+","+y2+" "+(x-3*sx)+","+(y2-5)+" "+(x+3*sx)+","+(y2-5)} fill="#222"/>
+        <text x={x + (sx*7)} y={(y1+y2)/2} fill="#222" fontSize="11"
+          fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+          textAnchor={side === "left" ? "end" : "start"}
+          dominantBaseline="middle"
+          transform={"rotate(-90," + (x + sx*7) + "," + ((y1+y2)/2) + ")"}>
+          {value.toFixed(2)}
+        </text>
+      </g>
+    );
+  }
+
+  /* Tile path used by the roof */
+  var tilePath = "M 0 12 Q 5 4 10 12 Q 15 4 20 12";
+
+  return (
+    <svg viewBox={"0 0 " + VB_W + " " + VB_H}
+      width="100%" height="100%"
+      preserveAspectRatio="xMidYMid meet"
+      xmlns="http://www.w3.org/2000/svg"
+      style={{display:"block", background:"#fff"}}>
+      <defs>
+        {/* Roof tile pattern */}
+        <pattern id={tileId} patternUnits="userSpaceOnUse" width="20" height="12">
+          <rect width="20" height="12" fill="#fff"/>
+          <path d={tilePath} fill="none" stroke="#3a2614" strokeWidth="0.7"/>
+          <path d="M 0 12 L 20 12" stroke="#3a2614" strokeWidth="0.6"/>
+        </pattern>
+        {/* Ground hatch (TN) */}
+        <pattern id={hatchId} patternUnits="userSpaceOnUse" width="8" height="8">
+          <line x1="0" y1="8" x2="8" y2="0" stroke="#444" strokeWidth="0.5"/>
+        </pattern>
+      </defs>
+
+      {/* Property limit lines (orange dashed verticals) + label */}
+      <line x1={70} y1={70} x2={70} y2={GROUND_Y+10}
+        stroke="#E89B2A" strokeWidth="0.8" strokeDasharray="6,3"/>
+      <line x1={VB_W-70} y1={70} x2={VB_W-70} y2={GROUND_Y+10}
+        stroke="#E89B2A" strokeWidth="0.8" strokeDasharray="6,3"/>
+      <text x={70} y={62} fill="#E89B2A" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+        textAnchor="middle" transform={"rotate(-90,70,62)"}>Limite propriete</text>
+      <text x={VB_W-70} y={62} fill="#E89B2A" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic"
+        textAnchor="middle" transform={"rotate(-90," + (VB_W-70) + ",62)"}>Limite propriete</text>
+
+      {/* Ground line (TN) */}
+      <line x1={40} y1={GROUND_Y} x2={VB_W-40} y2={GROUND_Y}
+        stroke="#222" strokeWidth="1.2"/>
+      <rect x={40} y={GROUND_Y} width={VB_W-80} height={14} fill={"url(#" + hatchId + ")"} opacity="0.55"/>
+      <text x={VB_W-46} y={GROUND_Y+11} fill="#222" fontSize="10"
+        fontFamily="Helvetica, Arial, sans-serif" textAnchor="end">TN ±0.00</text>
+
+      {/* Building wall */}
+      <rect x={bx} y={by} width={bw} height={bh}
+        fill="#fff" stroke="#222" strokeWidth="1"/>
+
+      {/* Roof */}
+      {isFlat && (
+        <g>
+          <rect x={bx-3} y={by-roofH} width={bw+6} height={roofH}
+            fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="0.8"/>
+          <rect x={bx-3} y={by-roofH-2} width={bw+6} height={3} fill="#3a2614"/>
+        </g>
+      )}
+      {!isFlat && isPignon && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw/2) + "," + roofTopY + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          {/* Faîtière */}
+          <polyline points={
+            (bx-4) + "," + (by+1) + " " +
+            (bx + bw/2) + "," + (roofTopY+1) + " " +
+            (bx + bw + 4) + "," + (by+1)
+          } fill="none" stroke="#3a2614" strokeWidth="2.5"/>
+          {/* Egout */}
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+      {!isFlat && !isPignon && !isMansart && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw*0.18) + "," + roofTopY + " " +
+            (bx + bw*0.82) + "," + roofTopY + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          <line x1={bx + bw*0.18} y1={roofTopY} x2={bx + bw*0.82} y2={roofTopY}
+            stroke="#3a2614" strokeWidth="2.5"/>
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+      {!isFlat && isMansart && (
+        <g>
+          <polygon points={
+            (bx-4) + "," + by + " " +
+            (bx + bw*0.10) + "," + (by - roofH*0.55) + " " +
+            (bx + bw*0.90) + "," + (by - roofH*0.55) + " " +
+            (bx + bw + 4) + "," + by
+          } fill={"url(#" + tileId + ")"} stroke="#222" strokeWidth="1"/>
+          <polygon points={
+            (bx + bw*0.10) + "," + (by - roofH*0.55) + " " +
+            (bx + bw*0.30) + "," + roofTopY + " " +
+            (bx + bw*0.70) + "," + roofTopY + " " +
+            (bx + bw*0.90) + "," + (by - roofH*0.55)
+          } fill="#fff" stroke="#222" strokeWidth="1"/>
+          <line x1={bx-4} y1={by} x2={bx+bw+4} y2={by} stroke="#3a2614" strokeWidth="1.5"/>
+        </g>
+      )}
+
+      {/* Floor lines (subtle, inside the wall) */}
+      {(function(){
+        var lines = [];
+        for (var f = 1; f < fl; f++) {
+          var y = by + (bh / fl) * f;
+          lines.push(<line key={"flline"+f} x1={bx+2} y1={y} x2={bx+bw-2} y2={y}
+            stroke="#222" strokeWidth="0.3" strokeDasharray="3,3" opacity="0.45"/>);
+        }
+        return lines;
+      })()}
+
+      {/* Windows grid */}
+      {(function(){
+        var els = [];
+        for (var f = 0; f < fl; f++) {
+          var fy = by + bh - (bh/fl)*(f+1);
+          var winY = fy + (bh/fl - winH)/2;
+          for (var c = 0; c < cols; c++) {
+            if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+            var x = bx + pad + c * (winW + pad);
+            els.push(
+              <g key={"w-"+f+"-"+c}>
+                <rect x={x} y={winY} width={winW} height={winH}
+                  fill="#fff" stroke="#222" strokeWidth="0.9"/>
+                <rect x={x+2} y={winY+2} width={winW-4} height={winH-4}
+                  fill="#fff" stroke="#222" strokeWidth="0.5"/>
+                <line x1={x+winW/2} y1={winY+2} x2={x+winW/2} y2={winY+winH-2}
+                  stroke="#222" strokeWidth="0.5"/>
+                <line x1={x+2} y1={winY+winH/2} x2={x+winW-2} y2={winY+winH/2}
+                  stroke="#222" strokeWidth="0.5"/>
+                {/* allege */}
+                <line x1={x-1} y1={winY+winH+1.5} x2={x+winW+1} y2={winY+winH+1.5}
+                  stroke="#222" strokeWidth="0.7"/>
+              </g>
+            );
+          }
+        }
+        return els;
+      })()}
+
+      {/* Door (south only) */}
+      {hasDoor && (function(){
+        var dCol = Math.floor(cols/2);
+        var x = bx + pad + dCol * (winW + pad);
+        var dW = winW * 1.1, dH = (bh/fl) * 0.78;
+        var dx = x + (winW - dW)/2;
+        var dy = GROUND_Y - dH;
+        return (
+          <g>
+            <rect x={dx} y={dy} width={dW} height={dH}
+              fill="#fff" stroke="#222" strokeWidth="1.1"/>
+            <rect x={dx+2} y={dy+2} width={dW-4} height={dH-4}
+              fill="#fff" stroke="#222" strokeWidth="0.5"/>
+            {/* Panel split */}
+            <line x1={dx+dW/2} y1={dy+5} x2={dx+dW/2} y2={dy+dH-5}
+              stroke="#222" strokeWidth="0.4"/>
+            <rect x={dx+5} y={dy+8} width={dW/2-7} height={dH/3} fill="none" stroke="#222" strokeWidth="0.4"/>
+            <rect x={dx+dW/2+2} y={dy+8} width={dW/2-7} height={dH/3} fill="none" stroke="#222" strokeWidth="0.4"/>
+            {/* Handle */}
+            <circle cx={dx+dW/2-3} cy={dy+dH*0.55} r="1" fill="#222"/>
+            <circle cx={dx+dW/2+3} cy={dy+dH*0.55} r="1" fill="#222"/>
+          </g>
+        );
+      })()}
+
+      {/* Vertical dimensions on the LEFT side: per-floor + total */}
+      {(function(){
+        var coteX = bx - 24;
+        var lines = [];
+        /* per-floor cotes */
+        for (var i = 0; i < levels.length-1; i++) {
+          var lv = levels[i], lvNext = levels[i+1];
+          var y1 = mToY(lvNext.m), y2 = mToY(lv.m);
+          var dist = lvNext.m - lv.m;
+          lines.push(
+            <VertCote key={"L"+i} x={coteX} y1={y1} y2={y2} value={dist} side="left"/>
+          );
+        }
+        /* total cote on the very left */
+        lines.push(
+          <VertCote key="Ltot" x={coteX-26} y1={roofTopY} y2={GROUND_Y} value={ridgeM} side="left"/>
+        );
+        return lines;
+      })()}
+
+      {/* Vertical dimensions on the RIGHT side */}
+      {(function(){
+        var coteX = bx + bw + 24;
+        var lines = [];
+        for (var i = 0; i < levels.length-1; i++) {
+          var lv = levels[i], lvNext = levels[i+1];
+          var y1 = mToY(lvNext.m), y2 = mToY(lv.m);
+          var dist = lvNext.m - lv.m;
+          lines.push(
+            <VertCote key={"R"+i} x={coteX} y1={y1} y2={y2} value={dist} side="right"/>
+          );
+        }
+        lines.push(
+          <VertCote key="Rtot" x={coteX+26} y1={roofTopY} y2={GROUND_Y} value={ridgeM} side="right"/>
+        );
+        return lines;
+      })()}
+
+      {/* Altimetric level circles */}
+      {levels.map(function(lv, i) {
+        var ly = mToY(lv.m);
+        var cx2 = bx + bw + 8;
+        return (
+          <g key={"alt"+i}>
+            <line x1={bx+bw} y1={ly} x2={cx2-5} y2={ly} stroke="#222" strokeWidth="0.4" opacity="0.6"/>
+            <circle cx={cx2} cy={ly} r="6" fill="#fff" stroke="#222" strokeWidth="0.6"/>
+            <line x1={cx2-3} y1={ly} x2={cx2+3} y2={ly} stroke="#222" strokeWidth="0.4"/>
+            <line x1={cx2} y1={ly-3} x2={cx2} y2={ly+3} stroke="#222" strokeWidth="0.4"/>
+            <text x={cx2+11} y={ly+3} fontSize="9.5" fill="#222"
+              fontFamily="Helvetica, Arial, sans-serif">
+              {lv.label}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Horizontal dimension chain along the bottom: per-bay sub-cotes
+          + total facade width below them. Ticks rise from the ground line
+          to the cote line (extension lines), arrows point inward. */}
+      {(function(){
+        var subY  = GROUND_Y + 38;
+        var totY  = GROUND_Y + 60;
+        var arrowL = 4;
+
+        /* Build x-stops: left edge, then for each window/door, then right edge */
+        var stops = [bx];
+        for (var c = 0; c < cols; c++) {
+          var x = bx + pad + c * (winW + pad);
+          stops.push(x);
+          if (hasDoor && c === Math.floor(cols/2)) {
+            /* the door uses dW slightly wider than winW (1.1x), keep the same x for left edge */
+            stops.push(x + winW * 1.1);
+          } else {
+            stops.push(x + winW);
+          }
+        }
+        stops.push(bx + bw);
+
+        function arrow(x, y, dir) {
+          /* dir = 1 right-pointing, -1 left-pointing */
+          var dx = arrowL * dir;
+          return x + "," + y + " " + (x + dx) + "," + (y - 3) + " " + (x + dx) + "," + (y + 3);
+        }
+
+        function drawCote(x1, x2, y, value) {
+          var cx = (x1 + x2) / 2;
+          return (
+            <g key={"hc-"+x1+"-"+x2}>
+              <line x1={x1} y1={y - 5} x2={x1} y2={y + 5} stroke="#222" strokeWidth="0.55"/>
+              <line x1={x2} y1={y - 5} x2={x2} y2={y + 5} stroke="#222" strokeWidth="0.55"/>
+              <line x1={x1} y1={y} x2={x2} y2={y}     stroke="#222" strokeWidth="0.55"/>
+              <polygon points={arrow(x1, y, 1)}  fill="#222"/>
+              <polygon points={arrow(x2, y, -1)} fill="#222"/>
+              <text x={cx} y={y - 4} textAnchor="middle"
+                fill="#222" fontSize="10.5" fontStyle="italic"
+                fontFamily="Helvetica, Arial, sans-serif">
+                {value.toFixed(2)}
+              </text>
+            </g>
+          );
+        }
+
+        /* Extension lines from ground to the lower cote line */
+        var ext = [];
+        ext.push(<line key="ex-l" x1={bx} y1={GROUND_Y+14} x2={bx} y2={totY+5} stroke="#222" strokeWidth="0.35" opacity="0.7"/>);
+        ext.push(<line key="ex-r" x1={bx+bw} y1={GROUND_Y+14} x2={bx+bw} y2={totY+5} stroke="#222" strokeWidth="0.35" opacity="0.7"/>);
+
+        /* Per-bay sub-cotes: only show if facade width is generous enough to keep numbers readable */
+        var subEls = [];
+        if (bw > 280 && stops.length <= 14) {
+          for (var i = 0; i < stops.length - 1; i++) {
+            var x1 = stops[i], x2 = stops[i+1];
+            var distM = (x2 - x1) / scale;
+            if (distM < 0.05) continue;
+            subEls.push(drawCote(x1, x2, subY, distM));
+            /* small extension tick from ground to subY for inner stops */
+            if (i > 0) {
+              ext.push(<line key={"exi-"+i} x1={x1} y1={GROUND_Y+14} x2={x1} y2={subY+5}
+                stroke="#222" strokeWidth="0.3" opacity="0.55"/>);
+            }
+          }
+        }
+
+        return (
+          <g>
+            {ext}
+            {subEls}
+            {drawCote(bx, bx+bw, totY, realW)}
+          </g>
+        );
+      })()}
+
+      {/* ===========================================================
+          DÉTAILS ARCHITECTE PRO — gouttière, descente EP, cheminée,
+          velux, cotes fenêtres/portes, labels (faîtage, égout, sablière),
+          repère de coupe A-A. Ajoutés après le bâtiment principal pour
+          rester additif (n'altère pas l'existant). */}
+
+      {/* Gouttière (cuivre / zinc) à l'égout — bandeau horizontal +
+          chéneau cylindrique au-dessus. */}
+      {!isFlat && (function(){
+        var gy = by;                        /* niveau égout */
+        var gut = (
+          <g>
+            <rect x={bx-6} y={gy-3} width={bw+12} height={3} fill="#a08850" stroke="#222" strokeWidth="0.4"/>
+            <ellipse cx={bx-3} cy={gy-2} rx={4} ry={2.2} fill="#c2a76a" stroke="#222" strokeWidth="0.4"/>
+            <ellipse cx={bx+bw+3} cy={gy-2} rx={4} ry={2.2} fill="#c2a76a" stroke="#222" strokeWidth="0.4"/>
+            <text x={bx+bw+18} y={gy+1} fill="#a08850" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">gouttière zinc Ø100</text>
+          </g>
+        );
+        return gut;
+      })()}
+
+      {/* Descente d'eau pluviale (EP) — tuyau vertical à droite, depuis
+          l'égout jusqu'à 30 cm du sol, avec coude au sol + flèche pente. */}
+      {!isFlat && (function(){
+        var dxp = bx + bw + 3;              /* x descente */
+        var dy0 = by;                       /* haut */
+        var dy1 = GROUND_Y - 14;            /* coude bas */
+        return (
+          <g>
+            <line x1={dxp} y1={dy0} x2={dxp} y2={dy1} stroke="#a08850" strokeWidth="2.6"/>
+            <line x1={dxp} y1={dy0} x2={dxp} y2={dy1} stroke="#222" strokeWidth="0.4"/>
+            {/* Coude */}
+            <path d={"M "+dxp+" "+dy1+" Q "+dxp+" "+(dy1+8)+" "+(dxp+8)+" "+(dy1+8)}
+              fill="none" stroke="#a08850" strokeWidth="2.6"/>
+            <path d={"M "+dxp+" "+dy1+" Q "+dxp+" "+(dy1+8)+" "+(dxp+8)+" "+(dy1+8)}
+              fill="none" stroke="#222" strokeWidth="0.4"/>
+            {/* Flèche pente 2% */}
+            <line x1={dxp+12} y1={dy0+10} x2={dxp+12} y2={dy0+30} stroke="#3a78b5" strokeWidth="0.6"/>
+            <polygon points={(dxp+12)+","+(dy0+30)+" "+(dxp+9)+","+(dy0+26)+" "+(dxp+15)+","+(dy0+26)} fill="#3a78b5"/>
+            <text x={dxp+16} y={dy0+22} fill="#3a78b5" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">↓ 2 %</text>
+            <text x={dxp+16} y={dy1-2} fill="#a08850" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">descente EP Ø80</text>
+          </g>
+        );
+      })()}
+
+      {/* Cheminée — sortie de toit avec souche maçonnée et mitron.
+          Placée à 35 % de la largeur du bâtiment pour la façade Sud/Nord,
+          ou cachée (vue de profil) pour Est/Ouest sur un toit pignon. */}
+      {!isFlat && !(isPignon && (facadeId === "est" || facadeId === "ouest")) && (function(){
+        /* Position cheminée : 35 % depuis la gauche, sortie ~70 % de la pente */
+        var chX = bx + bw * 0.35;
+        var roofMidY = (by + roofTopY) / 2;
+        /* Décale légèrement à 60 % de la hauteur du toit pour réalisme */
+        var chBaseY = isMansart ? by - roofH * 0.55 + 4 : roofMidY + 6;
+        var chTopY  = chBaseY - 22;
+        var chW = 14;
+        return (
+          <g>
+            {/* Souche brique */}
+            <rect x={chX} y={chTopY} width={chW} height={chBaseY - chTopY}
+              fill="#bb6841" stroke="#222" strokeWidth="0.6"/>
+            {/* Joints horizontaux */}
+            {[0.25, 0.5, 0.75].map(function(t, i){
+              var jy = chTopY + (chBaseY - chTopY) * t;
+              return <line key={"chj"+i} x1={chX} y1={jy} x2={chX+chW} y2={jy} stroke="#3a2614" strokeWidth="0.3"/>;
+            })}
+            {/* Mitron (couronne supérieure plus large) */}
+            <rect x={chX-2} y={chTopY-3} width={chW+4} height={3.5} fill="#5a3825" stroke="#222" strokeWidth="0.5"/>
+            {/* Légende */}
+            <line x1={chX+chW+2} y1={chTopY+2} x2={chX+chW+30} y2={chTopY-12}
+              stroke="#222" strokeWidth="0.35" opacity="0.7"/>
+            <text x={chX+chW+32} y={chTopY-10} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">
+              cheminée maçonnée + mitron
+            </text>
+          </g>
+        );
+      })()}
+
+      {/* Velux / fenêtre de toit — uniquement sur façades Sud / Nord
+          quand toit en pente (pas plat, pas de profil pignon). */}
+      {!isFlat && (facadeId === "sud" || facadeId === "nord") && !isPignon && (function(){
+        var vX = bx + bw * 0.65;
+        var vY = (by + roofTopY) / 2 + 4;
+        var vW = 18, vH = 12;
+        return (
+          <g>
+            {/* Cadre velux légèrement incliné parallélogramme */}
+            <polygon points={vX+","+vY+" "+(vX+vW)+","+vY+" "+(vX+vW-3)+","+(vY+vH)+" "+(vX-3)+","+(vY+vH)}
+              fill="#5588ad" stroke="#222" strokeWidth="0.7"/>
+            <polygon points={(vX+1)+","+(vY+1)+" "+(vX+vW-1)+","+(vY+1)+" "+(vX+vW-3)+","+(vY+vH-1)+" "+(vX-2)+","+(vY+vH-1)}
+              fill="none" stroke="#fff" strokeWidth="0.4" opacity="0.6"/>
+            <text x={vX+vW+4} y={vY+vH-1} fill="#222" fontSize="8"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">velux</text>
+          </g>
+        );
+      })()}
+
+      {/* Cotes des fenêtres — petite annotation L × H en cm sous chaque
+          fenêtre. Affiché uniquement si la façade est large et qu'il y a
+          peu de fenêtres (sinon devient illisible). */}
+      {bw > 320 && cols <= 5 && (function(){
+        var els = [];
+        var winWcm = Math.round((winW / scale) * 100);
+        var winHcm = Math.round((winH / scale) * 100);
+        for (var f = 0; f < fl; f++) {
+          for (var c = 0; c < cols; c++) {
+            if (hasDoor && f === 0 && c === Math.floor(cols/2)) continue;
+            if (c !== Math.floor(cols/2)) continue;       /* on cote uniquement la fenêtre médiane par étage */
+            var fy = by + bh - (bh/fl)*(f+1);
+            var winY = fy + (bh/fl - winH)/2;
+            var x = bx + pad + c * (winW + pad);
+            els.push(
+              <g key={"wcote"+f+"-"+c}>
+                <text x={x+winW/2} y={winY-3} textAnchor="middle"
+                  fill="#3a78b5" fontSize="7.5" fontStyle="italic"
+                  fontFamily="Helvetica, Arial, sans-serif">
+                  {winWcm}×{winHcm}
+                </text>
+              </g>
+            );
+          }
+        }
+        return els;
+      })()}
+
+      {/* Cote de la porte — affichée à droite du jambage. */}
+      {hasDoor && bw > 280 && (function(){
+        var dCol = Math.floor(cols/2);
+        var x = bx + pad + dCol * (winW + pad);
+        var dW = winW * 1.1, dH = (bh/fl) * 0.78;
+        var dx = x + (winW - dW)/2;
+        var dy = GROUND_Y - dH;
+        var dWcm = Math.round((dW / scale) * 100);
+        var dHcm = Math.round((dH / scale) * 100);
+        return (
+          <g>
+            <text x={dx+dW+3} y={dy+dH/2}
+              fill="#3a78b5" fontSize="7.5" fontStyle="italic"
+              fontFamily="Helvetica, Arial, sans-serif"
+              transform={"rotate(-90,"+(dx+dW+3)+","+(dy+dH/2)+")"}>
+              porte {dWcm}×{dHcm}
+            </text>
+          </g>
+        );
+      })()}
+
+      {/* Architectural labels — Faîtage, Égout (avec leader lines) */}
+      {!isFlat && (function(){
+        var ridgeY = roofTopY;
+        var egoutY = by;
+        return (
+          <g>
+            {/* Faîtage label leader */}
+            <line x1={bx + bw + 14} y1={ridgeY} x2={bx + bw + 38} y2={ridgeY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx + bw + 40} y={ridgeY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">faîtage</text>
+            {/* Égout */}
+            <line x1={bx + bw + 14} y1={egoutY} x2={bx + bw + 38} y2={egoutY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx + bw + 40} y={egoutY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic">égout</text>
+            {/* Sablière (un peu en-dessous de l'égout) */}
+            <line x1={bx - 14} y1={egoutY} x2={bx - 38} y2={egoutY}
+              stroke="#222" strokeWidth="0.3" opacity="0.6"/>
+            <text x={bx - 40} y={egoutY + 3} fill="#222" fontSize="8.5"
+              fontFamily="Helvetica, Arial, sans-serif" fontStyle="italic" textAnchor="end">sablière</text>
+          </g>
+        );
+      })()}
+
+      {/* Repère de coupe A-A — petite flèche en haut à gauche pour
+          indiquer le plan de coupe vertical. */}
+      <g>
+        <circle cx={50} cy={GROUND_Y - 60} r="9" fill="#fff" stroke="#222" strokeWidth="0.7"/>
+        <text x={50} y={GROUND_Y - 56} textAnchor="middle" fill="#222" fontSize="10"
+          fontWeight="700" fontFamily="Helvetica, Arial, sans-serif">A</text>
+        <line x1={50} y1={GROUND_Y - 51} x2={50} y2={GROUND_Y + 14}
+          stroke="#222" strokeWidth="0.5" strokeDasharray="3,2"/>
+        <polygon points={"50,"+(GROUND_Y - 49)+" 47,"+(GROUND_Y - 43)+" 53,"+(GROUND_Y - 43)} fill="#222"/>
+      </g>
+
+      {/* Caption */}
+      <text x={VB_W/2} y={VB_H - 12} textAnchor="middle"
+        fill="#222" fontSize="17" fontStyle="italic"
+        fontFamily="Georgia, 'Times New Roman', serif">
+        - {label} -
+      </text>
+    </svg>
+  );
+}
+
+/* ---- Sidebar ---- */
+function Sidebar({ view, setView }) {
+  var items = [
+    {id:"dash",    icon:"H", lbl:t("nav.projects"), tip:"Liste de tous les projets — créer, ouvrir, exporter, supprimer"},
+    {id:"reports", icon:"D", lbl:t("nav.reports"),  tip:"Rapports de mesures, devis, inspections, propositions niveau auditeur senior"},
+    {id:"settings",icon:"S", lbl:t("nav.settings"), tip:"Profil, préférences (TVA, devise, civilité, ratio profondeur), civilités, stockage local"},
+    {id:"help",    icon:"?", lbl:t("nav.help"),     tip:"Guide pas-à-pas + FAQ — tout ce qu'il faut savoir pour utiliser MesurePro"},
+  ];
+  return (
+    <div data-noprint="1" style={{position:"fixed",top:0,left:0,width:W,height:"100vh",
+      background:"#0F1C2E",borderRight:"1px solid #1C3050",
+      display:"flex",flexDirection:"column",zIndex:100}}>
+      <div style={{padding:"18px 16px 14px",borderBottom:"1px solid #1C3050"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:34,height:34,background:"#00C2FF",borderRadius:8,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            fontSize:16,fontWeight:900,color:"#000"}}>M</div>
+          <div>
+            <div style={{fontSize:15,fontWeight:900,color:"#E8EDF5"}}>MesurePro</div>
+            <div style={{fontSize:10,color:"#607898"}}>v2.7</div>
+          </div>
+        </div>
+      </div>
+      <div style={{flex:1,padding:"8px 0"}}>
+        {items.map(function(item) {
+          var active = view === item.id || (view === "project" && item.id === "dash");
+          return (
+            <button type="button" key={item.id} onClick={() => setView(item.id)}
+              title={item.tip} className="sidebar-item" style={{
+              display:"flex",alignItems:"center",gap:12,
+              width:"100%",padding:"12px 16px",
+              background:active ? "rgba(0,194,255,0.13)" : "transparent",
+              border:"none",
+              borderLeft:"3px solid " + (active ? "#00C2FF" : "transparent"),
+              color:active ? "#E8EDF5" : "#607898",
+              fontSize:13,fontWeight:active ? 700 : 400,
+              cursor:"pointer",textAlign:"left",outline:"none",
+            }}>
+              <span style={{fontSize:14,fontFamily:"monospace",fontWeight:700}}>{item.icon}</span>
+              <span className="sidebar-label">{item.lbl}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{padding:"13px 16px",borderTop:"1px solid #1C3050",
+        display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:32,height:32,borderRadius:"50%",background:"#00C2FF",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          fontSize:13,fontWeight:900,color:"#000",flexShrink:0}}>J</div>
+        <div>
+          <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5"}}>Jean Dupont</div>
+          <div style={{fontSize:10,color:"#607898"}}>Pro</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Dashboard ---- */
+function Dashboard({ projects, reports, onOpen, onNew, onOpenReports }) {
+  var [q, setQ] = useState("");
+  var [statusFilter, setStatusFilter] = useState("all");
+  var ql = q.toLowerCase().trim();
+  var list = projects.filter(function(p) {
+    var hay = ((p.addr||"")+" "+(p.city||"")+" "+(p.client||"")).toLowerCase();
+    if (ql && hay.indexOf(ql) === -1) return false;
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    return true;
+  });
+  var matchedReports = (reports||[]).filter(function(r) {
+    if (!ql) return false;
+    var hay = ((r.title||"")+" "+(r.ref||"")+" "+(r.cl?r.cl.nom||"":"")+" "+(r.cl?r.cl.adr||"":"")).toLowerCase();
+    return hay.indexOf(ql) !== -1;
+  });
+  var STATUS_FILTERS = [
+    {id:"all",        lbl:t("dashboard.allStatus") === "Tous les statuts" ? "Tous" : t("dashboard.allStatus")},
+    {id:"done",       lbl:t("status.done")},
+    {id:"processing", lbl:t("status.processing")},
+    {id:"draft",      lbl:t("status.draft")},
+  ];
+  return (
+    <div style={{padding:"26px 28px",overflowY:"auto",height:"100%",boxSizing:"border-box"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:900,color:"#E8EDF5"}}>Mes Projets</div>
+          <div style={{color:"#607898",fontSize:12,marginTop:3}}>
+            {projects.length} proprietes{ql ? " - " + list.length + " resultat(s)" : ""}
+          </div>
+        </div>
+        <Btn onClick={onNew} primary={true}
+          title="Créer un nouveau projet — parcours guidé en 4 étapes : identification, mesures façade par façade, photos, lancement">
+          {t("dashboard.newProject")}
+        </Btn>
+      </div>
+      <div style={{position:"relative",marginBottom:12}}>
+        <input value={q} onChange={function(e){setQ(e.target.value);}}
+          placeholder={t("common.search")}
+          style={{width:"100%",boxSizing:"border-box",background:"#0F1C2E",
+            border:"1px solid #1C3050",borderRadius:8,color:"#E8EDF5",
+            fontSize:13,padding:"9px 12px",outline:"none"}}/>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+        {STATUS_FILTERS.map(function(sf) {
+          var active = statusFilter === sf.id;
+          return (
+            <button type="button" key={sf.id} onClick={function(){setStatusFilter(sf.id);}}
+              style={{background:active ? "#00C2FF" : "#152135",
+                color:active ? "#000" : "#607898",
+                border:"1px solid " + (active ? "#00C2FF" : "#1C3050"),
+                borderRadius:6,padding:"5px 12px",fontSize:11,fontWeight:active?700:500,
+                cursor:"pointer",outline:"none"}}>{sf.lbl}</button>
+          );
+        })}
+      </div>
+      {ql && matchedReports.length > 0 && (
+        <div style={{background:"rgba(0,194,255,0.06)",border:"1px solid #00C2FF",
+          borderRadius:10,padding:"10px 14px",marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:7,
+            textTransform:"uppercase",letterSpacing:"0.06em"}}>
+            {matchedReports.length} rapport(s) correspondant(s)
+          </div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {matchedReports.map(function(r) {
+              return (
+                <button type="button" key={r.id} onClick={function(){ onOpenReports && onOpenReports(); }}
+                  style={{background:"#152135",border:"1px solid #1C3050",
+                    color:"#E8EDF5",borderRadius:6,padding:"5px 10px",fontSize:11,
+                    cursor:"pointer",outline:"none",display:"inline-flex",alignItems:"center",gap:6}}>
+                  <span style={{color:"#607898",fontFamily:"monospace",fontSize:10}}>{r.ref}</span>
+                  <span>{r.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:22}}>
+        {[
+          {lbl:"Projets",   val:projects.length,                                    col:"#00C2FF"},
+          {lbl:"Mesures",   val:projects.filter(function(p){return p.status==="done";}).length, col:"#00E5A0"},
+          {lbl:"En cours",  val:projects.filter(function(p){return p.status==="processing";}).length, col:"#FF8C42"},
+          {lbl:"Surface",   val:projects.reduce(function(a,p){return a+(Number(p.area)||0);},0)+" m2", col:"#607898"},
+        ].map(function(s,i) {
+          return (
+            <div key={i} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:10,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{fontSize:18,fontWeight:900,color:s.col,fontFamily:"monospace"}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#607898",textTransform:"uppercase"}}>{s.lbl}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))",gap:14}}>
+        {list.map(function(p) {
+          return (
+            <div key={p.id}
+              onClick={p.status !== "processing" ? function(){onOpen(p);} : undefined}
+              style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+                overflow:"hidden",cursor:p.status==="processing" ? "default" : "pointer",
+                transition:"border-color .2s,transform .2s"}}
+              onMouseEnter={function(e){
+                if(p.status!=="processing"){e.currentTarget.style.borderColor="#00C2FF";e.currentTarget.style.transform="translateY(-2px)";}
+              }}
+              onMouseLeave={function(e){e.currentTarget.style.borderColor="#1C3050";e.currentTarget.style.transform="none";}}>
+              <div style={{background:"#060D18",height:140,display:"flex",alignItems:"center",
+                justifyContent:"center",position:"relative",overflow:"hidden"}}>
+                <House shape={p.shape} small={true}/>
+                {p.status === "processing" && (
+                  <div style={{position:"absolute",inset:0,background:"rgba(6,13,24,0.76)",
+                    display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8}}>
+                    <div style={{width:32,height:32,borderRadius:"50%",
+                      border:"3px solid #1C3050",borderTopColor:"#FF8C42",
+                      animation:"spin 1s linear infinite"}}/>
+                    <span style={{color:"#FF8C42",fontSize:11,fontWeight:700}}>Traitement...</span>
+                  </div>
+                )}
+                {p.status === "draft" && (
+                  <div style={{position:"absolute",inset:0,background:"rgba(6,13,24,0.78)",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <span style={{fontSize:36}}>+</span>
+                  </div>
+                )}
+                {p.photos && p.photos.length > 0 && (
+                  <div style={{position:"absolute",bottom:6,left:6,
+                    background:"rgba(0,0,0,0.7)",border:"1px solid #00C2FF",
+                    borderRadius:14,padding:"2px 8px",fontSize:10,fontWeight:700,
+                    color:"#00C2FF",display:"inline-flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:11}}>📷</span>{p.photos.length}
+                  </div>
+                )}
+              </div>
+              <div style={{padding:"12px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:5}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>{p.addr}</div>
+                    <div style={{fontSize:11,color:"#607898",marginTop:2}}>{p.city}</div>
+                  </div>
+                  <Badge s={p.status}/>
+                </div>
+                {p.status === "done" && (
+                  <div style={{display:"flex",gap:12,marginTop:9,paddingTop:9,borderTop:"1px solid #1C3050"}}>
+                    {[["Surface",p.area+" m2"],["Niveaux",p.floors],["Toit",p.roof]].map(function(pair) {
+                      return (
+                        <div key={pair[0]} style={{fontSize:10,color:"#607898"}}>
+                          <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{pair[1]}</div>
+                          {pair[0]}
+                        </div>
+                      );
+                    })}
+                    <div style={{marginLeft:"auto",fontSize:10,color:"#2E4A6A",alignSelf:"flex-end"}}>{p.date}</div>
+                  </div>
+                )}
+                {p.status === "draft" && (
+                  <div style={{fontSize:11,color:"#607898",marginTop:6}}>
+                    {p.photos && p.photos.length > 0 ? p.photos.length + " photo(s) - prete a saisir" : "Photos a capturer"}
+                  </div>
+                )}
+                {p.status === "processing" && (
+                  <div style={{fontSize:11,color:"#FF8C42",marginTop:6}}>Analyse en cours</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---- ProjectDetail ---- */
+/* Fonction (pas constante) — relus à chaque render pour réagir au switch i18n.
+   L'ordre des tabs (photos > model > plans > meas > design > devis) est figé
+   pour garder la cohérence des onglets entre versions. */
+function PTABS_FN() {
+  return [
+    {id:"photos",lbl:t("tab.photos"),   tip:"Photos chantier — drag-drop, tag façade Sud/Nord/Est/Ouest pour utiliser comme texture 3D"},
+    {id:"model", lbl:t("tab.model"),    tip:"Vue 3D WebGL temps réel — sliders étages/hauteur/emprise, photos taggées appliquées en textures"},
+    {id:"plans", lbl:t("tab.plans"),    tip:"Plans d'élévation 2D pro — gouttières, cheminées, velux, cotes, coupe A-A — export PDF + DXF"},
+    {id:"meas",  lbl:t("tab.meas"),     tip:"Saisie des 7 mesures globales + table des façades — laser BLE optionnel"},
+    {id:"exterior", lbl:t("tab.exterior"), tip:"PhotoWalk — Prends 6 photos guidées du tour de ta maison, l'app calcule auto les mesures (façades + toiture) depuis emprise + nb étages. UX type Hover.to (zéro saisie technique)"},
+    {id:"interior", lbl:t("tab.interior"), tip:"Relevé intérieur — niveaux (cave/RDC/étages/combles) et pièces (salon/cuisine/SDB/chambre…) avec photo, L×l×h, surface auto, validation"},
+    {id:"design",lbl:t("tab.design"),   tip:"Choix du matériau de revêtement (bardage, pierre, brique, blanc…) appliqué au modèle 3D"},
+    {id:"devis", lbl:t("tab.devis"),    tip:"Calcul automatique HT/TVA/TTC avec marge commerciale — TVA et devise paramétrables"},
+    {id:"materials", lbl:t("tab.materials"), tip:"Quantitatif matériaux auto (toiture/façades) calculé depuis les dimensions"},
+    {id:"peb",    lbl:t("tab.peb"),     tip:"Indicateur PEB / EPC / EPB — classe A-G estimée depuis les données du projet"},
+    {id:"share",  lbl:t("tab.share"),   tip:"Partager ce projet à votre client via un lien sharable (QR code, e-signature)"},
+  ];
+}
+
+function ProjectDetail({ project, onBack, onUpdate, onDelete, initialTab }) {
+  var [tab, setTab]   = useState(initialTab || "model");
+  var [mat, setMat]   = useState(null);
+  var [toast, setToast] = useState("");
+  var [editOpen, setEditOpen] = useState(false);
+
+  function handleDelete() {
+    var label = (project.addr || "ce projet") + (project.city ? " (" + project.city + ")" : "");
+    if (!window.confirm("Supprimer définitivement « " + label + " » ?\n\nCette action est irréversible.")) return;
+    onDelete && onDelete();
+  }
+  return (
+    <div>
+      {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
+      <div data-noprint="1" style={{position:"sticky",top:0,zIndex:10,height:50,background:"#0F1C2E",
+        borderBottom:"1px solid #1C3050",
+        display:"flex",alignItems:"center",gap:12,padding:"0 20px"}}>
+        <Btn sm={true} onClick={onBack} title="Revenir au tableau de bord (la liste des projets)">Retour</Btn>
+        <div style={{flex:1}}>
+          <span style={{fontSize:14,fontWeight:700,color:"#E8EDF5"}}>{project.addr}</span>
+          <span style={{fontSize:11,color:"#607898",marginLeft:8}}>{project.city}</span>
+        </div>
+        <Badge s={project.status}/>
+        {project.status === "draft" && (
+          <Btn sm={true} primary={true}
+            title="Marquer ce projet comme terminé (statut « Terminé », surface arrondie depuis l'emprise/murs)"
+            onClick={function(){
+            var m = project.meas || {};
+            var area = parseFloat(m.foot) || parseFloat(m.walls) || 0;
+            onUpdate({status:"done", area:Math.round(area)});
+            setToast("Projet marqué comme terminé");
+          }}>Terminer</Btn>
+        )}
+        <Btn sm={true} onClick={function(){setEditOpen(true);}}
+          title="Modifier l'adresse, la ville, le client ou le statut du projet">Modifier</Btn>
+        <Btn sm={true} onClick={function(){exportProjectPdf(project); setToast("PDF téléchargé");}}
+          title="Télécharger le rapport au format PDF (texte indexable, métadonnées renseignées)">PDF</Btn>
+        <Btn sm={true} onClick={function(){exportProjectXlsx(project); setToast("Excel téléchargé");}}
+          title="Télécharger un vrai fichier .xlsx avec 2 feuilles (Synthèse + Façades) — cellules numériques, formules Excel compatibles">Excel</Btn>
+        <Btn sm={true} onClick={function(){exportProjectDxf(project); setToast("DXF téléchargé");}}
+          title="Exporter les 4 plans d'élévation au format DXF (AutoCAD, LibreCAD, FreeCAD…) en mètres">DXF</Btn>
+        <Btn sm={true} onClick={function(){exportProjectJson(project); setToast("JSON téléchargé");}}
+          title="Sauvegarder le projet entier en JSON (backup, transfert vers un autre appareil, debug)">JSON</Btn>
+        <Btn sm={true} onClick={handleDelete}
+          title="Supprimer définitivement ce projet (action irréversible)"
+          style={{background:"#3a0f12",border:"1px solid #FF4757",color:"#FF4757"}}>Supprimer</Btn>
+      </div>
+      <div data-noprint="1" style={{position:"sticky",top:50,zIndex:9,height:42,background:"#0F1C2E",
+        borderBottom:"1px solid #1C3050",
+        display:"flex",alignItems:"flex-end",paddingLeft:20,overflowX:"auto"}}>
+        {PTABS_FN().map(function(pt) {
+          var active = tab === pt.id;
+          return (
+            <button type="button" key={pt.id} onClick={function(){setTab(pt.id);}}
+              title={pt.tip} style={{
+              height:"100%",padding:"0 16px",background:"none",border:"none",
+              borderBottom:"2px solid "+(active ? "#00C2FF" : "transparent"),
+              color:active ? "#00C2FF" : "#607898",
+              fontSize:12,fontWeight:active ? 700 : 400,
+              cursor:"pointer",outline:"none",
+              display:"flex",alignItems:"center",whiteSpace:"nowrap",flexShrink:0,
+            }}>{pt.lbl}</button>
+          );
+        })}
+      </div>
+      <div style={{minHeight:"calc(100vh - 92px)"}}>
+        {tab === "photos" && <TabPhotos project={project} onUpdate={onUpdate}/>}
+        {tab === "model"  && <TabModel  project={project} mat={mat} setMat={setMat} onUpdate={onUpdate}/>}
+        {tab === "plans"  && <TabPlans  project={project} setToast={setToast} onUpdate={onUpdate}/>}
+        {tab === "meas"     && <TabMeas     project={project} onUpdate={onUpdate}/>}
+        {tab === "exterior" && <TabExteriorAuto project={project} onUpdate={onUpdate}/>}
+        {tab === "interior" && <TabInterior project={project} onUpdate={onUpdate}/>}
+        {tab === "design"   && <TabDesign   project={project} mat={mat} setMat={setMat}/>}
+        {tab === "devis"  && <TabDevis  project={project} mat={mat} setToast={setToast}/>}
+        {tab === "materials" && <TabMaterials project={project} setToast={setToast}/>}
+        {tab === "peb"    && <TabPEB project={project} onUpdate={onUpdate}/>}
+        {tab === "share"  && <TabShare project={project} setToast={setToast}/>}
+      </div>
+      {editOpen && (
+        <EditProjectModal
+          project={project}
+          onClose={function(){setEditOpen(false);}}
+          onSave={function(patch){
+            onUpdate(patch);
+            setEditOpen(false);
+            setToast("Projet mis à jour");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* Mini-modal d'édition d'un projet existant. Édite les champs primaires
+   stockés tels quels au niveau projet : adresse, ville, client, statut.
+   N'essaie PAS de re-décomposer civilité/nom/prénom — ces champs sont
+   composés à la création (Modal step 1) et stockés sous forme aplatie. */
+function EditProjectModal({ project, onClose, onSave }) {
+  var [addr,   setAddr]   = useState(project.addr   || "");
+  var [city,   setCity]   = useState(project.city   || "");
+  var [client, setClient] = useState(project.client || "");
+  var [status, setStatus] = useState(project.status || "draft");
+
+  var labelStyle = { fontSize:11, color:"#607898", marginBottom:4 };
+  var inputStyle = {
+    width:"100%", boxSizing:"border-box", background:"#08111E",
+    border:"1px solid #1C3050", borderRadius:7, color:"#E8EDF5",
+    fontSize:13, padding:"9px 12px", outline:"none",
+  };
+
+  function save() {
+    if (addr.trim().length < 2) return;
+    onSave({
+      addr:   addr.trim(),
+      city:   city.trim(),
+      client: client.trim(),
+      status: status,
+    });
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
+        padding:24,width:520,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+        <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:16}}>
+          Modifier le projet
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Adresse complète *</div>
+          <input value={addr} onChange={function(e){setAddr(e.target.value);}}
+            placeholder="15 Boulevard Haussmann" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Code postal + Ville</div>
+          <input value={city} onChange={function(e){setCity(e.target.value);}}
+            placeholder="1000 Bruxelles" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Client</div>
+          <input value={client} onChange={function(e){setClient(e.target.value);}}
+            placeholder="M. Bernard Laurent" style={inputStyle}/>
+        </div>
+
+        <div style={{marginBottom:11}}>
+          <div style={labelStyle}>Statut</div>
+          <select value={status} onChange={function(e){setStatus(e.target.value);}}
+            style={Object.assign({}, inputStyle, {cursor:"pointer"})}>
+            <option value="processing">En traitement</option>
+            <option value="draft">Brouillon</option>
+            <option value="done">Terminé</option>
+          </select>
+        </div>
+
+        <div style={{fontSize:9,color:"#2E4A6A",marginTop:8,lineHeight:1.5}}>
+          Pour modifier les façades / mesures détaillées, utilisez l'onglet <span style={{fontWeight:700}}>Mesures</span>.
+        </div>
+
+        <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:18}}>
+          <Btn sm={true} onClick={onClose}>Annuler</Btn>
+          <Btn sm={true} primary={true} onClick={save}
+            style={{opacity: addr.trim().length < 2 ? 0.4 : 1,
+              cursor: addr.trim().length < 2 ? "not-allowed" : "pointer"}}>
+            Enregistrer
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabPhotos({ project, onUpdate }) {
+  var photos = project.photos || [];
+  var [zoom, setZoom] = useState(null);
+  var [drag, setDrag] = useState(false);
+  var [uploading, setUploading] = useState(0);   /* nombre de photos en cours de compression */
+  var [uploadError, setUploadError] = useState("");
+  var inpRef = useRef();
+  function addFiles(fileList) {
+    var arr = Array.prototype.slice.call(fileList).filter(function(f){
+      return f.type && f.type.indexOf("image/") === 0;
+    });
+    if (arr.length === 0) return;
+    setUploading(arr.length);
+    setUploadError("");
+    /* Compresse en parallèle puis concatène TOUT d'un coup à la fin —
+       évite les race conditions sur photos[] (chaque setState rate la
+       liste à jour des autres compressions simultanées). */
+    Promise.all(arr.map(function(f){
+      return compressImageFile(f, 1280, 0.75).catch(function(e){
+        return { error: e && e.message ? e.message : "Échec compression", name: f.name };
+      });
+    })).then(function(results){
+      var compressed = results.filter(function(r){ return !r.error; });
+      var errors = results.filter(function(r){ return r.error; });
+      if (compressed.length > 0) {
+        onUpdate({ photos: photos.concat(compressed) });
+      }
+      if (errors.length > 0) {
+        setUploadError(errors.length + " photo(s) refusée(s) : " + errors[0].error);
+      }
+      setUploading(0);
+    });
+  }
+  function removeAt(i) {
+    var p = photos[i];
+    if (p && p.url) { try { URL.revokeObjectURL(p.url); } catch(e){} }
+    onUpdate({ photos: photos.filter(function(_, j){ return j !== i; }) });
+  }
+  function onDragOver(e) { e.preventDefault(); e.stopPropagation(); setDrag(true); }
+  function onDragLeave(e) { e.preventDefault(); e.stopPropagation(); setDrag(false); }
+  function onDrop(e) {
+    e.preventDefault(); e.stopPropagation();
+    setDrag(false);
+    if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  }
+  return (
+    <div onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box",
+        position:"relative",
+        background: drag ? "rgba(0,194,255,0.08)" : "transparent",
+        outline: drag ? "2px dashed #00C2FF" : "none",
+        outlineOffset: drag ? "-12px" : "0",
+        transition:"background 0.15s, outline 0.15s"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:"#E8EDF5"}}>Photos du projet</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:3}}>
+            {photos.length} fichier(s) · {estimatePhotosSizeKB(photos)} KB total
+          </div>
+        </div>
+        <Btn primary={true} onClick={function(){ inpRef.current.click(); }}
+          title="Ajouter des photos — compressées automatiquement (1280 px max, JPEG 75 %) pour tenir dans le stockage local">
+          {uploading > 0 ? "Compression " + uploading + "…" : "+ Ajouter"}
+        </Btn>
+        <input ref={inpRef} type="file" multiple accept="image/*" style={{display:"none"}}
+          onChange={function(e){ addFiles(e.target.files); e.target.value=""; }}/>
+      </div>
+      {uploading > 0 && (
+        <div style={{background:"rgba(0,194,255,0.08)",border:"1px solid #00C2FF",
+          borderRadius:7,padding:"7px 12px",marginBottom:12,fontSize:11,color:"#00C2FF"}}>
+          📦 Compression de {uploading} photo(s) en cours… (1280 px max, JPEG 75 %)
+        </div>
+      )}
+      {uploadError && (
+        <div style={{background:"rgba(255,71,87,0.10)",border:"1px solid #FF4757",
+          borderRadius:7,padding:"7px 12px",marginBottom:12,fontSize:11,color:"#FF4757"}}>
+          ⚠️ {uploadError}
+        </div>
+      )}
+      {photos.length === 0 && (
+        <div onClick={function(){ inpRef.current.click(); }}
+          style={{border:"2px dashed #1C3050",borderRadius:12,padding:"50px 20px",
+            textAlign:"center",cursor:"pointer",background:"rgba(0,194,255,0.04)"}}>
+          <div style={{fontSize:42,marginBottom:8,color:"#607898"}}>+</div>
+          <div style={{fontSize:14,color:"#E8EDF5",fontWeight:600}}>Glisser des photos ou cliquer</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:5}}>JPG, PNG, WEBP - aucune limite</div>
+        </div>
+      )}
+      {photos.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:10}}>
+          {photos.map(function(p, i) {
+            var FACADE_COLORS = {sud:"#FF8C42",nord:"#00C2FF",est:"#00E5A0",ouest:"#A78BFA",vue:"#9aa3ad"};
+            var FACADE_LABELS = {sud:"SUD",nord:"NORD",est:"EST",ouest:"OUEST",vue:"VUE"};
+            return (
+              <div key={i} style={{position:"relative",aspectRatio:"4/3",
+                borderRadius:8,overflow:"hidden",border:"1px solid #1C3050",
+                cursor:"pointer",background:"#060D18"}}
+                onClick={function(){ setZoom(p); }}>
+                <img src={p.url} alt={p.name}
+                  style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                {p.facade && (
+                  <div style={{position:"absolute",top:5,left:5,
+                    background:FACADE_COLORS[p.facade]||"#9aa3ad",color:"#000",
+                    fontSize:10,fontWeight:900,padding:"3px 8px",
+                    borderRadius:4,letterSpacing:"0.06em",
+                    boxShadow:"0 1px 3px rgba(0,0,0,0.4)"}}>
+                    {FACADE_LABELS[p.facade]||p.facade.toUpperCase()}
+                  </div>
+                )}
+                <button type="button"
+                  onClick={function(e){ e.stopPropagation(); removeAt(i); }}
+                  style={{position:"absolute",top:5,right:5,
+                    background:"rgba(255,71,87,0.92)",color:"#fff",
+                    border:"none",borderRadius:4,width:22,height:22,
+                    fontSize:12,fontWeight:900,cursor:"pointer",
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>X</button>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,
+                  background:"rgba(0,0,0,0.7)",padding:"4px 8px",
+                  fontSize:10,color:"#E8EDF5",
+                  whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {zoom && (
+        <div onClick={function(){ setZoom(null); }}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:300,
+            display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",
+            padding:30,boxSizing:"border-box"}}>
+          <img src={zoom.url} alt={zoom.name}
+            style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- TabPlans: 4 architectural elevations (Sud / Est / Nord / Ouest) ---- */
+var FACADES = [
+  { id:"sud",   label:"FACADE SUD" },
+  { id:"est",   label:"FACADE EST" },
+  { id:"nord",  label:"FACADE NORD" },
+  { id:"ouest", label:"FACADE OUEST" },
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   Plan de masse — vue aérienne satellite + dessin + import (2026-05-22)
+   Satellite : ESRI World Imagery (FR+BE) ou IGN orthophotos (FR).
+   ═══════════════════════════════════════════════════════════════════ */
+
+function lonLatToMerc(lon, lat) {
+  var R = 6378137;
+  return [ R * lon * Math.PI / 180, R * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360)) ];
+}
+
+/* URL d'une image satellite statique centrée sur lat/lon. spanM = hauteur réelle couverte. */
+function satelliteImageUrl(lat, lon, w, h, spanM, provider) {
+  var c = lonLatToMerc(lon, lat);
+  var halfH = spanM / 2, halfW = halfH * (w / h);
+  var bbox = [c[0] - halfW, c[1] - halfH, c[0] + halfW, c[1] + halfH].map(function(v){ return v.toFixed(2); });
+  if (provider === "ign") {
+    return "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap"
+      + "&LAYERS=ORTHOIMAGERY.ORTHOPHOTOS&STYLES=&CRS=EPSG:3857"
+      + "&BBOX=" + bbox.join(",")
+      + "&WIDTH=" + w + "&HEIGHT=" + h + "&FORMAT=image/jpeg";
+  }
+  return "https://server.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/export"
+    + "?bbox=" + bbox.join(",") + "&bboxSR=3857&imageSR=3857"
+    + "&size=" + w + "," + h + "&format=jpg&f=image";
+}
+
+/* Projette un polygone [[lat,lon],...] en coordonnées viewBox (vbW × vbH)
+   pour le centre lat/lon donné et le span vertical en mètres. */
+function polyToViewBox(polygon, cLat, cLon, vbW, vbH, spanM) {
+  var c = lonLatToMerc(cLon, cLat);
+  var halfH = spanM / 2, halfW = halfH * (vbW / vbH);
+  return polygon.map(function(pt){
+    var mp = lonLatToMerc(pt[1], pt[0]);
+    var x = ((mp[0] - (c[0] - halfW)) / (2 * halfW)) * vbW;
+    var y = (((c[1] + halfH) - mp[1]) / (2 * halfH)) * vbH;
+    return [x, y];
+  });
+}
+
+/* Aire d'un polygone (coords planes), formule du lacet. */
+function shoelaceArea(pts) {
+  if (!pts || pts.length < 3) return 0;
+  var a = 0;
+  for (var i = 0; i < pts.length; i++) {
+    var p1 = pts[i], p2 = pts[(i + 1) % pts.length];
+    a += p1[0] * p2[1] - p2[0] * p1[1];
+  }
+  return Math.abs(a) / 2;
+}
+
+function PlanMasse({ project, onUpdate }) {
+  var VB_W = 1000, VB_H = 640, SPAN_M = 140;
+  var meta = project.exterior_meta || {};
+  var hasGeo = !!(meta.lat && meta.lon);
+
+  var saved = project.plan_masse || {};
+  var [view, setView]       = useState(saved.importImg ? "import" : "satellite");
+  var [provider, setProvider] = useState(saved.provider || "esri");
+  var [drawPts, setDrawPts] = useState(saved.drawPts || []);
+  var [closed, setClosed]   = useState(!!saved.closed);
+  var [importImg, setImportImg] = useState(saved.importImg || null);
+  var [satReady, setSatReady] = useState(true);
+  var fileRef = useRef();
+
+  var satUrl = hasGeo ? satelliteImageUrl(meta.lat, meta.lon, VB_W, VB_H, SPAN_M, provider) : null;
+  var bldgPoly = (meta.polygon && meta.polygon.length >= 3 && hasGeo)
+    ? polyToViewBox(meta.polygon, meta.lat, meta.lon, VB_W, VB_H, SPAN_M)
+    : null;
+
+  /* mètres par unité viewBox (échelle verticale) */
+  var mPerUnit = SPAN_M / VB_H;
+  var drawAreaM2 = closed && drawPts.length >= 3
+    ? Math.round(shoelaceArea(drawPts) * mPerUnit * mPerUnit)
+    : 0;
+
+  function persist(patch) {
+    onUpdate({ plan_masse: Object.assign({}, saved, {
+      provider: provider, drawPts: drawPts, closed: closed, importImg: importImg
+    }, patch) });
+  }
+
+  function svgClick(e) {
+    if (view === "satellite") return;
+    if (closed) return;
+    var svg = e.currentTarget;
+    var rect = svg.getBoundingClientRect();
+    var rx = Math.round(((e.clientX - rect.left) / rect.width) * VB_W);
+    var ry = Math.round(((e.clientY - rect.top) / rect.height) * VB_H);
+    /* forme fonctionnelle : robuste aux clics rapprochés (pas de stale closure) */
+    setDrawPts(function(prev){ return prev.concat([[rx, ry]]); });
+  }
+  function closePoly() {
+    if (drawPts.length < 3) return;
+    setClosed(true);
+    persist({ closed: true, drawPts: drawPts });
+  }
+  function resetDraw() {
+    setDrawPts([]); setClosed(false);
+    persist({ drawPts: [], closed: false });
+  }
+  function undoPoint() {
+    if (closed || !drawPts.length) return;
+    setDrawPts(drawPts.slice(0, -1));
+  }
+  function onImportFile(e) {
+    var f = e.target.files && e.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function(ev){
+      setImportImg(ev.target.result);
+      setView("import");
+      onUpdate({ plan_masse: Object.assign({}, saved, { importImg: ev.target.result, provider: provider, drawPts: drawPts, closed: closed }) });
+    };
+    r.readAsDataURL(f);
+  }
+  function applyAsEmprise() {
+    if (drawAreaM2 <= 0) return;
+    var prevMeas = project.meas || {};
+    onUpdate({ meas: Object.assign({}, prevMeas, { foot: String(drawAreaM2) }) });
+  }
+
+  var TOOL = function(active){ return {
+    flex:1, padding:"8px 6px", borderRadius:7, fontSize:12, fontWeight:700,
+    cursor:"pointer", outline:"none", border:"1px solid " + (active ? "#1a6fd4" : "#d6d2c7"),
+    background: active ? "#1a6fd4" : "#fff", color: active ? "#fff" : "#555"
+  };};
+
+  return (
+    <div>
+      {/* Barre d'outils */}
+      <div style={{display:"flex", gap:8, marginBottom:12}}>
+        <button type="button" style={TOOL(view === "satellite")} onClick={function(){ setView("satellite"); }}>🛰 Vue satellite</button>
+        <button type="button" style={TOOL(view === "draw")} onClick={function(){ setView("draw"); }}>✏️ Dessiner le plan</button>
+        <button type="button" style={TOOL(view === "import")} onClick={function(){ fileRef.current && fileRef.current.click(); }}>📂 Importer un plan</button>
+        <input ref={fileRef} type="file" accept="image/*" onChange={onImportFile} style={{display:"none"}}/>
+      </div>
+
+      {!hasGeo && view === "satellite" && (
+        <div style={{background:"#fff8e8", border:"1px solid #e8c97a", borderRadius:8, padding:"14px 16px", fontSize:13, color:"#7a5c1a"}}>
+          📍 Lance d'abord l'autofill cadastre dans l'onglet <strong>Extérieur</strong> (bouton « Appliquer ») pour géolocaliser le bâtiment et afficher la vue satellite.
+        </div>
+      )}
+
+      {(hasGeo || view !== "satellite") && (
+        <div style={{position:"relative", border:"1px solid #d6d2c7", borderRadius:8, overflow:"hidden", background:"#1a1a1a"}}>
+          <svg viewBox={"0 0 " + VB_W + " " + VB_H} onClick={svgClick}
+            style={{width:"100%", display:"block", cursor: view === "satellite" ? "default" : (closed ? "default" : "crosshair")}}>
+            {/* Fond : satellite ou image importée */}
+            {view === "import" && importImg && (
+              <image href={importImg} x="0" y="0" width={VB_W} height={VB_H} preserveAspectRatio="xMidYMid slice"/>
+            )}
+            {view !== "import" && satUrl && (
+              <image href={satUrl} x="0" y="0" width={VB_W} height={VB_H}
+                onError={function(){ setSatReady(false); }}
+                onLoad={function(){ setSatReady(true); }}/>
+            )}
+            {view === "import" && !importImg && (
+              <rect x="0" y="0" width={VB_W} height={VB_H} fill="#2a2a2a"/>
+            )}
+
+            {/* Polygone bâtiment (cadastre) — affiché en vue satellite */}
+            {view === "satellite" && bldgPoly && (
+              <polygon points={bldgPoly.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                fill="rgba(0,194,255,0.22)" stroke="#00C2FF" strokeWidth="2.5"/>
+            )}
+
+            {/* Polygone en cours de dessin */}
+            {view !== "satellite" && drawPts.length > 0 && (
+              <>
+                {(closed || drawPts.length >= 3) && (
+                  <polygon points={drawPts.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                    fill="rgba(0,229,160,0.25)" stroke="#00E5A0" strokeWidth="2.5"/>
+                )}
+                {!closed && drawPts.length < 3 && drawPts.length > 1 && (
+                  <polyline points={drawPts.map(function(p){ return p[0] + "," + p[1]; }).join(" ")}
+                    fill="none" stroke="#00E5A0" strokeWidth="2.5"/>
+                )}
+                {drawPts.map(function(p, i){
+                  return <circle key={i} cx={p[0]} cy={p[1]} r="6" fill="#00E5A0" stroke="#fff" strokeWidth="2"/>;
+                })}
+              </>
+            )}
+          </svg>
+
+          {/* Bandeau attribution + infos */}
+          <div style={{position:"absolute", bottom:0, left:0, right:0, padding:"5px 10px",
+            background:"rgba(0,0,0,0.55)", color:"#cfd8e3", fontSize:9,
+            display:"flex", justifyContent:"space-between"}}>
+            <span>
+              {view === "import" ? "Plan importé"
+                : provider === "ign" ? "© IGN / Géoplateforme"
+                : "© Esri, Maxar, Earthstar Geographics"}
+            </span>
+            <span>{view === "satellite" ? "Échelle ≈ " + Math.round(SPAN_M) + " m de haut" : ""}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Contrôles contextuels */}
+      <div style={{display:"flex", alignItems:"center", gap:10, marginTop:12, flexWrap:"wrap"}}>
+        {view === "satellite" && hasGeo && (
+          <>
+            <span style={{fontSize:11, color:"#666"}}>Source image :</span>
+            <button type="button" onClick={function(){ setProvider("esri"); persist({provider:"esri"}); }}
+              style={TOOL(provider === "esri")}>ESRI (FR+BE)</button>
+            <button type="button" onClick={function(){ setProvider("ign"); persist({provider:"ign"}); }}
+              style={TOOL(provider === "ign")}>IGN HD (France)</button>
+          </>
+        )}
+        {view !== "satellite" && (
+          <>
+            <span style={{fontSize:12, color:"#444", fontWeight:600}}>
+              {closed ? "Plan fermé · " + drawPts.length + " points"
+                : "Clique pour poser les coins · " + drawPts.length + " point(s)"}
+            </span>
+            {!closed && <Btn onClick={undoPoint} style={{padding:"6px 12px"}}>↶ Annuler point</Btn>}
+            {!closed && drawPts.length >= 3 && <Btn primary={true} onClick={closePoly} style={{padding:"6px 12px"}}>✓ Fermer le polygone</Btn>}
+            {drawPts.length > 0 && <Btn onClick={resetDraw} style={{padding:"6px 12px"}}>🗑 Recommencer</Btn>}
+            {closed && drawAreaM2 > 0 && (
+              <span style={{fontSize:13, fontWeight:800, color:"#1a6fd4"}}>
+                Surface tracée ≈ {drawAreaM2} m²
+              </span>
+            )}
+            {closed && drawAreaM2 > 0 && view !== "import" && (
+              <Btn primary={true} onClick={applyAsEmprise} style={{padding:"6px 12px", background:"#00A878"}}>
+                ✓ Définir comme emprise sol
+              </Btn>
+            )}
+          </>
+        )}
+      </div>
+      {view !== "satellite" && view !== "import" && (
+        <div style={{fontSize:10, color:"#999", marginTop:6, fontStyle:"italic"}}>
+          💡 Le dessin se fait sur le fond satellite — l'échelle réelle ({Math.round(SPAN_M)} m de haut) permet le calcul automatique de surface.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabPlans({ project, setToast, onUpdate }) {
+  var [zoom, setZoom] = useState(null);
+  var [planView, setPlanView] = useState("elevations");
+
+  function exportAllPlansPdf() {
+    /* Render each facade SVG to a dataURL via canvas, place 2 per A4 page. */
+    var doc = new jsPDF({orientation:"landscape", unit:"mm", format:"a4"});
+    /* A4 landscape: 297 x 210 mm. Place 2 plans per page (top + bottom). */
+    var nodes = document.querySelectorAll('[data-elevation-svg]');
+    if (nodes.length === 0) {
+      setToast && setToast("Aucun plan a exporter");
+      return;
+    }
+    var done = 0;
+    function rasterize(svgEl, cb) {
+      var svgClone = svgEl.cloneNode(true);
+      svgClone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      var serialized = new XMLSerializer().serializeToString(svgClone);
+      var blob = new Blob([serialized], {type:"image/svg+xml;charset=utf-8"});
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function() {
+        var canvas = document.createElement("canvas");
+        canvas.width = 1600; canvas.height = 1200;
+        var ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+        cb(canvas.toDataURL("image/jpeg", 0.92));
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); cb(null); };
+      img.src = url;
+    }
+    var pngs = [];
+    function next(i) {
+      if (i >= nodes.length) {
+        var slot = 0;
+        pngs.forEach(function(png, k) {
+          if (!png) return;
+          if (slot === 2) { doc.addPage(); slot = 0; }
+          var y = slot === 0 ? 8 : 110;
+          doc.addImage(png, "JPEG", 18, y, 261, 96, undefined, "FAST");
+          slot++;
+        });
+        var addr = (project.addr || "plans").toLowerCase().replace(/[^a-z0-9]+/g,"-");
+        doc.save("mesurepro-plans-" + addr + ".pdf");
+        setToast && setToast("PDF des plans telecharge");
+        return;
+      }
+      rasterize(nodes[i], function(png) {
+        pngs[i] = png;
+        next(i+1);
+      });
+    }
+    next(0);
+  }
+
+  var TAB = function(active){ return {
+    padding:"7px 16px", borderRadius:7, fontSize:13, fontWeight:700,
+    cursor:"pointer", outline:"none", border:"1px solid " + (active ? "#1a1a1a" : "#d6d2c7"),
+    background: active ? "#1a1a1a" : "#fff", color: active ? "#fff" : "#666"
+  };};
+
+  return (
+    <div style={{padding:"22px 24px",overflowY:"auto",height:"calc(100vh - 92px)",boxSizing:"border-box",background:"#F0EFEA"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:900,color:"#1a1a1a"}}>
+            {planView === "elevations" ? "Plans d'elevations" : "Plan de masse"}
+          </div>
+          <div style={{fontSize:11,color:"#666",marginTop:3}}>
+            {planView === "elevations"
+              ? (project.addr || "") + " - 4 facades cotees, niveau ±0.00 = TN, limites propriete en orange"
+              : (project.addr || "") + " - vue aérienne géolocalisée, dessin et import de plan"}
+          </div>
+        </div>
+        {planView === "elevations" && <Btn primary={true} onClick={exportAllPlansPdf}>Telecharger PDF</Btn>}
+      </div>
+
+      <div style={{display:"flex", gap:8, marginBottom:16}}>
+        <button type="button" style={TAB(planView === "elevations")} onClick={function(){ setPlanView("elevations"); }}>📐 Élévations 2D</button>
+        <button type="button" style={TAB(planView === "masse")} onClick={function(){ setPlanView("masse"); }}>🗺️ Plan de masse</button>
+      </div>
+
+      {planView === "masse" && <PlanMasse project={project} onUpdate={onUpdate}/>}
+
+      {planView === "elevations" && (
+      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16}}>
+        {FACADES.map(function(f) {
+          /* Find a project photo tagged for this facade. The user can
+             override by uploading their own photo with facade=<id>. */
+          var matchingPhoto = (project.photos || []).find(function(p){
+            return p && p.facade === f.id;
+          });
+          return (
+            <div key={f.id}
+              style={{background:"#fff",border:"1px solid #d6d2c7",borderRadius:6,
+                boxShadow:"0 1px 3px rgba(0,0,0,0.08)",
+                overflow:"hidden",display:"flex",flexDirection:"column"}}>
+              {/* Drawing */}
+              <div onClick={function(){setZoom(f);}}
+                data-elevation-svg
+                style={{aspectRatio:"4/3",background:"#fff",cursor:"zoom-in"}}>
+                <Elevation project={project} facadeId={f.id} label={f.label}/>
+              </div>
+              {/* Photo of the actual facade (if available) */}
+              {matchingPhoto ? (
+                <div style={{borderTop:"1px solid #e0dcd0",
+                  display:"flex",alignItems:"stretch",background:"#f7f5f0"}}>
+                  <img src={matchingPhoto.url} alt={matchingPhoto.name}
+                    style={{width:120,height:90,objectFit:"cover",flexShrink:0,
+                      borderRight:"1px solid #e0dcd0"}}/>
+                  <div style={{flex:1,padding:"8px 12px",
+                    display:"flex",flexDirection:"column",justifyContent:"center"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#444",letterSpacing:"0.04em"}}>
+                      📷 {matchingPhoto.name}
+                    </div>
+                    <div style={{fontSize:10,color:"#888",marginTop:2}}>
+                      Photo terrain - facade {f.id}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{borderTop:"1px solid #e0dcd0",
+                  padding:"10px 14px",fontSize:10,color:"#aaa",
+                  background:"#fafaf6",fontStyle:"italic"}}>
+                  Aucune photo associee a cette facade
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      )}
+      {zoom && (
+        <div onClick={function(){setZoom(null);}}
+          style={{position:"fixed",inset:0,background:"rgba(20,20,20,0.92)",zIndex:300,
+            display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out",
+            padding:30,boxSizing:"border-box"}}>
+          <div onClick={function(e){e.stopPropagation();}}
+            style={{background:"#fff",borderRadius:6,padding:0,
+              maxWidth:"95%",maxHeight:"95%",width:"min(1400px,95%)",
+              boxShadow:"0 30px 80px rgba(0,0,0,0.6)",
+              display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"10px 18px",borderBottom:"1px solid #e0e0e0",
+              display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div style={{fontSize:13,fontWeight:800,color:"#1a1a1a"}}>{zoom.label} - {project.addr}</div>
+              <button type="button" onClick={function(){setZoom(null);}}
+                style={{background:"transparent",border:"1px solid #ccc",
+                  color:"#666",borderRadius:5,padding:"4px 11px",
+                  fontSize:12,cursor:"pointer",outline:"none"}}>Fermer</button>
+            </div>
+            <div style={{flex:1,padding:14,background:"#fff",minHeight:0,
+              display:"flex",gap:14,alignItems:"stretch"}}>
+              {/* Plan d'elevation */}
+              <div style={{flex:1.2,minWidth:0,
+                display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <div style={{width:"100%",aspectRatio:"4/3",maxHeight:"75vh"}}>
+                  <Elevation project={project} facadeId={zoom.id} label={zoom.label}/>
+                </div>
+              </div>
+              {/* Photo associee */}
+              {(function(){
+                var photo = (project.photos || []).find(function(p){
+                  return p && p.facade === zoom.id;
+                });
+                if (!photo) {
+                  return (
+                    <div style={{flex:0.8,minWidth:0,background:"#fafaf6",
+                      borderRadius:6,border:"1px dashed #d6d2c7",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      padding:14,textAlign:"center"}}>
+                      <div>
+                        <div style={{fontSize:34,marginBottom:6}}>📷</div>
+                        <div style={{fontSize:12,color:"#888",fontStyle:"italic"}}>
+                          Aucune photo<br/>pour cette facade
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={{flex:0.8,minWidth:0,
+                    display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{flex:1,minHeight:0,
+                      borderRadius:4,overflow:"hidden",background:"#000"}}>
+                      <img src={photo.url} alt={photo.name}
+                        style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+                    </div>
+                    <div style={{padding:"6px 10px",background:"#f7f5f0",
+                      borderRadius:4,fontSize:11,color:"#444"}}>
+                      📷 {photo.name}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabModel({ project, mat, setMat, onUpdate }) {
+  var m = project.meas || {};
+  var fl = parseInt(project.floors) || 2;
+  /* Fallbacks neutres (petite maison standard) — surtout PAS les valeurs
+     du projet démo Haussmann (7.4 / 142) qui faisaient afficher la maison
+     d'un autre projet quand le projet courant n'avait pas de mesures. */
+  var realH = parseFloat(m.h) || 6;       /* 2 étages × 3 m */
+  var realFoot = parseFloat(m.foot) || 80; /* maison 80 m² */
+
+  function setFloors(n) {
+    onUpdate && onUpdate({floors: n});
+  }
+  function setMeas(key, val) {
+    var next = Object.assign({}, m, {[key]: String(val)});
+    /* When the user moves dimensional sliders we also recompute the
+       derivable surfaces so the building visual + measurements stay
+       consistent. The user can still override any field manually in
+       the Mesures tab afterwards. */
+    if (key === "h" || key === "foot") {
+      var h = parseFloat(key === "h"    ? val : m.h)    || realH;
+      var f = parseFloat(key === "foot" ? val : m.foot) || realFoot;
+      var ratio = 1.6;
+      var w = Math.sqrt(f * ratio);
+      var d = Math.sqrt(f / ratio);
+      var perim = 2 * (w + d);
+      var walls = perim * h;
+      next.perim = perim.toFixed(1);
+      next.walls = walls.toFixed(1);
+      if (!m.roof || m.roof === "") next.roof = (f * 1.3).toFixed(1);
+    }
+    /* Régénère rooms[] — sans ça les plans 2D/3D (qui lisent rooms) ne
+       réagissent pas aux sliders. */
+    onUpdate && onUpdate({ meas: next, rooms: roomsFromMeas(next, project.rooms) });
+  }
+  return (
+    <div style={{display:"flex",height:"calc(100vh - 92px)"}}>
+      <div style={{flex:1,padding:18,display:"flex",flexDirection:"column",minWidth:0}}>
+        <div style={{background:"#060D18",borderRadius:10,border:"1px solid #1C3050",
+          flex:1,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+          <IsoModel mat={mat} photos={project.photos} floors={fl} meas={project.meas} rooms={project.rooms} roof={project.roof}/>
+        </div>
+        <div style={{fontSize:11,color:"#607898",marginTop:8,textAlign:"center"}}>
+          Glissez sur le modele pour le faire pivoter
+        </div>
+      </div>
+      <div style={{width:240,borderLeft:"1px solid #1C3050",overflowY:"auto",
+        padding:"16px 14px",flexShrink:0}}>
+
+        {/* Edit sliders — always visible if onUpdate is provided */}
+        {onUpdate && (
+          <div style={{marginBottom:18}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#00C2FF",textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:10}}>Edition rapide</div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Etages</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{fl}</span>
+              </div>
+              <input type="range" min="1" max="5" step="1" value={fl}
+                onChange={function(e){ setFloors(parseInt(e.target.value)); }}
+                style={{width:"100%",accentColor:"#00C2FF",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Hauteur</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{(parseFloat(m.h) || realH).toFixed(1)} m</span>
+              </div>
+              <input type="range" min="3" max="20" step="0.1" value={parseFloat(m.h) || realH}
+                onChange={function(e){ setMeas("h", e.target.value); }}
+                style={{width:"100%",accentColor:"#00E5A0",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{marginBottom:11}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#607898",marginBottom:4}}>
+                <span>Emprise sol</span>
+                <span style={{color:"#E8EDF5",fontFamily:"monospace",fontWeight:700}}>{(parseFloat(m.foot) || realFoot).toFixed(0)} m²</span>
+              </div>
+              <input type="range" min="40" max="500" step="2" value={parseFloat(m.foot) || realFoot}
+                onChange={function(e){ setMeas("foot", e.target.value); }}
+                style={{width:"100%",accentColor:"#FF8C42",cursor:"pointer"}}/>
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",lineHeight:1.4,
+              padding:"7px 0",borderTop:"1px solid #1C3050",marginTop:6}}>
+              Les murs et le perimetre sont recalcules automatiquement.
+              Pour saisir manuellement chaque cote, utilisez l'onglet <span style={{color:"#607898",fontWeight:700}}>Mesures</span>.
+            </div>
+
+            {/* Export AR (.glb) — différenciateur clé vs Hover/EagleView */}
+            <div style={{borderTop:"1px solid #1C3050",marginTop:10,paddingTop:12}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#FF8C42",textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:8}}>📦 Export AR</div>
+              <button type="button"
+                onClick={function(){ exportProjectGlb(project, function(msg){ /* toast via parent? */ }); }}
+                title={t("ar.downloadGlb") + " — compatible Android Scene Viewer + iOS Reality Composer"}
+                style={{width:"100%",background:"#FF8C42",border:"none",color:"#000",
+                  borderRadius:7,padding:"9px 12px",fontSize:11,fontWeight:700,
+                  cursor:"pointer",outline:"none"}}>
+                ⬇ {t("ar.downloadGlb")}
+              </button>
+              <div style={{fontSize:9,color:"#607898",marginTop:6,lineHeight:1.45}}>
+                {detectArPlatform() === "ios" && "📱 iOS : ouvrir avec Reality Composer (gratuit) pour conversion AR."}
+                {detectArPlatform() === "android" && "📱 Android : ouvrir avec Scene Viewer pour AR Quick Look."}
+                {detectArPlatform() === "other" && "Compatible Scene Viewer (Android), Reality Composer (iOS), viewer.io, Blender."}
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{fontSize:10,fontWeight:700,color:"#607898",textTransform:"uppercase",
+          letterSpacing:"0.08em",marginBottom:12}}>Donnees projet</div>
+        {project.meas && [
+          ["Murs",     (m.walls||"-")+" m²"],
+          ["Toit",     (m.roof||"-")+" m²"],
+          ["Perimetre",(m.perim||"-")+" m"],
+          ["Hauteur",  (m.h||"-")+" m"],
+          ["Emprise",  (m.foot||"-")+" m²"],
+          ["Fenetres", m.win||"-"],
+          ["Portes",   m.doors||"-"],
+        ].map(function(pair) {
+          return (
+            <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
+              padding:"6px 0",borderBottom:"1px solid #1C3050"}}>
+              <span style={{fontSize:11,color:"#607898"}}>{pair[0]}</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{pair[1]}</span>
+            </div>
+          );
+        })}
+        <div style={{marginTop:18,fontSize:10,fontWeight:700,color:"#607898",
+          textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:11}}>Apercu materiau</div>
+        {MATS.map(function(mt) {
+          var active = mat && mat.id === mt.id;
+          return (
+            <button type="button" key={mt.id}
+              onClick={function(){setMat(active ? null : mt);}} style={{
+              display:"flex",alignItems:"center",gap:9,padding:"7px 9px",
+              borderRadius:8,border:"1px solid "+(active ? "#00C2FF" : "#1C3050"),
+              cursor:"pointer",background:active ? "rgba(0,194,255,0.13)" : "transparent",
+              marginBottom:5,width:"100%",outline:"none",
+            }}>
+              <MatTile m={mt} size={22}/>
+              <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left"}}>{mt.lbl}</span>
+              {active && <span style={{color:"#00C2FF",fontSize:12}}>OK</span>}
+            </button>
+          );
+        })}
+
+        {(project.photos || []).length > 0 && (
+          <div style={{marginTop:14,paddingTop:11,borderTop:"1px solid #1C3050"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#00E5A0",textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:8}}>Vos photos</div>
+            {(project.photos || []).map(function(p, i) {
+              var pm = photoMat(p, i);
+              var active = mat && mat.id === pm.id;
+              return (
+                <button type="button" key={pm.id}
+                  onClick={function(){setMat(active ? null : pm);}} style={{
+                  display:"flex",alignItems:"center",gap:9,padding:"6px 9px",
+                  borderRadius:8,border:"1px solid "+(active ? "#00E5A0" : "#1C3050"),
+                  cursor:"pointer",background:active ? "rgba(0,229,160,0.10)" : "transparent",
+                  marginBottom:5,width:"100%",outline:"none",
+                }}>
+                  <img src={p.url} alt={p.name||""}
+                    style={{width:22,height:22,borderRadius:4,objectFit:"cover",
+                      border:"1px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+                  <span style={{fontSize:11,color:"#E8EDF5",flex:1,textAlign:"left",
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.name || ("Photo "+(i+1))}</span>
+                  {active && <span style={{color:"#00E5A0",fontSize:12}}>OK</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TabMeas({ project, onUpdate }) {
+  var m = project.meas || {};
+  var rooms = project.rooms || [];
+
+  /* BLE laser : tracking du champ focus + connexion partagée */
+  var [activeMeasField, setActiveMeasField] = useState(null);   /* "walls" | "rooms:0:l" | null */
+  var [bleConn, setBleConn] = useState(null);
+  var [bleStatus, setBleStatus] = useState("");
+  var activeFieldRef = useRef(activeMeasField);
+  useEffect(function(){ activeFieldRef.current = activeMeasField; }, [activeMeasField]);
+  useEffect(function(){
+    return function(){ if (bleConn) { try { bleConn.disconnect(); } catch(e){} } };
+  }, [bleConn]);
+
+  var FIELDS = [
+    {key:"walls", lbl:"Surface murs", unit:"m²", col:"#00C2FF"},
+    {key:"roof",  lbl:"Surface toit", unit:"m²", col:"#00E5A0"},
+    {key:"perim", lbl:"Perimetre",    unit:"m",  col:"#FF8C42"},
+    {key:"h",     lbl:"Hauteur",      unit:"m",  col:"#E8EDF5"},
+    {key:"foot",  lbl:"Emprise sol",  unit:"m²", col:"#E8EDF5"},
+    {key:"win",   lbl:"Fenetres",     unit:"",   col:"#E8EDF5"},
+    {key:"doors", lbl:"Portes",       unit:"",   col:"#E8EDF5"},
+  ];
+
+  function setMeasField(key, val) {
+    var next = Object.assign({}, m, {[key]: val});
+    /* Les champs géométriques régénèrent rooms[] pour garder 2D/3D synchro. */
+    if (key === "foot" || key === "h" || key === "perim" || key === "roof") {
+      onUpdate({ meas: next, rooms: roomsFromMeas(next, rooms) });
+    } else {
+      onUpdate({ meas: next });
+    }
+  }
+
+  function setRoomField(i, field, val) {
+    var next = rooms.map(function(r, j) {
+      return j === i ? Object.assign({}, r, {[field]: val}) : r;
+    });
+    /* Recalcule meas agrégé pour garder meas ↔ rooms cohérents. */
+    onUpdate({ rooms: next, meas: measFromRooms(next, m) });
+  }
+
+  function addRoom() {
+    onUpdate({rooms: rooms.concat([{n:"Nouveau mur", a:"0", l:"--", h:"--", t:"w"}])});
+  }
+
+  function delRoom(i) {
+    onUpdate({rooms: rooms.filter(function(_, j){ return j !== i; })});
+  }
+
+  /* Écrit la valeur reçue par le laser dans le champ actuellement focus */
+  function writeLaserToActive(meters) {
+    var f = activeFieldRef.current;
+    if (!f) {
+      setBleStatus("⚠️ Cliquez d'abord dans un champ avant de tirer le laser.");
+      return;
+    }
+    if (f.indexOf("rooms:") === 0) {
+      var parts = f.split(":");          /* "rooms:0:l" */
+      var idx = parseInt(parts[1], 10);
+      var fld = parts[2];
+      var val = (fld === "a") ? meters.toFixed(2) : meters.toFixed(2);
+      setRoomField(idx, fld, val);
+    } else {
+      /* champs principaux : win/doors = entier, autres = 2 décimales */
+      var v = (f === "win" || f === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
+      setMeasField(f, v);
+    }
+    setBleStatus("✓ " + meters.toFixed(2) + " m → " + f);
+  }
+  function connectMeasLaser() {
+    if (bleConn) {
+      bleConn.disconnect();
+      setBleConn(null);
+      setBleStatus("Déconnecté.");
+      setTimeout(function(){ setBleStatus(""); }, 2000);
+      return;
+    }
+    function onStatus(s){ setBleStatus((s.ok ? "" : "⚠️ ") + s.msg); }
+    connectBleLaser(writeLaserToActive, onStatus).then(function(conn){
+      if (conn) setBleConn(conn);
+    });
+  }
+
+  /* Shared style for inline text inputs in the rooms table */
+  var cellInput = {
+    width:"100%", boxSizing:"border-box",
+    background:"#0A1828", border:"1px solid #1C3050",
+    borderRadius:5, color:"#E8EDF5", fontSize:12,
+    padding:"4px 6px", outline:"none",
+    fontFamily:"monospace",
+  };
+
+  return (
+    <div style={{padding:"22px 24px", overflowY:"auto"}}>
+
+      {/* Hero instruction banner with progress */}
+      {(function(){
+        var filled = FIELDS.filter(function(f){ var v = m[f.key]; return v !== "" && v != null && parseFloat(v) > 0; }).length;
+        var total = FIELDS.length;
+        var pct = Math.round((filled/total)*100);
+        var ready = filled === total;
+        return (
+          <div style={{background: ready ? "rgba(0,229,160,0.10)" : "rgba(0,194,255,0.08)",
+            border:"1px solid " + (ready ? "#00E5A0" : "#00C2FF"),
+            borderRadius:10, padding:"12px 18px", marginBottom:22,
+            display:"flex", alignItems:"center", gap:14}}>
+            <div style={{fontSize:28}}>{ready ? "✓" : "📐"}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:14, fontWeight:800, color: ready ? "#00E5A0" : "#00C2FF", marginBottom:4}}>
+                {ready ? "Toutes les mesures sont saisies" : "Saisie des mesures"}
+              </div>
+              <div style={{fontSize:12, color:"#607898"}}>
+                {filled}/{total} champs renseignes — sauvegarde automatique a chaque touche
+              </div>
+              <div style={{height:4, background:"#1C3050", borderRadius:2, marginTop:8, overflow:"hidden"}}>
+                <div style={{height:"100%", width:pct+"%",
+                  background: ready ? "#00E5A0" : "#00C2FF",
+                  transition:"width 0.3s"}}/>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* BLE Laser bar — Connecter Leica DISTO / Bosch GLM (optionnel) */}
+      <div style={{background:"#0F1C2E", border:"1px solid " + (bleConn ? "#00E5A0" : "#1C3050"),
+        borderRadius:10, padding:"10px 14px", marginBottom:18,
+        display:"flex", alignItems:"center", gap:12}}>
+        <div style={{fontSize:18, opacity: bleConn ? 1 : 0.5}}>{bleConn ? "🟢" : "📡"}</div>
+        <div style={{flex:1, minWidth:0}}>
+          <div style={{fontSize:11, color: bleConn ? "#E8EDF5" : "#8DAFC8", fontWeight:700}}>
+            {bleConn
+              ? bleConn.driver.label + " — connecté"
+              : "Laser mètre Bluetooth (optionnel)"}
+          </div>
+          <div style={{fontSize:10, color:"#607898", marginTop:2,
+            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+            {bleStatus
+              ? bleStatus
+              : (bleConn
+                ? (activeMeasField
+                    ? "Champ actif : " + activeMeasField + " — tirez le laser"
+                    : "Cliquez dans un champ avant de tirer")
+                : "Saisie clavier OK — connectez un laser pour remplir auto")}
+          </div>
+        </div>
+        <button type="button" onClick={connectMeasLaser}
+          style={{background: bleConn ? "#00E5A0" : "transparent",
+            border:"1px solid " + (bleConn ? "#00E5A0" : "#2E4A6A"),
+            color: bleConn ? "#000" : "#8DAFC8",
+            borderRadius:7, padding:"6px 14px", fontSize:11,
+            fontWeight: bleConn ? 800 : 600, cursor:"pointer", outline:"none", flexShrink:0}}>
+          {bleConn ? "Déconnecter" : "Connecter"}
+        </button>
+      </div>
+
+      {/* 7 measurement cards */}
+      <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14, marginBottom:26}}>
+        {FIELDS.map(function(f) {
+          var v = m[f.key];
+          var empty = v === "" || v == null || !(parseFloat(v) > 0);
+          var focused = activeMeasField === f.key;
+          var borderCol = focused ? "#00E5A0" : (empty ? "rgba(255,140,66,0.55)" : f.col);
+          return (
+            <div key={f.key} style={{background:"#0F1C2E",
+              border: "1px solid " + (focused ? "#00E5A0" : (empty ? "rgba(255,140,66,0.35)" : "#1C3050")),
+              borderRadius:10, padding:"14px 16px",
+              transition:"border-color 0.2s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:9, color:"#607898", textTransform:"uppercase",
+                  letterSpacing:"0.08em"}}>{f.lbl}</div>
+                {empty && (
+                  <span style={{fontSize:8,color:"#FF8C42",fontWeight:700,
+                    textTransform:"uppercase",letterSpacing:"0.05em"}}>vide</span>
+                )}
+              </div>
+              <div style={{display:"flex", alignItems:"center", gap:8}}>
+                <input
+                  type="number"
+                  step="any"
+                  value={v === "" || v == null ? "" : v}
+                  onFocus={function(){ setActiveMeasField(f.key); }}
+                  onChange={function(e){ setMeasField(f.key, e.target.value); }}
+                  placeholder="0"
+                  style={{
+                    flex:1, background:"#0A1828",
+                    border:"2px solid " + borderCol,
+                    borderRadius:6, color: empty ? "#607898" : f.col,
+                    fontSize:22, fontWeight:900,
+                    fontFamily:"monospace", padding:"6px 10px",
+                    outline:"none", textAlign:"right",
+                    boxSizing:"border-box",
+                    transition:"border-color 0.2s, color 0.2s",
+                  }}
+                />
+                {f.unit ? <span style={{color:"#607898", fontSize:13, flexShrink:0}}>{f.unit}</span> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Rooms / facades table */}
+      <div style={{background:"#0F1C2E", border:"1px solid #1C3050",
+        borderRadius:12, overflow:"hidden"}}>
+        <div style={{padding:"12px 16px", borderBottom:"1px solid #1C3050",
+          display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+          <div>
+            <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>Facades et zones</span>
+            <span style={{fontSize:11, color:"#607898", marginLeft:10}}>
+              cliquez dans une cellule pour modifier
+            </span>
+          </div>
+          <button type="button" onClick={addRoom}
+            style={{background:"#00C2FF", color:"#000", border:"none",
+              borderRadius:7, padding:"5px 14px", fontSize:12, fontWeight:800,
+              cursor:"pointer", outline:"none"}}>
+            + Ajouter
+          </button>
+        </div>
+
+        {rooms.length === 0 && (
+          <div style={{padding:"24px", textAlign:"center", color:"#607898", fontSize:13}}>
+            Aucune facade — cliquez + Ajouter
+          </div>
+        )}
+
+        {rooms.length > 0 && (
+          <table style={{width:"100%", borderCollapse:"collapse"}}>
+            <thead>
+              <tr style={{background:"rgba(0,0,0,0.25)"}}>
+                {["Nom","Surface","Longueur","Hauteur","Type",""].map(function(h,i){
+                  return (
+                    <th key={i} style={{padding:"8px 12px", textAlign:"left",
+                      fontSize:9, color:"#607898", fontWeight:700,
+                      textTransform:"uppercase", letterSpacing:"0.06em"}}>
+                      {h}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {rooms.map(function(room, i) {
+                return (
+                  <tr key={i} style={{borderTop:"1px solid #1C3050",
+                    background:i%2===0 ? "transparent" : "rgba(0,0,0,0.06)"}}>
+                    <td style={{padding:"8px 12px"}}>
+                      <input value={room.n || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":n"); }}
+                        onChange={function(e){ setRoomField(i,"n",e.target.value); }}
+                        style={{...cellInput, fontFamily:"inherit", fontWeight:600, color:"#E8EDF5", width:130,
+                          borderColor: activeMeasField === "rooms:"+i+":n" ? "#00E5A0" : "#1C3050"}}/>
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <input type="number" step="any" value={room.a || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":a"); }}
+                        onChange={function(e){ setRoomField(i,"a",e.target.value); }}
+                        placeholder="m2"
+                        style={{...cellInput, color:"#00C2FF", width:80, textAlign:"right",
+                          borderColor: activeMeasField === "rooms:"+i+":a" ? "#00E5A0" : "#1C3050"}}/>
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <input value={room.l || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":l"); }}
+                        onChange={function(e){ setRoomField(i,"l",e.target.value); }}
+                        placeholder="m"
+                        style={{...cellInput, width:80,
+                          borderColor: activeMeasField === "rooms:"+i+":l" ? "#00E5A0" : "#1C3050"}}/>
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <input value={room.h || ""}
+                        onFocus={function(){ setActiveMeasField("rooms:"+i+":h"); }}
+                        onChange={function(e){ setRoomField(i,"h",e.target.value); }}
+                        placeholder="m"
+                        style={{...cellInput, width:80,
+                          borderColor: activeMeasField === "rooms:"+i+":h" ? "#00E5A0" : "#1C3050"}}/>
+                    </td>
+                    <td style={{padding:"8px 12px"}}>
+                      <select value={room.t || "w"}
+                        onChange={function(e){ setRoomField(i,"t",e.target.value); }}
+                        style={{background:"#152135", border:"1px solid #1C3050",
+                          color:"#E8EDF5", padding:"4px 6px", borderRadius:5,
+                          fontSize:11, cursor:"pointer", outline:"none"}}>
+                        <option value="w">Mur</option>
+                        <option value="r">Toit</option>
+                      </select>
+                    </td>
+                    <td style={{padding:"8px 12px", textAlign:"center"}}>
+                      <button type="button" onClick={function(){ delRoom(i); }}
+                        style={{background:"rgba(255,71,87,0.15)",
+                          border:"1px solid #FF4757", color:"#FF4757",
+                          borderRadius:5, width:28, height:28,
+                          fontSize:14, cursor:"pointer", outline:"none",
+                          display:"inline-flex", alignItems:"center", justifyContent:"center"}}>
+                        X
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
+/* Build a virtual material from an uploaded project photo */
+function photoMat(photo, idx) {
+  var idKey = photo.id || idx;
+  return {
+    id:    "photo-" + idKey,
+    lbl:   "Photo: " + (photo.name || ("image " + (idx+1))),
+    col:   "#9E8E7E",
+    fill:  "url(#mat-photo-" + idKey + ")",
+    price: null,
+    photo: photo,
+  };
+}
+
+/* Mini-tile that previews a material's pattern. Uses an inline SVG with
+   <MatDefs> + a square filled with the pattern URL. */
+function MatTile({ m, photos, size }) {
+  var s = size || 40;
+  return (
+    <svg width={s} height={s} viewBox={"0 0 "+s+" "+s}
+      style={{borderRadius:8,border:"1.5px solid rgba(255,255,255,0.1)",flexShrink:0,display:"block"}}>
+      <MatDefs photos={photos}/>
+      <rect width={s} height={s} fill={m.fill || m.col}/>
+    </svg>
+  );
+}
+
+function TabDesign({ project, mat, setMat }) {
+  var [hov, setHov] = useState(null);
+  var disp = hov || mat;
+  var photos = project.photos || [];
+  var photoMats = photos.map(photoMat);
+  return (
+    <div style={{display:"flex",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",
+        justifyContent:"center",background:"#060D18",gap:14,padding:24}}>
+        <div style={{background:"#0A1522",borderRadius:14,padding:"24px 40px",
+          border:"1px solid #1C3050",position:"relative"}}>
+          {disp && (
+            <div style={{position:"absolute",top:-11,left:"50%",transform:"translateX(-50%)",
+              background:"#0F1C2E",border:"1px solid #00C2FF",borderRadius:20,
+              padding:"3px 12px",fontSize:11,color:"#00C2FF",fontWeight:700,whiteSpace:"nowrap"}}>
+              {disp.lbl}
+            </div>
+          )}
+          <House shape={project.shape} mat={disp} photos={photos}/>
+        </div>
+        <p style={{color:"#607898",fontSize:11,textAlign:"center"}}>
+          Survolez pour previsualiser - Cliquez pour selectionner
+        </p>
+      </div>
+      <div style={{width:268,borderLeft:"1px solid #1C3050",overflowY:"auto",
+        padding:"16px 14px",flexShrink:0}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5",marginBottom:14}}>Materiaux</div>
+        {MATS.map(function(m) {
+          var active = mat && mat.id === m.id;
+          return (
+            <button type="button" key={m.id}
+              onClick={function(){setMat(active ? null : m);}}
+              onMouseEnter={function(){setHov(m);}}
+              onMouseLeave={function(){setHov(null);}}
+              style={{display:"flex",alignItems:"center",gap:12,padding:"11px 13px",
+                borderRadius:10,border:"1px solid "+(active ? "#00C2FF" : "#1C3050"),
+                cursor:"pointer",background:active ? "rgba(0,194,255,0.13)" : "#0F1C2E",
+                marginBottom:7,width:"100%",outline:"none"}}>
+              <MatTile m={m}/>
+              <div style={{flex:1,textAlign:"left"}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#E8EDF5"}}>{m.lbl}</div>
+                <div style={{fontSize:10,color:"#607898",marginTop:2}}>~{m.price} EUR/m2</div>
+              </div>
+              {active && <span style={{color:"#00C2FF",fontSize:12}}>OK</span>}
+            </button>
+          );
+        })}
+
+        {/* Section: photos importees comme texture custom */}
+        <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #1C3050"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5",marginBottom:6}}>Vos photos</div>
+          <div style={{fontSize:10,color:"#607898",marginBottom:10,lineHeight:1.4}}>
+            {photoMats.length === 0
+              ? "Importez des photos dans l'onglet Photos pour creer des textures personnalisees."
+              : "Appliquez la texture d'une photo de chantier directement sur le batiment."}
+          </div>
+          {photoMats.map(function(pm) {
+            var active = mat && mat.id === pm.id;
+            return (
+              <button type="button" key={pm.id}
+                onClick={function(){setMat(active ? null : pm);}}
+                onMouseEnter={function(){setHov(pm);}}
+                onMouseLeave={function(){setHov(null);}}
+                style={{display:"flex",alignItems:"center",gap:12,padding:"9px 11px",
+                  borderRadius:10,border:"1px solid "+(active ? "#00E5A0" : "#1C3050"),
+                  cursor:"pointer",background:active ? "rgba(0,229,160,0.10)" : "#0F1C2E",
+                  marginBottom:6,width:"100%",outline:"none"}}>
+                <img src={pm.photo.url} alt={pm.photo.name}
+                  style={{width:40,height:40,borderRadius:8,objectFit:"cover",
+                    border:"1.5px solid rgba(255,255,255,0.1)",flexShrink:0}}/>
+                <div style={{flex:1,textAlign:"left",minWidth:0}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#E8EDF5",
+                    whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {pm.photo.name || "Photo"}
+                  </div>
+                  <div style={{fontSize:10,color:"#607898",marginTop:2}}>texture personnalisee</div>
+                </div>
+                {active && <span style={{color:"#00E5A0",fontSize:12}}>OK</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TabDevis({ project, mat, setToast }) {
+  var [margin, setMargin] = useState(15);
+  var [done, setDone] = useState(false);
+  var prefs = getPrefs();
+  var tvaRate = prefs.tva / 100;
+  var cur = prefs.currency;
+  var m = project.meas || {};
+  var walls = parseFloat(m.walls) || 0;
+  var roof  = parseFloat(m.roof)  || 0;
+  if (!walls && !roof) {
+    return (
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+        justifyContent:"center",minHeight:"calc(100vh - 92px)",gap:10,color:"#607898"}}>
+        <div style={{fontSize:36}}>$</div>
+        <div style={{fontSize:14,fontWeight:600}}>Saisissez les mesures dans l onglet Mesures</div>
+      </div>
+    );
+  }
+  var M   = mat || MATS[3];
+  var wc2 = Math.round(walls * M.price);
+  var rc2 = Math.round(roof  * 68);
+  var lb  = Math.round((wc2+rc2) * 0.28);
+  var sub = wc2+rc2+lb;
+  var tva = Math.round(sub * tvaRate);
+  var tot = sub + tva;
+  var sell= Math.round(sub * (1 + margin/100) * (1 + tvaRate));
+  var f   = function(n){ return n.toLocaleString("fr-FR"); };
+  return (
+    <div style={{padding:"22px 24px"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 300px",gap:20}}>
+        <div>
+          <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+            overflow:"hidden",marginBottom:14}}>
+            <div style={{padding:"10px 16px",borderBottom:"1px solid #1C3050",
+              fontSize:12,fontWeight:700,color:"#E8EDF5"}}>
+              Detail - {M.lbl}
+            </div>
+            {[
+              ["Revetement murs",walls+" m² × "+M.price+" "+cur+"/m²",wc2],
+              ["Toiture",roof+" m² × 68 "+cur+"/m²",rc2],
+              ["Main oeuvre (28%)","Pose et finitions",lb],
+            ].map(function(row) {
+              return (
+                <div key={row[0]} style={{display:"flex",justifyContent:"space-between",
+                  alignItems:"center",padding:"10px 16px",borderBottom:"1px solid #1C3050"}}>
+                  <div>
+                    <div style={{fontSize:12,color:"#E8EDF5",fontWeight:500}}>{row[0]}</div>
+                    <div style={{fontSize:10,color:"#607898",marginTop:2}}>{row[1]}</div>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>
+                    {f(row[2])} {cur}
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 16px",
+              borderBottom:"1px solid #1C3050"}}>
+              <span style={{color:"#607898",fontSize:12}}>Sous-total HT</span>
+              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(sub)} {cur}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"8px 16px",
+              borderBottom:"1px solid #1C3050"}}>
+              <span style={{color:"#607898",fontSize:12}}>TVA {prefs.tva}%</span>
+              <span style={{fontFamily:"monospace",fontSize:12,color:"#E8EDF5"}}>{f(tva)} {cur}</span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",padding:"12px 16px",
+              background:"rgba(0,194,255,0.13)"}}>
+              <span style={{fontSize:14,fontWeight:700,color:"#E8EDF5"}}>TOTAL TTC</span>
+              <span style={{fontSize:18,fontWeight:900,color:"#00C2FF",fontFamily:"monospace"}}>
+                {f(tot)} {cur}
+              </span>
+            </div>
+          </div>
+          <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,padding:"16px 18px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>Marge commerciale</span>
+              <span style={{fontSize:14,fontWeight:900,color:"#00E5A0",fontFamily:"monospace"}}>{margin}%</span>
+            </div>
+            <input type="range" min={0} max={60} value={margin}
+              onChange={function(e){setMargin(+e.target.value);}}
+              style={{width:"100%",accentColor:"#00C2FF",cursor:"pointer"}}/>
+            <div style={{display:"flex",justifyContent:"space-between",
+              marginTop:12,paddingTop:10,borderTop:"1px solid #1C3050"}}>
+              <span style={{fontSize:12,color:"#607898"}}>Prix de vente TTC</span>
+              <span style={{fontSize:17,fontWeight:900,color:"#00E5A0",fontFamily:"monospace"}}>
+                {f(sell)} {cur}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+            padding:"16px 18px",marginBottom:12}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#607898",textTransform:"uppercase",
+              letterSpacing:"0.08em",marginBottom:12}}>Recapitulatif</div>
+            <div style={{fontSize:16,fontWeight:900,color:"#E8EDF5",marginBottom:2}}>{project.addr}</div>
+            <div style={{fontSize:12,color:"#607898",marginBottom:14}}>{project.city}</div>
+            {[["Murs",walls+" m²"],["Toit",roof+" m²"],["Materiau",M.lbl],["Prix mat.",M.price+" "+cur+"/m²"]].map(function(pair) {
+              return (
+                <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
+                  padding:"6px 0",borderBottom:"1px solid #1C3050"}}>
+                  <span style={{fontSize:11,color:"#607898"}}>{pair[0]}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#E8EDF5",fontFamily:"monospace"}}>{pair[1]}</span>
+                </div>
+              );
+            })}
+          </div>
+          {done && (
+            <div style={{background:"rgba(0,229,160,0.11)",border:"1px solid #00E5A0",
+              borderRadius:8,padding:"9px 13px",marginBottom:10,fontSize:12,
+              color:"#00E5A0",fontWeight:600}}>
+              Proposition generee!
+            </div>
+          )}
+          <Btn primary={true} onClick={function(){setDone(true);setToast("Proposition generee");}}
+            style={{width:"100%",marginBottom:9}}>
+            Generer la proposition
+          </Btn>
+          <Btn onClick={function(){exportProjectPdf(project); setToast("PDF telecharge");}} style={{width:"100%"}}>
+            Exporter en PDF
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Reports ---- */
+var REPORT_TEMPLATES = {
+  meas: {
+    title:"Nouveau Rapport de Mesures",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    tech:"", techDate:new Date().toLocaleDateString("fr-FR"),
+    notes:"",
+    data:{"Surface murs":"","Surface toit":"","Perimetre":"","Hauteur":"","Emprise sol":"","Fenetres":"","Portes":""},
+    rows:[],
+    /* Niveau auditeur senior (2026-05) */
+    methodology: "Mesures relevées au télémètre laser BLE (Leica DISTO X3 / Bosch GLM 50C, précision ±1 mm) et vérification au mètre ruban classe II. Modélisation 3D et plans d'élévation cotés générés à partir des relevés.",
+    conditions: "Bâtiment partiellement habité, accès toiture par échelle conforme. Conditions météo : sec, vent < 30 km/h, T° 10-20 °C.",
+    standards: "Conformité aux normes NBN EN 13201-1 (mesures bâtiment), NBN B 03-001 (charges), DTU 36.1 (toiture). Tolérances dimensionnelles selon NBN EN 14732.",
+    tolerances: "Linéaires ±0,5 cm · surfaces ±1 % · angles ±0,5° · hauteurs sous plafond ±1 cm.",
+    observations: "",
+    conclusions: "",
+    auditor:{ nom:"", titre:"Auditeur senior", ordre:"" },
+  },
+  devis: {
+    title:"Nouveau Devis",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    lines:[{d:"Prestation 1",q:"1",u:"fft",pu:"0.00",t:"0.00"}],
+    discount:"0", acompte:"30",
+    payTerms:"Acompte 30 % à la commande, solde à réception après PV de réception sans réserve.",
+    notes:"Délai d'exécution : 3 semaines après signature. Garantie décennale incluse. TVA conforme aux préférences utilisateur.",
+    validity:"30 jours",
+    /* Niveau auditeur senior */
+    penalties: "Pénalités de retard : 0,5 % HT par jour ouvré au-delà de la date contractuelle, plafonnées à 5 % HT.",
+    decennalRef: "Garantie décennale conforme à l'art. 1792 du Code civil — assurance n° à compléter.",
+    chantierAdr: "",
+    facturationAdr: "",
+    methodPaiement: "Virement SEPA · IBAN à compléter · BIC à compléter.",
+  },
+  insp: {
+    title:"Nouveau Rapport d'Inspection",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    tech:"", techDate:new Date().toLocaleDateString("fr-FR"),
+    /* Checklist senior — 16 points sur 7 zones (vs 3 points avant) */
+    checks:[
+      {z:"Façade",       it:"État général façade (bardage / enduit)",        s:"ok", note:"", priority:"normal"},
+      {z:"Façade",       it:"Fissures structurelles (>1 mm)",                s:"ok", note:"", priority:"haut"},
+      {z:"Façade",       it:"Joints et étanchéité raccords",                  s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"État tuiles / ardoises / membrane",             s:"ok", note:"", priority:"haut"},
+      {z:"Toiture",      it:"Cheminées : étanchéité solin",                  s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"Lucarnes / velux : joints + raccords",           s:"ok", note:"", priority:"normal"},
+      {z:"Toiture",      it:"Charpente : fléchissements / attaques visibles", s:"ok", note:"", priority:"haut"},
+      {z:"Eaux pluviales", it:"Gouttières : pente, fixation, débordements",  s:"ok", note:"", priority:"normal"},
+      {z:"Eaux pluviales", it:"Descentes EP : sections + raccords au sol",    s:"ok", note:"", priority:"normal"},
+      {z:"Structure",    it:"Murs porteurs : intégrité",                     s:"ok", note:"", priority:"haut"},
+      {z:"Structure",    it:"Sol : tassements, planchers",                   s:"ok", note:"", priority:"haut"},
+      {z:"Étanchéité",   it:"Caves : remontées / infiltrations",              s:"ok", note:"", priority:"haut"},
+      {z:"Isolation",    it:"Combles : épaisseur + état (PEB)",               s:"ok", note:"", priority:"normal"},
+      {z:"Isolation",    it:"Façades : isolation continue",                   s:"ok", note:"", priority:"normal"},
+      {z:"Ventilation",  it:"VMC simple/double flux + aérations naturelles",  s:"ok", note:"", priority:"normal"},
+      {z:"Sécurité",     it:"Garde-corps balcons / terrasses (≥ 1 m, NBN)",   s:"ok", note:"", priority:"haut"},
+    ],
+    reco:"",
+    /* Niveau auditeur senior */
+    riskScore: "faible",
+    reinspectionDate: "",
+    standards: "Inspection conforme NBN B 03-001 (charges), DTU 20.1 (maçonnerie), DTU 40.21 (toitures), RGB régional, certificat PEB Wallonie/Bruxelles.",
+    auditor:{ nom:"", titre:"Auditeur senior", ordre:"" },
+  },
+  prop: {
+    title:"Nouvelle Proposition",
+    co:{nom:"",adr:"",tel:"",email:""},
+    cl:{nom:"",adr:"",tel:"",email:""},
+    intro:"",
+    projs:[],
+    gantt:[],
+    cgu:"Tout devis accepté engage le client. Prix fermes 30 jours. Conditions générales de vente disponibles sur demande.",
+    sigCl:"", sigPro:"",
+    version:"v1.0",
+    /* Niveau auditeur senior */
+    methodology: "Phase 1 — relevé terrain : mesures laser BLE + photo HDR par façade.\nPhase 2 — modélisation 3D et plans d'élévation cotés générés depuis les relevés.\nPhase 3 — devis détaillé multi-lots conforme aux DTU + bordereau ferme.",
+    references: "",
+    team: "Auditeur senior + dessinateur projeteur + métreur. Couvreur sous-traité avec certif. décennale et PEB.",
+  },
+};
+
+function nextRefForKind(kind, reports) {
+  var prefix = {meas:"RPT",devis:"DEV",insp:"INS",prop:"PRO"}[kind] || "DOC";
+  var year = new Date().getFullYear();
+  var n = (reports||[]).filter(function(r){ return r.kind === kind; }).length + 1;
+  return prefix + "-" + year + "-" + String(n).padStart(3,"0");
+}
+
+/* ============================================================================
+   Export AR — Génère un GLB du modèle 3D à partir des dimensions du projet.
+   Compatible Android Scene Viewer (AR natif) + viewers tiers iOS / desktop.
+
+   Pourquoi GLB ? Format ouvert, supporté par Three.js GLTFExporter, ouvrable
+   par Reality Composer (iOS), Scene Viewer (Android), Blender, viewer.io, etc.
+   Limitation iOS native AR : Quick Look ne prend que USDZ. La conversion
+   GLB → USDZ n'est pas faisable côté browser sans lib spéciale ; on accepte
+   ce trade-off et on documente la procédure côté utilisateur (Reality
+   Composer fait la conversion gratuitement).
+============================================================================ */
+function buildBuildingScene(project) {
+  var m = project.meas || {};
+  var floors = parseInt(project.floors, 10) || 2;
+  var realH = parseFloat(m.h) || floors * 3;
+  var realFoot = parseFloat(m.foot) || 80;
+  /* Récupère les vraies longueurs façades si dispo (cohérence avec IsoModel) */
+  function roomLen(needle) {
+    var rs = project.rooms || [];
+    for (var i = 0; i < rs.length; i++) {
+      if (typeof rs[i].n === "string" && rs[i].n.toLowerCase().indexOf(needle) !== -1) {
+        var v = parseFloat(rs[i].l);
+        if (isFinite(v) && v > 0) return v;
+      }
+    }
+    return null;
+  }
+  var W = roomLen("sud") || roomLen("nord") || Math.sqrt(realFoot * 1.6);
+  var D = roomLen("est") || roomLen("ouest") || Math.sqrt(realFoot / 1.6);
+
+  var scene = new THREE.Scene();
+
+  /* Wall: brique rouge par défaut (couleur Material) */
+  var wallMat = new THREE.MeshStandardMaterial({
+    color: 0xc04a2b, roughness: 0.85, metalness: 0.0,
+  });
+  var box = new THREE.Mesh(
+    new THREE.BoxGeometry(W, realH, D),
+    wallMat
+  );
+  box.position.y = realH / 2;
+  box.castShadow = box.receiveShadow = true;
+  scene.add(box);
+
+  /* Toit : pignon (gable) approx selon le type */
+  var roofType = (project.roof || "Pignon").toLowerCase();
+  var roofMat = new THREE.MeshStandardMaterial({
+    color: roofType.indexOf("ardoise") >= 0 || roofType.indexOf("mansart") >= 0 ? 0x404856 : 0x6a3e2a,
+    roughness: 0.6, metalness: 0.1,
+  });
+  var roofMesh;
+  if (roofType.indexOf("terrasse") >= 0 || roofType.indexOf("flat") >= 0) {
+    /* Toit plat : box fin */
+    roofMesh = new THREE.Mesh(new THREE.BoxGeometry(W * 1.05, 0.3, D * 1.05), roofMat);
+    roofMesh.position.y = realH + 0.15;
+  } else if (roofType.indexOf("4") >= 0 || roofType.indexOf("hip") >= 0) {
+    /* 4 pans : pyramide */
+    roofMesh = new THREE.Mesh(new THREE.ConeGeometry(Math.max(W, D) * 0.78, realH * 0.4, 4), roofMat);
+    roofMesh.position.y = realH + (realH * 0.4) / 2;
+    roofMesh.rotation.y = Math.PI / 4;
+  } else {
+    /* Pignon (gable) : prisme triangulaire approx via cone à 3 segments */
+    roofMesh = new THREE.Mesh(new THREE.ConeGeometry(W * 0.62, realH * 0.45, 3), roofMat);
+    roofMesh.position.y = realH + (realH * 0.45) / 2;
+    roofMesh.rotation.y = Math.PI / 6;
+  }
+  scene.add(roofMesh);
+
+  return scene;
+}
+
+function exportProjectGlb(project, setToast) {
+  try {
+    var scene = buildBuildingScene(project);
+    var exporter = new GLTFExporter();
+    exporter.parse(scene, function(result) {
+      var blob = new Blob([result], { type: "model/gltf-binary" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = slug(project.addr || "modele") + ".glb";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 200);
+      setToast && setToast("Modèle 3D (.glb) téléchargé");
+    }, function(err) {
+      console.error("GLTFExporter error:", err);
+      setToast && setToast("Erreur export GLB");
+    }, { binary: true, onlyVisible: true });
+  } catch(e) {
+    console.error(e);
+    setToast && setToast("Erreur export GLB");
+  }
+}
+
+/* Détecte l'OS pour proposer le bon flow AR.
+   - iOS : Reality Composer (gratuit App Store) lit GLB et convertit en USDZ
+   - Android : Scene Viewer ouvre GLB en AR natif via intent
+   - autres : viewer.io, viewer.babylonjs.com, etc. */
+function detectArPlatform() {
+  if (typeof navigator === "undefined") return "other";
+  var ua = (navigator.userAgent || "").toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return "ios";
+  if (/android/.test(ua)) return "android";
+  return "other";
+}
+
+/* ============================================================================
+   TabMaterials — Quantitatif matériaux automatique (BE)
+   Calcule à partir des dimensions saisies les quantités et prix des matériaux
+   typiques utilisés en construction belge 2026. Tables BE_MATERIALS définit
+   les ratios (unités/m²) et prix unitaires moyens marché BE.
+============================================================================ */
+var BE_MATERIALS = {
+  /* Toiture (m² roof) */
+  roof: [
+    {id:"tiles_terre_cuite",  lbl:"Tuiles terre cuite",         unit:"u",  ratio:13,   priceEur:1.85, group:"roof", note:"Modèle plat type Koramic — 13 u/m²"},
+    {id:"tiles_beton",        lbl:"Tuiles béton",                unit:"u",  ratio:10,   priceEur:1.20, group:"roof", note:"Type Eternit S-Wing — 10 u/m²"},
+    {id:"ardoises_naturelle", lbl:"Ardoises naturelles",         unit:"u",  ratio:22,   priceEur:3.40, group:"roof", note:"Format 30×20 cm — 22 u/m²"},
+    {id:"ardoises_fibro",     lbl:"Ardoises fibrociment",        unit:"u",  ratio:14,   priceEur:1.95, group:"roof", note:"Eternit Alterna — 14 u/m²"},
+    {id:"zinc_quartz",        lbl:"Zinc joint debout",           unit:"m²", ratio:1,    priceEur:88,   group:"roof", note:"VMZinc Anthra — pose pro"},
+    {id:"epdm_membrane",      lbl:"Membrane EPDM (toit plat)",   unit:"m²", ratio:1,    priceEur:38,   group:"roof", note:"Firestone RubberCover 1.14 mm"},
+    {id:"chevrons",           lbl:"Chevrons C24 (m³)",           unit:"m³", ratio:0.018,priceEur:540,  group:"roof", note:"Section 75×175 mm pin sylvestre"},
+    {id:"lattes",             lbl:"Lattes de toiture",           unit:"ml", ratio:4.5,  priceEur:0.95, group:"roof", note:"38×24 mm pin traité"},
+    {id:"sous_toiture",       lbl:"Écran sous-toiture HPV",      unit:"m²", ratio:1.10, priceEur:4.50, group:"roof", note:"Permo Forte 280g/m² incl. recouvrement"},
+    {id:"gouttiere",          lbl:"Gouttière zinc",              unit:"ml", ratio:0.4,  priceEur:28,   group:"roof", note:"Estimation 0.4 ml par m² de toiture"},
+  ],
+  /* Façades (m² walls) */
+  facade: [
+    {id:"isolation_lr",       lbl:"Isolation laine de roche",    unit:"m²", ratio:1,    priceEur:18,   group:"facade", note:"Rockwool 14 cm λ 0.035"},
+    {id:"isolation_pir",      lbl:"Isolation PIR",                unit:"m²", ratio:1,    priceEur:32,   group:"facade", note:"Recticel Eurowall 10 cm λ 0.022"},
+    {id:"crepi_mineral",      lbl:"Crépi minéral",                unit:"m²", ratio:1,    priceEur:42,   group:"facade", note:"Knauf Diamant — finition projetée"},
+    {id:"bardage_red_cedar",  lbl:"Bardage Red Cedar",            unit:"m²", ratio:1,    priceEur:78,   group:"facade", note:"Clins canadiens 18 mm classe 2"},
+    {id:"bardage_thermo",     lbl:"Bardage bois thermo-traité",   unit:"m²", ratio:1,    priceEur:62,   group:"facade", note:"Frêne Lunawood — pose horizontale"},
+    {id:"briquettes",         lbl:"Briquettes de parement",       unit:"m²", ratio:60,   priceEur:0.65, group:"facade", note:"Vandersanden — 60 briquettes/m²"},
+    {id:"enduit_chaux",       lbl:"Enduit chaux traditionnel",    unit:"m²", ratio:1,    priceEur:48,   group:"facade", note:"Saint-Astier 25 mm — 2 couches"},
+  ],
+};
+
+function TabMaterials({ project, setToast }) {
+  var prefs = getPrefs();
+  var cur = prefs.currency;
+  var m = project.meas || {};
+  var roof  = parseFloat(m.roof)  || 0;
+  var walls = parseFloat(m.walls) || 0;
+  /* Sélection par défaut : tuiles terre cuite + crépi minéral + isolation LR */
+  var [selRoof,   setSelRoof]   = useState("tiles_terre_cuite");
+  var [selFacade, setSelFacade] = useState("crepi_mineral");
+  var [selIsol,   setSelIsol]   = useState("isolation_lr");
+  var [includeAcc, setIncludeAcc] = useState(true);
+  var [marge, setMarge] = useState(15);
+
+  if (!roof && !walls) {
+    return (
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",
+        justifyContent:"center",minHeight:"calc(100vh - 92px)",gap:10,color:"#607898"}}>
+        <div style={{fontSize:36}}>📦</div>
+        <div style={{fontSize:14,fontWeight:600}}>{t("mat.quantitative")}</div>
+        <div style={{fontSize:12}}>Saisissez les mesures dans l'onglet {t("tab.meas")}</div>
+      </div>
+    );
+  }
+
+  function calcLine(mat, surface) {
+    var qty = surface * mat.ratio;
+    var total = qty * mat.priceEur;
+    return { mat:mat, qty:qty, total:total, surface:surface };
+  }
+
+  var lines = [];
+  var roofMat = BE_MATERIALS.roof.find(function(x){ return x.id === selRoof; }) || BE_MATERIALS.roof[0];
+  if (roof) {
+    lines.push(calcLine(roofMat, roof));
+    if (includeAcc) {
+      /* Sous-toiture + chevrons + lattes + gouttière auto */
+      ["sous_toiture","chevrons","lattes","gouttiere"].forEach(function(id){
+        var mm = BE_MATERIALS.roof.find(function(x){ return x.id === id; });
+        if (mm) lines.push(calcLine(mm, roof));
+      });
+    }
+  }
+  if (walls) {
+    var isolMat = BE_MATERIALS.facade.find(function(x){ return x.id === selIsol; });
+    if (isolMat) lines.push(calcLine(isolMat, walls));
+    var facMat = BE_MATERIALS.facade.find(function(x){ return x.id === selFacade; }) || BE_MATERIALS.facade[0];
+    lines.push(calcLine(facMat, walls));
+  }
+  var ht = lines.reduce(function(a,l){ return a + l.total; }, 0);
+  var mrg = ht * (marge / 100);
+  var htMargin = ht + mrg;
+  var tva = htMargin * (prefs.tva / 100);
+  var ttc = htMargin + tva;
+
+  function fmt(n) { return n.toLocaleString("fr-BE", {minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+  function exportMaterialsPdf() {
+    var doc = new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+    doc.setFontSize(14); doc.text(t("mat.quantitative"), 14, 18);
+    doc.setFontSize(10); doc.text(project.addr + " — " + project.city, 14, 26);
+    var body = lines.map(function(l){
+      return [l.mat.lbl, l.surface.toFixed(1) + " m²",
+        l.qty.toFixed(2) + " " + l.mat.unit,
+        l.mat.priceEur.toFixed(2) + " " + cur,
+        fmt(l.total) + " " + cur];
+    });
+    autoTable(doc, {
+      startY: 34,
+      head: [[t("common.search").replace("...",""), "Surface", t("mat.qty"), t("mat.unitPrice"), t("mat.total")]],
+      body: body,
+      styles:{fontSize:9}, headStyles:{fillColor:[15,28,46]},
+    });
+    var y = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(10);
+    doc.text(t("mat.subtotal") + " HT : " + fmt(ht) + " " + cur, 14, y);
+    doc.text("Marge (" + marge + "%) : " + fmt(mrg) + " " + cur, 14, y+6);
+    doc.text("TVA (" + prefs.tva + "%) : " + fmt(tva) + " " + cur, 14, y+12);
+    doc.setFontSize(12);
+    doc.text(t("mat.total") + " TTC : " + fmt(ttc) + " " + cur, 14, y+20);
+    doc.save("quantitatif-" + slug(project.addr || "projet") + ".pdf");
+    setToast && setToast("PDF quantitatif téléchargé");
+  }
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+        <div>
+          <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("mat.quantitative")}</div>
+          <div style={{fontSize:11,color:"#607898",marginTop:3}}>
+            Tables prix moyens BE 2026 — Toiture {roof.toFixed(1)} m² + Façades {walls.toFixed(1)} m²
+          </div>
+        </div>
+        <button type="button" onClick={exportMaterialsPdf}
+          style={{background:"#00C2FF",border:"none",color:"#000",borderRadius:7,
+            padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer",outline:"none"}}>
+          📄 {t("mat.exportPdf")}
+        </button>
+      </div>
+
+      {/* Sélecteurs matériau */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12,marginBottom:18}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:8,textTransform:"uppercase"}}>🏠 {t("mat.roof")}</div>
+          <select value={selRoof} onChange={function(e){ setSelRoof(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.roof.filter(function(x){ return ["tiles_terre_cuite","tiles_beton","ardoises_naturelle","ardoises_fibro","zinc_quartz","epdm_membrane"].indexOf(x.id) >= 0; }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:8,textTransform:"uppercase"}}>🧱 {t("mat.facade")}</div>
+          <select value={selFacade} onChange={function(e){ setSelFacade(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.facade.filter(function(x){ return ["crepi_mineral","bardage_red_cedar","bardage_thermo","briquettes","enduit_chaux"].indexOf(x.id) >= 0; }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"12px 14px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#FF8C42",marginBottom:8,textTransform:"uppercase"}}>🌡️ {t("mat.insulation")}</div>
+          <select value={selIsol} onChange={function(e){ setSelIsol(e.target.value); }}
+            style={{width:"100%",background:"#08111E",border:"1px solid #1C3050",
+              color:"#E8EDF5",fontSize:12,padding:"7px 9px",borderRadius:6,outline:"none"}}>
+            {BE_MATERIALS.facade.filter(function(x){ return x.id.startsWith("isolation_"); }).map(function(mat){
+              return <option key={mat.id} value={mat.id}>{mat.lbl} — {mat.priceEur} {cur}/{mat.unit}</option>;
+            })}
+          </select>
+        </div>
+      </div>
+
+      <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+        <label style={{display:"flex",alignItems:"center",gap:7,fontSize:12,color:"#8DAFC8",cursor:"pointer"}}>
+          <input type="checkbox" checked={includeAcc} onChange={function(e){ setIncludeAcc(e.target.checked); }}
+            style={{cursor:"pointer",accentColor:"#00C2FF"}}/>
+          Inclure accessoires toiture (sous-toiture, chevrons, lattes, gouttière)
+        </label>
+        <div style={{flex:1}}/>
+        <span style={{fontSize:11,color:"#607898"}}>Marge :</span>
+        <input type="range" min="0" max="50" step="1" value={marge}
+          onChange={function(e){ setMarge(parseInt(e.target.value, 10)); }}
+          style={{width:120,accentColor:"#00E5A0"}}/>
+        <span style={{fontSize:12,fontFamily:"monospace",color:"#E8EDF5",width:36,textAlign:"right"}}>{marge}%</span>
+      </div>
+
+      {/* Table quantitatif */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,overflow:"hidden",marginBottom:14}}>
+        <div style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.8fr 0.9fr",
+          background:"#152135",padding:"9px 12px",fontSize:10,fontWeight:700,
+          color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+          <div>Matériau</div><div>Surface</div><div>{t("mat.qty")}</div><div>{t("mat.unitPrice")}</div><div style={{textAlign:"right"}}>{t("mat.total")} HT</div>
+        </div>
+        {lines.map(function(l, i){
+          return (
+            <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 0.7fr 0.8fr 0.8fr 0.9fr",
+              padding:"9px 12px",borderTop:"1px solid #1C3050",fontSize:12,color:"#E8EDF5",alignItems:"center"}}>
+              <div>
+                <div style={{fontWeight:600}}>{l.mat.lbl}</div>
+                <div style={{fontSize:10,color:"#607898",marginTop:2}}>{l.mat.note}</div>
+              </div>
+              <div style={{fontFamily:"monospace",color:"#8DAFC8"}}>{l.surface.toFixed(1)} m²</div>
+              <div style={{fontFamily:"monospace"}}>{l.qty.toFixed(2)} {l.mat.unit}</div>
+              <div style={{fontFamily:"monospace",color:"#8DAFC8"}}>{l.mat.priceEur.toFixed(2)} {cur}</div>
+              <div style={{fontFamily:"monospace",fontWeight:700,textAlign:"right"}}>{fmt(l.total)} {cur}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Totaux */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>{t("mat.subtotal")} HT</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(ht)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>Marge ({marge}%)</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(mrg)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#8DAFC8",marginBottom:6}}>
+          <span>TVA ({prefs.tva}%)</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(tva)} {cur}</span>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:16,
+          fontWeight:900,color:"#00C2FF",borderTop:"1px solid #1C3050",paddingTop:10,marginTop:6}}>
+          <span>TOTAL TTC</span>
+          <span style={{fontFamily:"monospace"}}>{fmt(ttc)} {cur}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   TabPEB — Indicateur Performance Énergétique Bâtiment (Belgique)
+   Estimation A-G simplifiée basée sur :
+   - Surface chauffée (m²) = foot * floors
+   - Année construction (input projet ou paramétrable)
+   - Niveau isolation (full/partial/none — input utilisateur)
+   - Ratio compacité (volume/surface enveloppe)
+   - Bonus solaire si Solar API utilisée
+
+   Formule simplifiée : kWh/m²/an estimé puis mapping classes.
+   ⚠️ Indicatif uniquement — un PEB officiel requiert un certificateur agréé.
+============================================================================ */
+function computePEB(project) {
+  var m = project.meas || {};
+  var foot = parseFloat(m.foot) || 0;
+  var walls = parseFloat(m.walls) || 0;
+  var roof = parseFloat(m.roof) || 0;
+  var floors = parseFloat(project.floors) || 1;
+  var year = parseInt(project.yearBuilt || "", 10);
+  var insulation = project.insulation || "partial";
+  var heatedArea = foot * floors || 100;
+
+  /* Base consommation kWh/m²/an selon année construction (BE typical) */
+  var baseByYear;
+  if (!year)            baseByYear = 350; /* unknown = worst-ish */
+  else if (year < 1945) baseByYear = 450; /* maisons anciennes non isolées */
+  else if (year < 1970) baseByYear = 380;
+  else if (year < 1985) baseByYear = 320;
+  else if (year < 2000) baseByYear = 250;
+  else if (year < 2010) baseByYear = 180;
+  else if (year < 2018) baseByYear = 110; /* PEB obligatoire ~2010 BE */
+  else                  baseByYear = 65;  /* PEB Q-ZEN 2021+ */
+
+  /* Multiplicateur isolation */
+  var insulMult = ({ "full": 0.55, "partial": 1.0, "none": 1.55 })[insulation] || 1.0;
+
+  /* Bonus compacité : compacité = volume / surface enveloppe.
+     Plus c'est compact, moins de pertes. Ratio standard ~0.9-1.4. */
+  var envelope = walls + roof + foot; /* surface totale enveloppe */
+  var volume = foot * (parseFloat(m.h) || 6);
+  var compactness = envelope > 0 ? volume / envelope : 1.0;
+  var compactMult = compactness < 1.0 ? 1.15 : compactness < 1.5 ? 1.0 : 0.92;
+
+  var kwhPerYear = baseByYear * insulMult * compactMult;
+
+  /* Bonus solaire si Solar API a renseigné maxArrayPanelsCount */
+  if (project.solar && project.solar.maxArrayPanelsCount > 10) {
+    kwhPerYear *= 0.85; /* -15 % si potentiel solaire utilisé */
+  }
+
+  /* Mapping kWh/m²/an → classes A-G (PEB Wallonie 2026, indicatif) */
+  var cls;
+  if      (kwhPerYear < 45)  cls = "A++";
+  else if (kwhPerYear < 85)  cls = "A";
+  else if (kwhPerYear < 170) cls = "B";
+  else if (kwhPerYear < 255) cls = "C";
+  else if (kwhPerYear < 340) cls = "D";
+  else if (kwhPerYear < 425) cls = "E";
+  else if (kwhPerYear < 510) cls = "F";
+  else                        cls = "G";
+
+  return {
+    cls: cls,
+    kwhPerYear: Math.round(kwhPerYear),
+    heatedArea: heatedArea,
+    annualTotal: Math.round(kwhPerYear * heatedArea),
+    inputs: { year:year || null, insulation:insulation, compactness:compactness.toFixed(2) },
+  };
+}
+
+var PEB_COLORS = {
+  "A++":"#00A86B","A":"#3CB371","B":"#9ACD32","C":"#FFD700",
+  "D":"#FFA500","E":"#FF6347","F":"#DC143C","G":"#8B0000",
+};
+
+function TabPEB({ project, onUpdate }) {
+  var [year, setYear] = useState(project.yearBuilt || "");
+  var [insul, setInsul] = useState(project.insulation || "partial");
+
+  /* Sauvegarde auto dans le projet */
+  useEffect(function(){
+    if (year !== (project.yearBuilt || "") || insul !== (project.insulation || "partial")) {
+      onUpdate && onUpdate({ yearBuilt: year, insulation: insul });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, insul]);
+
+  var peb = useMemo(function(){
+    return computePEB(Object.assign({}, project, { yearBuilt: year, insulation: insul }));
+  }, [project, year, insul]);
+
+  var color = PEB_COLORS[peb.cls] || "#999";
+  var classes = ["A++","A","B","C","D","E","F","G"];
+
+  /* Recommandations contextuelles */
+  var recos = [];
+  if (insul !== "full")    recos.push("🌡️ Renforcer l'isolation (toiture + façades + sol) — saut potentiel de 2-3 classes");
+  if ((parseInt(year,10) || 2020) < 1985) recos.push("🪟 Remplacer les châssis simple vitrage par triple vitrage 1.0 W/m²K");
+  if (!project.solar)       recos.push("☀️ Évaluer le potentiel solaire (Solar API au Modal étape 2)");
+  if (peb.kwhPerYear > 250) recos.push("🔥 Audit chaudière + bascule pompe à chaleur air/eau — primes PEB Wallonie 2026");
+  if (recos.length === 0)   recos.push("✅ Performance énergétique correcte — bâtiment proche standard Q-ZEN");
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("peb.title")}</div>
+        <div style={{fontSize:11,color:"#607898",marginTop:3}}>{t("peb.estimated")}</div>
+      </div>
+
+      {/* Échelle A-G colorée + flèche sur classe estimée */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"18px 20px",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"stretch",gap:0,position:"relative",marginBottom:14}}>
+          {classes.map(function(c, i){
+            var active = peb.cls === c;
+            return (
+              <div key={c} style={{
+                flex: i+1, /* progressive width A → G */
+                background: PEB_COLORS[c],
+                color:"#FFF", fontWeight:900,
+                padding:"14px 0",
+                textAlign:"center", fontSize: active ? 22 : 13,
+                border: active ? "3px solid #FFF" : "1px solid rgba(0,0,0,0.2)",
+                boxShadow: active ? "0 0 18px " + PEB_COLORS[c] : "none",
+                transition:"all 0.2s",
+                position:"relative",
+              }}>
+                {active && <div style={{position:"absolute",top:-20,left:"50%",transform:"translateX(-50%)",
+                  fontSize:18,filter:"drop-shadow(0 2px 4px rgba(0,0,0,0.5))"}}>⬇</div>}
+                {c}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:14}}>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Classe estimée</div>
+            <div style={{fontSize:36,fontWeight:900,color:color,fontFamily:"monospace",lineHeight:1.1}}>{peb.cls}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>{t("peb.kwhM2")}</div>
+            <div style={{fontSize:24,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{peb.kwhPerYear}</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Surface chauffée</div>
+            <div style={{fontSize:18,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{peb.heatedArea.toFixed(0)} m²</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>Consommation/an</div>
+            <div style={{fontSize:18,fontWeight:700,color:"#E8EDF5",fontFamily:"monospace"}}>{(peb.annualTotal/1000).toFixed(1)} MWh</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Inputs utilisateur */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#607898",marginBottom:10,textTransform:"uppercase"}}>{t("peb.inputs")}</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:14}}>
+          <div>
+            <div style={{fontSize:11,color:"#8DAFC8",marginBottom:4}}>{t("peb.yearBuilt")}</div>
+            <input type="number" min="1700" max="2030" value={year}
+              onChange={function(e){ setYear(e.target.value); }}
+              placeholder="ex. 1985"
+              style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+                border:"1px solid #1C3050",color:"#E8EDF5",fontSize:13,
+                padding:"7px 10px",borderRadius:6,outline:"none",fontFamily:"monospace"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#8DAFC8",marginBottom:4}}>{t("peb.insulation")}</div>
+            <div style={{display:"flex",gap:6}}>
+              {[["full",t("peb.insulationFull")],["partial",t("peb.insulationPartial")],["none",t("peb.insulationNone")]].map(function(opt){
+                var active = insul === opt[0];
+                return (
+                  <button key={opt[0]} type="button" onClick={function(){ setInsul(opt[0]); }}
+                    style={{flex:1, background: active ? "#00C2FF" : "transparent",
+                      border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                      color: active ? "#000" : "#8DAFC8",
+                      borderRadius:6, padding:"6px 8px", fontSize:11,
+                      fontWeight:700, cursor:"pointer", outline:"none"}}>
+                    {opt[1]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Recommandations */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:10,textTransform:"uppercase"}}>{t("peb.recos")}</div>
+        {recos.map(function(r, i){
+          return <div key={i} style={{fontSize:13,color:"#E8EDF5",padding:"6px 0",borderBottom: i < recos.length-1 ? "1px solid #1C3050" : "none"}}>{r}</div>;
+        })}
+      </div>
+
+      <div style={{fontSize:10,color:"#607898",marginTop:14,lineHeight:1.5,padding:"0 4px"}}>
+        ⚠️ Estimation indicative à but pédagogique. Le certificat PEB officiel (Wallonie) / EPB (Flandre) /
+        PEB-EPB (Bruxelles) doit être réalisé par un certificateur agréé pour toute vente ou location.
+        Source : RW DGO4 + Bruxelles Environnement + VEKA — barèmes 2026.
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   TabShare — Partage du projet via URL encodée + e-signature
+   Encode l'intégralité du projet (mesures, photos, plans) en base64 dans
+   un paramètre URL ?share=... — pas de backend nécessaire, le lien contient
+   tout. À la première visite avec ?share=, App passe en mode "Vue Client"
+   read-only. Signature stockée dans le projet local de l'auteur.
+============================================================================ */
+function encodeProjectForShare(project) {
+  /* Strip les Object URLs blob/data: lourds des photos — on garde seulement
+     les URLs publiques. Idem pour les binaires lourds. */
+  var slim = JSON.parse(JSON.stringify(project));
+  if (slim.photos) {
+    slim.photos = slim.photos.filter(function(p){
+      return p.url && !p.url.startsWith("blob:") && !p.url.startsWith("data:");
+    });
+  }
+  /* Base64 + URI-safe */
+  try {
+    var json = JSON.stringify(slim);
+    var b64 = btoa(unescape(encodeURIComponent(json)));
+    return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  } catch(e) { return null; }
+}
+
+function decodeProjectFromShare(encoded) {
+  try {
+    var b64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    var json = decodeURIComponent(escape(atob(b64)));
+    return JSON.parse(json);
+  } catch(e) { return null; }
+}
+
+function TabShare({ project, setToast }) {
+  var [signature, setSignature] = useState(project.signature || null);
+  var [signedAt, setSignedAt] = useState(project.signedAt || null);
+  var canvasRef = useRef(null);
+  var drawingRef = useRef(false);
+
+  var shareUrl = useMemo(function(){
+    var enc = encodeProjectForShare(project);
+    if (!enc) return null;
+    var base = window.location.origin + window.location.pathname;
+    return base + "?share=" + enc;
+  }, [project]);
+
+  function copyLink() {
+    if (!shareUrl) return;
+    try {
+      navigator.clipboard.writeText(shareUrl);
+      setToast && setToast(t("share.linkCopied"));
+    } catch(e) {
+      /* fallback : sélection + execCommand */
+      var ta = document.createElement("textarea");
+      ta.value = shareUrl; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      setToast && setToast(t("share.linkCopied"));
+    }
+  }
+
+  /* Canvas signature — mouse + touch */
+  useEffect(function(){
+    var cv = canvasRef.current;
+    if (!cv) return;
+    var ctx = cv.getContext("2d");
+    ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#0a0a0a";
+    /* Restore signature existante */
+    if (signature) {
+      var img = new Image();
+      img.onload = function(){ ctx.drawImage(img, 0, 0); };
+      img.src = signature;
+    }
+    function pos(e) {
+      var rect = cv.getBoundingClientRect();
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+    function start(e){ drawingRef.current = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+    function move(e){ if (!drawingRef.current) return; var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+    function end(){ drawingRef.current = false; }
+    cv.addEventListener("mousedown", start);
+    cv.addEventListener("mousemove", move);
+    cv.addEventListener("mouseup", end);
+    cv.addEventListener("mouseleave", end);
+    cv.addEventListener("touchstart", start, {passive:false});
+    cv.addEventListener("touchmove", move, {passive:false});
+    cv.addEventListener("touchend", end);
+    return function(){
+      cv.removeEventListener("mousedown", start);
+      cv.removeEventListener("mousemove", move);
+      cv.removeEventListener("mouseup", end);
+      cv.removeEventListener("mouseleave", end);
+      cv.removeEventListener("touchstart", start);
+      cv.removeEventListener("touchmove", move);
+      cv.removeEventListener("touchend", end);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function clearSignature() {
+    var cv = canvasRef.current; if (!cv) return;
+    cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+    setSignature(null); setSignedAt(null);
+  }
+  function saveSignature() {
+    var cv = canvasRef.current; if (!cv) return;
+    var data = cv.toDataURL("image/png");
+    var when = new Date().toISOString();
+    setSignature(data); setSignedAt(when);
+    setToast && setToast("Signature enregistrée");
+  }
+
+  /* QR code via API publique (pas de dep front) — fallback gracieux si offline */
+  var qrUrl = shareUrl ? "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(shareUrl) : null;
+
+  return (
+    <div style={{padding:"22px 24px",minHeight:"calc(100vh - 92px)"}}>
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5"}}>{t("share.title")}</div>
+        <div style={{fontSize:11,color:"#607898",marginTop:3}}>{t("share.notice")}</div>
+      </div>
+
+      {/* Lien */}
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",marginBottom:14}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",marginBottom:8,textTransform:"uppercase"}}>🔗 {t("share.copyLink")}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <input type="text" value={shareUrl || ""} readOnly
+            onClick={function(e){ e.target.select(); }}
+            style={{flex:1,background:"#08111E",border:"1px solid #1C3050",
+              color:"#8DAFC8",fontSize:11,padding:"7px 10px",borderRadius:6,
+              outline:"none",fontFamily:"monospace"}}/>
+          <button type="button" onClick={copyLink} disabled={!shareUrl}
+            style={{background: shareUrl ? "#00C2FF" : "#2E4A6A", border:"none",
+              color: shareUrl ? "#000" : "#607898", borderRadius:7,
+              padding:"7px 14px",fontSize:12,fontWeight:700,
+              cursor: shareUrl ? "pointer" : "not-allowed", outline:"none"}}>
+            📋 {t("common.copy")}
+          </button>
+        </div>
+      </div>
+
+      {/* QR code + e-signature côte à côte */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+        {/* QR */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px",textAlign:"center"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#00E5A0",marginBottom:10,textTransform:"uppercase"}}>📱 {t("share.qrCode")}</div>
+          {qrUrl ? (
+            <img src={qrUrl} alt="QR code" style={{maxWidth:180,height:"auto",background:"#FFF",padding:6,borderRadius:6}}
+              onError={function(e){ e.target.style.display="none"; }}/>
+          ) : <div style={{padding:30,color:"#607898"}}>Projet trop volumineux pour QR</div>}
+          <div style={{fontSize:10,color:"#607898",marginTop:8}}>Scannez avec votre téléphone</div>
+        </div>
+
+        {/* Signature canvas */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"14px 16px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#FF8C42",textTransform:"uppercase"}}>✍️ {t("share.signature")}</div>
+            <div style={{display:"flex",gap:6}}>
+              <button type="button" onClick={clearSignature}
+                style={{background:"transparent",border:"1px solid #2E4A6A",
+                  color:"#607898",borderRadius:5,padding:"3px 9px",fontSize:10,cursor:"pointer",outline:"none"}}>
+                Effacer
+              </button>
+              <button type="button" onClick={saveSignature}
+                style={{background:"#00E5A0",border:"none",color:"#000",
+                  borderRadius:5,padding:"3px 11px",fontSize:10,fontWeight:700,cursor:"pointer",outline:"none"}}>
+                Valider
+              </button>
+            </div>
+          </div>
+          <canvas ref={canvasRef} width={400} height={140}
+            style={{width:"100%",height:140,background:"#FAFAFA",borderRadius:6,
+              border:"1px solid #1C3050",cursor:"crosshair",touchAction:"none"}}/>
+          {signedAt && (
+            <div style={{fontSize:10,color:"#00E5A0",marginTop:6,fontFamily:"monospace"}}>
+              ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   ShareView — Vue client read-only via ?share=... dans l'URL.
+   Pas de sidebar, pas d'édition. Présentation pure : header avec adresse,
+   modèle 3D en grand, dimensions clés, et canvas e-signature. Branding
+   subtil "Made with MesurePro".
+============================================================================ */
+function ShareView({ project, onExitShare }) {
+  var [signature, setSignature] = useState(null);
+  var [signedAt, setSignedAt] = useState(null);
+  var canvasRef = useRef(null);
+  var drawingRef = useRef(false);
+
+  /* Apply theme au boot ShareView */
+  useEffect(function(){
+    applyTheme(getPrefs().theme);
+  }, []);
+
+  /* Signature canvas — mouse + touch */
+  useEffect(function(){
+    var cv = canvasRef.current; if (!cv) return;
+    var ctx = cv.getContext("2d");
+    ctx.lineWidth = 2; ctx.lineCap = "round"; ctx.strokeStyle = "#0a0a0a";
+    function pos(e) {
+      var rect = cv.getBoundingClientRect();
+      var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+    function start(e){ drawingRef.current = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+    function move(e){ if (!drawingRef.current) return; var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); e.preventDefault(); }
+    function end(){ drawingRef.current = false; }
+    cv.addEventListener("mousedown", start);
+    cv.addEventListener("mousemove", move);
+    cv.addEventListener("mouseup", end);
+    cv.addEventListener("mouseleave", end);
+    cv.addEventListener("touchstart", start, {passive:false});
+    cv.addEventListener("touchmove", move, {passive:false});
+    cv.addEventListener("touchend", end);
+    return function(){
+      cv.removeEventListener("mousedown", start);
+      cv.removeEventListener("mousemove", move);
+      cv.removeEventListener("mouseup", end);
+      cv.removeEventListener("mouseleave", end);
+      cv.removeEventListener("touchstart", start);
+      cv.removeEventListener("touchmove", move);
+      cv.removeEventListener("touchend", end);
+    };
+  }, []);
+
+  function clearSig() {
+    var cv = canvasRef.current; if (!cv) return;
+    cv.getContext("2d").clearRect(0,0,cv.width,cv.height);
+    setSignature(null); setSignedAt(null);
+  }
+  function saveSig() {
+    var cv = canvasRef.current; if (!cv) return;
+    setSignature(cv.toDataURL("image/png"));
+    setSignedAt(new Date().toISOString());
+  }
+
+  var m = project.meas || {};
+  var peb = useMemo(function(){ return computePEB(project); }, [project]);
+
+  return (
+    <div style={{minHeight:"100vh",background:"#08111E",color:"#E8EDF5"}}>
+      {/* Header */}
+      <div style={{background:"#0F1C2E",borderBottom:"1px solid #1C3050",padding:"18px 24px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:11,color:"#00C2FF",fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em"}}>
+            {t("share.viewMode")}
+          </div>
+          <div style={{fontSize:20,fontWeight:900,marginTop:3}}>{project.addr}</div>
+          <div style={{fontSize:12,color:"#8DAFC8",marginTop:2}}>{project.city}</div>
+        </div>
+        <button type="button" onClick={onExitShare}
+          style={{background:"transparent",border:"1px solid #2E4A6A",
+            color:"#8DAFC8",borderRadius:6,padding:"6px 12px",fontSize:11,cursor:"pointer",outline:"none"}}>
+          ← Quitter l'aperçu client
+        </button>
+      </div>
+
+      <div style={{maxWidth:1100,margin:"0 auto",padding:"24px"}}>
+        {/* Bandeau dimensions clés */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:18}}>
+          {[
+            ["Emprise sol", (parseFloat(m.foot)||0).toFixed(0) + " m²", "#00C2FF"],
+            ["Surface murs", (parseFloat(m.walls)||0).toFixed(0) + " m²", "#00E5A0"],
+            ["Toiture",      (parseFloat(m.roof)||0).toFixed(0) + " m²", "#FF8C42"],
+            ["Périmètre",    (parseFloat(m.perim)||0).toFixed(0) + " m",  "#FFD700"],
+            ["Hauteur",      (parseFloat(m.h)||0).toFixed(1) + " m",      "#9ACD32"],
+            ["PEB",          peb.cls,                                       PEB_COLORS[peb.cls] || "#999"],
+          ].map(function(s){
+            return (
+              <div key={s[0]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+                borderRadius:10,padding:"12px 14px"}}>
+                <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",letterSpacing:"0.05em"}}>{s[0]}</div>
+                <div style={{fontSize:22,fontWeight:900,color:s[2],fontFamily:"monospace",marginTop:4}}>{s[1]}</div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Modèle 3D */}
+        <div style={{background:"#060D18",border:"1px solid #1C3050",borderRadius:10,
+          overflow:"hidden",marginBottom:18,height:380}}>
+          <IsoModel mat={null} photos={project.photos} floors={parseInt(project.floors)||2}
+            meas={project.meas} rooms={project.rooms} roof={project.roof}/>
+        </div>
+
+        <div style={{textAlign:"center",fontSize:11,color:"#607898",marginBottom:18}}>
+          🖱️ Faites glisser le modèle pour le faire pivoter
+        </div>
+
+        {/* Rapport synthèse */}
+        {project.client && (
+          <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+            padding:"16px 18px",marginBottom:18}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#00C2FF",textTransform:"uppercase",marginBottom:8}}>Client</div>
+            <div style={{fontSize:16,fontWeight:700}}>{project.client}</div>
+          </div>
+        )}
+
+        {/* E-Signature */}
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"18px 20px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#FF8C42",textTransform:"uppercase"}}>
+              ✍️ {t("share.signature")}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button type="button" onClick={clearSig}
+                style={{background:"transparent",border:"1px solid #2E4A6A",
+                  color:"#607898",borderRadius:5,padding:"4px 10px",fontSize:10,cursor:"pointer",outline:"none"}}>
+                Effacer
+              </button>
+              <button type="button" onClick={saveSig}
+                style={{background:"#00E5A0",border:"none",color:"#000",
+                  borderRadius:5,padding:"4px 14px",fontSize:11,fontWeight:700,cursor:"pointer",outline:"none"}}>
+                ✓ Valider et signer
+              </button>
+            </div>
+          </div>
+          <canvas ref={canvasRef} width={800} height={180}
+            style={{width:"100%",height:180,background:"#FAFAFA",borderRadius:8,
+              border:"1px solid #1C3050",cursor:"crosshair",touchAction:"none"}}/>
+          {signedAt && (
+            <div style={{fontSize:12,color:"#00E5A0",marginTop:10,fontFamily:"monospace"}}>
+              ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}
+            </div>
+          )}
+          <div style={{fontSize:10,color:"#607898",marginTop:10,lineHeight:1.5}}>
+            En signant, vous confirmez avoir pris connaissance des informations présentées
+            dans ce document. Cette signature électronique a valeur indicative et ne se
+            substitue pas à un contrat formel signé en présentiel.
+          </div>
+        </div>
+
+        {/* Branding */}
+        <div style={{textAlign:"center",marginTop:24,padding:"14px 0",borderTop:"1px solid #1C3050"}}>
+          <div style={{fontSize:10,color:"#607898"}}>Préparé avec</div>
+          <div style={{fontSize:14,fontWeight:900,color:"#00C2FF",marginTop:2}}>MesurePro</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Reports({ reports, setReports }) {
+  var [sel,  setSel]  = useState(reports[0] && reports[0].id);
+  var [toast,setToast]= useState("");
+  var [showNew, setShowNew] = useState(false);
+  var r = reports.find(function(x){ return x.id === sel; });
+  function upd(id, p) { setReports(function(rs){ return rs.map(function(x){ return x.id===id ? Object.assign({},x,p) : x; }); }); }
+  function updD(id, k, p) { setReports(function(rs){ return rs.map(function(x){ if (x.id!==id) return x; var n={}; Object.keys(x[k]).forEach(function(f){n[f]=x[k][f];}); Object.keys(p).forEach(function(f){n[f]=p[f];}); return Object.assign({},x,{[k]:n}); }); }); }
+  function createReport(kind) {
+    var tpl = REPORT_TEMPLATES[kind];
+    if (!tpl) return;
+    var nr = Object.assign({}, JSON.parse(JSON.stringify(tpl)), {
+      id: "R" + Date.now(),
+      kind: kind,
+      status: "draft",
+      ref: nextRefForKind(kind, reports),
+      updated: new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),
+    });
+    setReports(function(rs){ return rs.concat([nr]); });
+    setSel(nr.id);
+    setShowNew(false);
+    setToast("Rapport cree");
+  }
+  function deleteReport(id) {
+    if (!window.confirm("Supprimer ce rapport definitivement?")) return;
+    setReports(function(rs){ return rs.filter(function(x){ return x.id !== id; }); });
+    setToast("Rapport supprime");
+    var rest = reports.filter(function(x){ return x.id !== id; });
+    setSel(rest[0] ? rest[0].id : null);
+  }
+  var icons = {meas:"[M]",devis:"[$]",insp:"[I]",prop:"[P]"};
+  var KINDS = [
+    {id:"meas",  lbl:"Rapport de mesures"},
+    {id:"devis", lbl:"Devis commercial"},
+    {id:"insp",  lbl:"Inspection technique"},
+    {id:"prop",  lbl:"Proposition / contrat"},
+  ];
+  return (
+    <div style={{display:"flex",height:"100vh"}}>
+      {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
+      {showNew && (
+        <div onClick={function(){setShowNew(false);}}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",zIndex:200,
+            display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={function(e){e.stopPropagation();}}
+            style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
+              padding:24,width:460,maxWidth:"90vw"}}>
+            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:14}}>
+              Nouveau rapport - choisir un type
+            </div>
+            {KINDS.map(function(k) {
+              return (
+                <button type="button" key={k.id} onClick={function(){createReport(k.id);}}
+                  style={{display:"flex",alignItems:"center",gap:12,width:"100%",
+                    padding:"12px 14px",background:"#152135",border:"1px solid #1C3050",
+                    borderRadius:8,marginBottom:8,cursor:"pointer",outline:"none",
+                    color:"#E8EDF5",fontSize:13,fontWeight:600,textAlign:"left"}}>
+                  <span style={{fontFamily:"monospace",fontSize:12,color:"#00C2FF"}}>{icons[k.id]}</span>
+                  {k.lbl}
+                </button>
+              );
+            })}
+            <div style={{display:"flex",justifyContent:"flex-end",marginTop:12}}>
+              <Btn sm={true} onClick={function(){setShowNew(false);}}>Annuler</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+      <div data-noprint="1" style={{width:245,borderRight:"1px solid #1C3050",overflowY:"auto",
+        padding:"14px 0",flexShrink:0}}>
+        <div style={{padding:"0 14px 10px",display:"flex",justifyContent:"space-between",
+          alignItems:"center"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#607898",
+            textTransform:"uppercase",letterSpacing:"0.08em"}}>{reports.length} Rapports</div>
+          <button type="button" onClick={function(){setShowNew(true);}}
+            style={{background:"#00C2FF",color:"#000",border:"none",borderRadius:5,
+              padding:"3px 8px",fontSize:11,fontWeight:800,cursor:"pointer",outline:"none"}}>+</button>
+        </div>
+        {reports.map(function(x) {
+          var active = sel===x.id;
+          return (
+            <div key={x.id} onClick={function(){setSel(x.id);}}
+              role="button" tabIndex={0}
+              style={{
+                display:"block",width:"100%",padding:"11px 14px",
+                background:active ? "rgba(0,194,255,0.13)" : "transparent",
+                borderLeft:"3px solid "+(active ? "#00C2FF" : "transparent"),
+                cursor:"pointer",textAlign:"left",outline:"none",marginBottom:1,
+                position:"relative",
+              }}>
+              <div style={{display:"flex",justifyContent:"space-between",
+                alignItems:"flex-start",marginBottom:3}}>
+                <span style={{fontSize:12,fontWeight:700,color:"#E8EDF5",flex:1,
+                  lineHeight:1.3,marginRight:6}}>
+                  {icons[x.kind]} {x.title}
+                </span>
+                <Badge s={x.status}/>
+              </div>
+              <div style={{fontSize:10,color:"#607898"}}>{x.ref}</div>
+              <div style={{fontSize:10,color:"#2E4A6A",marginTop:2}}>{x.updated}</div>
+              {active && (
+                <button type="button"
+                  onClick={function(e){ e.stopPropagation(); deleteReport(x.id); }}
+                  title="Supprimer"
+                  style={{position:"absolute",top:8,right:8,
+                    background:"rgba(255,71,87,0.13)",border:"1px solid #FF4757",
+                    color:"#FF4757",borderRadius:4,width:20,height:20,
+                    fontSize:11,fontWeight:900,cursor:"pointer",outline:"none",
+                    display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>X</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"24px 28px"}}>
+        {r && r.kind === "meas"  && <RptMeas  r={r} upd={upd} updD={updD} T2={setToast}/>}
+        {r && r.kind === "devis" && <RptDevis r={r} upd={upd} updD={updD} T2={setToast}/>}
+        {r && r.kind === "insp"  && <RptInsp  r={r} upd={upd} updD={updD} T2={setToast}/>}
+        {r && r.kind === "prop"  && <RptProp  r={r} upd={upd} updD={updD} T2={setToast}/>}
+      </div>
+    </div>
+  );
+}
+
+function RptHead({ r, upd, T2, stats }) {
+  var statList = stats || ["draft","review","sent","done"];
+  return (
+    <div style={{display:"flex",gap:9,marginBottom:22,alignItems:"center",flexWrap:"wrap"}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5",marginBottom:2}}>
+          <EF val={r.title} onSave={function(v){upd(r.id,{title:v});T2("Titre mis a jour");}}
+            style={{fontSize:20}}/>
+        </div>
+        <div style={{fontSize:11,color:"#607898"}}>{r.ref}</div>
+      </div>
+      <select value={r.status} onChange={function(e){upd(r.id,{status:e.target.value});}}
+        style={{background:"#152135",border:"1px solid #1C3050",color:"#E8EDF5",
+          padding:"6px 10px",borderRadius:6,fontSize:12,cursor:"pointer",outline:"none"}}>
+        {statList.map(function(s) {
+          return <option key={s} value={s}>{BM[s] ? BM[s].lbl : s}</option>;
+        })}
+      </select>
+      <Btn sm={true} onClick={function(){exportReportPdf(r); T2("PDF telecharge");}}>PDF</Btn>
+      <Btn sm={true} onClick={function(){window.print();}}>Imprimer</Btn>
+      <Btn sm={true} primary={true} onClick={function(){T2("Duplique");}}>Dupliquer</Btn>
+    </div>
+  );
+}
+
+function CoCl({ r, upd, updD, T2 }) {
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:18}}>
+      {[["Entreprise","co"],["Client","cl"]].map(function(pair) {
+        var title = pair[0];
+        var key   = pair[1];
+        return (
+          <div key={key} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+            borderRadius:10,padding:"14px 16px"}}>
+            <div style={{fontSize:9,fontWeight:700,color:"#607898",textTransform:"uppercase",
+              letterSpacing:"0.07em",marginBottom:10}}>{title}</div>
+            {Object.keys(r[key]).map(function(f) {
+              return (
+                <div key={f} style={{display:"flex",gap:7,marginBottom:6,alignItems:"center"}}>
+                  <span style={{fontSize:10,color:"#2E4A6A",width:42,flexShrink:0}}>{f}</span>
+                  <EF val={r[key][f]}
+                    onSave={function(nv){updD(r.id,key,{[f]:nv});T2("Mis a jour");}}
+                    style={{fontSize:11,color:"#E8EDF5"}}/>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* Bloc « senior » réutilisable pour les rapports : un titre + une zone
+   multi-lignes éditable. Utilisé sous RptMeas, RptInsp, RptDevis, RptProp
+   pour rendre les sections méthodologie / conditions / normes / conclusions
+   ajoutées par item 4 du backlog (rapports niveau auditeur senior). */
+function RptSeniorField({ r, upd, T2, name, label, color }) {
+  var col = color || "#00C2FF";
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+      padding:"13px 15px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:col,marginBottom:7,
+        textTransform:"uppercase",letterSpacing:"0.06em"}}>{label}</div>
+      <EF val={r[name] || ""} multi={true}
+        onSave={function(v){ upd(r.id, {[name]: v}); T2 && T2("OK"); }}
+        style={{fontSize:12,lineHeight:1.65,whiteSpace:"pre-line"}}/>
+    </div>
+  );
+}
+
+/* Bloc Auditeur senior — 3 inputs sur une ligne (Nom / Titre / Ordre) */
+/* Signature manuscrite — canvas tactile/souris pour dessiner une vraie
+   signature. Stocke le résultat comme data URL PNG dans le rapport.
+   Marche sur desktop (souris) et mobile/tablette (tactile). */
+function SignatureCanvas({ value, onSave, label }) {
+  var canvasRef = useRef(null);
+  var [drawing, setDrawing] = useState(false);
+  var lastPoint = useRef(null);
+
+  useEffect(function(){
+    var canvas = canvasRef.current;
+    if (!canvas) return;
+    var ctx = canvas.getContext("2d");
+    ctx.strokeStyle = "#E8EDF5";
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    /* Restaure la signature existante si présente (rechargement page) */
+    if (value && typeof value === "string" && value.indexOf("data:image") === 0) {
+      var img = new Image();
+      img.onload = function(){ ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+      img.src = value;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function getCoords(e) {
+    var canvas = canvasRef.current;
+    var rect = canvas.getBoundingClientRect();
+    var scaleX = canvas.width / rect.width;
+    var scaleY = canvas.height / rect.height;
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  }
+  function onStart(e) {
+    e.preventDefault();
+    setDrawing(true);
+    lastPoint.current = getCoords(e);
+  }
+  function onMove(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    var coords = getCoords(e);
+    var ctx = canvasRef.current.getContext("2d");
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
+    ctx.lineTo(coords.x, coords.y);
+    ctx.stroke();
+    lastPoint.current = coords;
+  }
+  function onEnd() {
+    if (!drawing) return;
+    setDrawing(false);
+    /* Sauvegarde la signature en data URL après chaque trait — léger
+       (< 5 KB pour une signature normale en PNG noir & blanc). */
+    try {
+      onSave && onSave(canvasRef.current.toDataURL("image/png"));
+    } catch(e){}
+  }
+  function clear() {
+    var canvas = canvasRef.current;
+    var ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onSave && onSave("");
+  }
+
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",
+      borderRadius:10, padding:"14px 16px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:9}}>
+        <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",letterSpacing:"0.04em"}}>{label}</div>
+        <button type="button" onClick={clear}
+          title="Effacer la signature pour recommencer"
+          style={{background:"transparent", border:"1px solid #2E4A6A",
+            color:"#607898", borderRadius:5, padding:"2px 9px",
+            fontSize:9, cursor:"pointer", outline:"none"}}>
+          Effacer
+        </button>
+      </div>
+      <canvas ref={canvasRef}
+        width={400} height={100}
+        onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
+        onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}
+        style={{width:"100%", height:80, background:"#08111E",
+          borderRadius:5, border:"1px dashed #1C3050",
+          cursor:"crosshair", touchAction:"none", display:"block"}}/>
+      <div style={{fontSize:8, color:"#2E4A6A", marginTop:5}}>
+        Signez avec la souris (desktop) ou le doigt (mobile/tablette). Stockée comme image PNG.
+      </div>
+    </div>
+  );
+}
+
+function RptAuditorBlock({ r, upd, T2 }) {
+  var a = r.auditor || { nom:"", titre:"Auditeur senior", ordre:"" };
+  function setField(k, v) {
+    upd(r.id, { auditor: Object.assign({}, a, {[k]: v}) });
+    T2 && T2("OK");
+  }
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+      padding:"13px 15px",marginBottom:10}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#00E5A0",marginBottom:9,
+        textTransform:"uppercase",letterSpacing:"0.06em"}}>Identification de l'auditeur</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        {[["nom","Nom + prénom"],["titre","Titre / fonction"],["ordre","N° d'ordre / certif."]].map(function(p){
+          return (
+            <div key={p[0]}>
+              <div style={{fontSize:9,color:"#607898",marginBottom:4}}>{p[1]}</div>
+              <EF val={a[p[0]] || ""}
+                onSave={function(v){ setField(p[0], v); }}
+                style={{fontSize:11,fontWeight:600,color:"#E8EDF5"}}/>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RptMeas({ r, upd, updD, T2 }) {
+  return (
+    <div>
+      <RptHead r={r} upd={upd} T2={T2}/>
+      <CoCl r={r} upd={upd} updD={updD} T2={T2}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:11,marginBottom:18}}>
+        {Object.keys(r.data).map(function(k) {
+          return (
+            <div key={k} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:8,padding:"11px 13px"}}>
+              <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",
+                letterSpacing:"0.07em",marginBottom:6}}>{k}</div>
+              <EF val={r.data[k]}
+                onSave={function(nv){var d=Object.assign({},r.data,{[k]:nv});upd(r.id,{data:d});T2("OK");}}
+                style={{fontSize:15,fontWeight:900,color:"#00C2FF",fontFamily:"monospace"}}/>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        overflow:"hidden",marginBottom:16}}>
+        <div style={{padding:"10px 15px",borderBottom:"1px solid #1C3050",
+          fontSize:12,fontWeight:700,color:"#E8EDF5"}}>Detail facades</div>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"rgba(0,0,0,0.2)"}}>
+              {["Facade","Surface","Long.","Haut.","Materiau"].map(function(h) {
+                return <th key={h} style={{padding:"7px 14px",textAlign:"left",fontSize:9,
+                  color:"#607898",fontWeight:600,textTransform:"uppercase"}}>{h}</th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {r.rows.map(function(row, i) {
+              return (
+                <tr key={i} style={{borderTop:"1px solid #1C3050"}}>
+                  {["n","s","l","h","m"].map(function(f) {
+                    return (
+                      <td key={f} style={{padding:"9px 14px",fontSize:12,
+                        color:f==="s" ? "#00C2FF" : "#E8EDF5",
+                        fontFamily:f==="s" ? "monospace" : "inherit"}}>
+                        <EF val={row[f]}
+                          onSave={function(v){
+                            var rows=r.rows.map(function(rw,j){ return j===i ? Object.assign({},rw,{[f]:v}) : rw; });
+                            upd(r.id,{rows:rows}); T2("OK");
+                          }}/>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+        padding:"13px 15px",marginBottom:13}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:7,
+          textTransform:"uppercase"}}>Notes</div>
+        <EF val={r.notes} multi={true}
+          onSave={function(v){upd(r.id,{notes:v});T2("Notes mises a jour");}}
+          style={{fontSize:12,lineHeight:1.6}}/>
+      </div>
+      <div style={{display:"flex",gap:12,marginBottom:14}}>
+        {[["Technicien","tech"],["Date","techDate"]].map(function(pair) {
+          return (
+            <div key={pair[1]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:8,padding:"11px 14px",flex:1}}>
+              <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>{pair[0]}</div>
+              <EF val={r[pair[1]]}
+                onSave={function(v){upd(r.id,{[pair[1]]:v});T2("OK");}}
+                style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}/>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Sections « auditeur senior » — méthodologie + conditions + normes + observations + conclusions */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodology" label="Méthodologie de mesure" color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="conditions"  label="Conditions de relevé"     color="#00E5A0"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="standards"   label="Normes de référence"      color="#FF8C42"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="tolerances"  label="Tolérances appliquées"     color="#B580FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="observations" label="Observations terrain"   color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="conclusions" label="Conclusions"             color="#00E5A0"/>
+      <RptAuditorBlock r={r} upd={upd} T2={T2}/>
+    </div>
+  );
+}
+
+function RptDevis({ r, upd, updD, T2 }) {
+  var sub  = r.lines.reduce(function(a,l){ return a+parseFloat(l.t||0); }, 0);
+  var disc = parseFloat(r.discount||0);
+  var ad   = sub*(1-disc/100);
+  var tva  = ad*0.2;
+  var tot  = ad+tva;
+  var f    = function(n){ return n.toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  function updLine(i, field, val) {
+    var lines = r.lines.map(function(l,j) {
+      if (j !== i) return l;
+      var u = Object.assign({},l,{[field]:val});
+      if (field === "q" || field === "pu") {
+        var q2 = parseFloat(field==="q" ? val : l.q) || 0;
+        var p2 = parseFloat(field==="pu"? val : l.pu)|| 0;
+        u.t = (q2*p2).toFixed(2);
+      }
+      return u;
+    });
+    upd(r.id,{lines:lines}); T2("OK");
+  }
+  return (
+    <div>
+      <RptHead r={r} upd={upd} T2={T2}/>
+      <CoCl r={r} upd={upd} updD={updD} T2={T2}/>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        overflow:"hidden",marginBottom:16}}>
+        <div style={{padding:"10px 14px",borderBottom:"1px solid #1C3050",
+          fontSize:12,fontWeight:700,color:"#E8EDF5"}}>Lignes du devis</div>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"rgba(0,0,0,0.2)"}}>
+              {["Description","Qte","Unite","P.U.","Total"].map(function(h) {
+                return <th key={h} style={{padding:"7px 12px",textAlign:"left",fontSize:9,
+                  color:"#607898",fontWeight:600,textTransform:"uppercase"}}>{h}</th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {r.lines.map(function(line, i) {
+              return (
+                <tr key={i} style={{borderTop:"1px solid #1C3050"}}>
+                  <td style={{padding:"9px 12px",fontSize:12,color:"#E8EDF5",minWidth:140}}>
+                    <EF val={line.d} onSave={function(v){updLine(i,"d",v);}}/></td>
+                  <td style={{padding:"9px 12px",fontFamily:"monospace",fontSize:12}}>
+                    <EF val={line.q} onSave={function(v){updLine(i,"q",v);}}/></td>
+                  <td style={{padding:"9px 12px",fontSize:12,color:"#607898"}}>
+                    <EF val={line.u} onSave={function(v){updLine(i,"u",v);}}/></td>
+                  <td style={{padding:"9px 12px",fontFamily:"monospace",fontSize:12}}>
+                    <EF val={line.pu} onSave={function(v){updLine(i,"pu",v);}}/></td>
+                  <td style={{padding:"9px 12px",fontFamily:"monospace",fontSize:12,
+                    color:"#00C2FF",fontWeight:700}}>
+                    {f(parseFloat(line.t||0))} EUR
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <button type="button" onClick={function(){
+          var newLine = {d:"Nouvelle prestation",q:"1",u:"fft",pu:"0.00",t:"0.00"};
+          upd(r.id,{lines:r.lines.concat([newLine])});
+          T2("Ligne ajoutee");
+        }} style={{margin:"9px 12px",background:"#152135",border:"1px dashed #1C3050",
+          color:"#607898",padding:"5px 12px",borderRadius:6,cursor:"pointer",fontSize:11,
+          outline:"none"}}>
+          + Ajouter
+        </button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 255px",gap:14}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"14px 16px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:8,
+            textTransform:"uppercase"}}>Conditions</div>
+          <EF val={r.payTerms} multi={true}
+            onSave={function(v){upd(r.id,{payTerms:v});T2("OK");}}
+            style={{fontSize:12,lineHeight:1.6}}/>
+          <div style={{marginTop:11,display:"flex",gap:12}}>
+            {[["Remise %","discount","#FF8C42"],["Acompte %","acompte","#00E5A0"]].map(function(row) {
+              return (
+                <div key={row[1]} style={{flex:1}}>
+                  <div style={{fontSize:9,color:"#607898",marginBottom:4,textTransform:"uppercase"}}>{row[0]}</div>
+                  <EF val={r[row[1]]}
+                    onSave={function(v){upd(r.id,{[row[1]]:v});T2("OK");}}
+                    style={{fontSize:14,fontWeight:700,color:row[2]}}/>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"14px 16px"}}>
+          {[["Sous-total HT",f(sub)+" EUR","#E8EDF5"],
+            ["Remise "+disc+"%","-"+f(sub*disc/100)+" EUR","#FF8C42"],
+            ["TVA 20%",f(tva)+" EUR","#607898"],
+            ["TOTAL TTC",f(tot)+" EUR","#00C2FF"],
+          ].map(function(row) {
+            var isTotal = row[0] === "TOTAL TTC";
+            return (
+              <div key={row[0]} style={{display:"flex",justifyContent:"space-between",
+                padding:"7px 0",borderBottom:isTotal ? "none" : "1px solid #1C3050"}}>
+                <span style={{fontSize:isTotal?13:11,fontWeight:isTotal?800:400,
+                  color:isTotal?"#E8EDF5":"#607898"}}>{row[0]}</span>
+                <span style={{fontFamily:"monospace",fontSize:isTotal?15:12,
+                  fontWeight:isTotal?900:600,color:row[2]}}>{row[1]}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Sections « auditeur senior » — conditions paiement détaillées + pénalités + décennale + adresses séparées */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Adresse de chantier</div>
+          <EF val={r.chantierAdr || ""}
+            onSave={function(v){ upd(r.id, {chantierAdr: v}); T2("OK"); }}
+            style={{fontSize:11,color:"#E8EDF5"}}/>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Adresse de facturation</div>
+          <EF val={r.facturationAdr || ""}
+            onSave={function(v){ upd(r.id, {facturationAdr: v}); T2("OK"); }}
+            style={{fontSize:11,color:"#E8EDF5"}}/>
+        </div>
+      </div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="penalties"      label="Pénalités de retard"             color="#FF4757"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="decennalRef"    label="Garantie décennale (assurance)"  color="#00E5A0"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodPaiement" label="Modalités de paiement"           color="#00C2FF"/>
+    </div>
+  );
+}
+
+var SC = {ok:"#00E5A0",warn:"#FF8C42",crit:"#FF4757"};
+var SL = {ok:"Conforme",warn:"Surveiller",crit:"Critique"};
+
+function RptInsp({ r, upd, updD, T2 }) {
+  var ok    = r.checks.filter(function(c){ return c.s==="ok"; }).length;
+  var wa    = r.checks.filter(function(c){ return c.s==="warn"; }).length;
+  var cr    = r.checks.filter(function(c){ return c.s==="crit"; }).length;
+  var score = Math.round(((ok*2+wa) / (r.checks.length*2)) * 20);
+  function setChk(i, f, v) {
+    var checks = r.checks.map(function(c,j){ return j===i ? Object.assign({},c,{[f]:v}) : c; });
+    upd(r.id,{checks:checks}); T2("OK");
+  }
+  return (
+    <div>
+      <RptHead r={r} upd={upd} T2={T2} stats={["draft","review","sent"]}/>
+      <CoCl r={r} upd={upd} updD={updD} T2={T2}/>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:11,marginBottom:20}}>
+        {[
+          [score+"/20","Score", score>=16?"#00E5A0":score>=10?"#FF8C42":"#FF4757"],
+          [ok,  "Conformes","#00E5A0"],
+          [wa,  "Surveiller","#FF8C42"],
+          [cr,  "Critiques","#FF4757"],
+        ].map(function(row) {
+          return (
+            <div key={row[1]} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
+              <div style={{fontSize:20,fontWeight:900,color:row[2],fontFamily:"monospace",marginBottom:3}}>
+                {row[0]}
+              </div>
+              <div style={{fontSize:10,color:"#607898",textTransform:"uppercase"}}>{row[1]}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        overflow:"hidden",marginBottom:16}}>
+        <div style={{padding:"10px 15px",borderBottom:"1px solid #1C3050",
+          fontSize:12,fontWeight:700,color:"#E8EDF5"}}>
+          Checklist ({r.checks.length} points)
+        </div>
+        {r.checks.map(function(c, i) {
+          return (
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,
+              padding:"10px 15px",borderBottom:"1px solid #1C3050",
+              background:i%2===0 ? "transparent" : "rgba(0,0,0,0.07)"}}>
+              <span style={{fontSize:9,background:"rgba(255,255,255,0.05)",
+                padding:"2px 7px",borderRadius:4,color:"#607898",
+                whiteSpace:"nowrap",flexShrink:0,marginTop:2}}>{c.z}</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:"#E8EDF5",marginBottom:4,fontWeight:500}}>{c.it}</div>
+                <EF val={c.note} onSave={function(v){setChk(i,"note",v);}}
+                  style={{fontSize:11,color:"#607898"}}/>
+              </div>
+              <select value={c.s} onChange={function(e){setChk(i,"s",e.target.value);}}
+                style={{background:"transparent",border:"1px solid "+SC[c.s],color:SC[c.s],
+                  padding:"4px 7px",borderRadius:6,fontSize:11,fontWeight:700,
+                  cursor:"pointer",flexShrink:0,outline:"none"}}>
+                {Object.keys(SL).map(function(k) {
+                  return <option key={k} value={k} style={{background:"#152135",color:"#E8EDF5"}}>{SL[k]}</option>;
+                })}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+        padding:"13px 15px",marginBottom:14}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:7,
+          textTransform:"uppercase"}}>Recommandations</div>
+        <EF val={r.reco} multi={true}
+          onSave={function(v){upd(r.id,{reco:v});T2("OK");}}
+          style={{fontSize:12,lineHeight:1.7,whiteSpace:"pre-line"}}/>
+      </div>
+
+      {/* Sections « auditeur senior » — risque + ré-inspection + normes */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Score de risque global</div>
+          <select value={r.riskScore || "faible"}
+            onChange={function(e){ upd(r.id, {riskScore: e.target.value}); T2("OK"); }}
+            style={{background:"#08111E",border:"1px solid #1C3050",borderRadius:6,
+              color:"#E8EDF5",fontSize:13,fontWeight:700,padding:"6px 9px",
+              outline:"none",cursor:"pointer",width:"100%"}}>
+            <option value="faible">Faible — bâtiment conforme</option>
+            <option value="modere">Modéré — points à surveiller</option>
+            <option value="eleve">Élevé — interventions nécessaires</option>
+            <option value="critique">Critique — sécurité compromise</option>
+          </select>
+        </div>
+        <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:8,padding:"11px 14px"}}>
+          <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",marginBottom:6}}>Date prochaine ré-inspection</div>
+          <EF val={r.reinspectionDate || ""}
+            onSave={function(v){ upd(r.id, {reinspectionDate: v}); T2("OK"); }}
+            style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}/>
+        </div>
+      </div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="standards" label="Normes & DTU appliqués" color="#FF8C42"/>
+      <RptAuditorBlock r={r} upd={upd} T2={T2}/>
+    </div>
+  );
+}
+
+function RptProp({ r, upd, updD, T2 }) {
+  var WEEKS = [1,2,3,4,5,6,7,8,9,10];
+  function updP(i, f, v) {
+    var projs = r.projs.map(function(p,j){ return j===i ? Object.assign({},p,{[f]:v}) : p; });
+    upd(r.id,{projs:projs}); T2("OK");
+  }
+  return (
+    <div>
+      <div style={{display:"flex",gap:9,marginBottom:20,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:20,fontWeight:900,color:"#E8EDF5",marginBottom:2}}>
+            <EF val={r.title} onSave={function(v){upd(r.id,{title:v});T2("OK");}} style={{fontSize:20}}/>
+          </div>
+          <div style={{fontSize:11,color:"#607898"}}>{r.ref}</div>
+        </div>
+        <select value={r.status} onChange={function(e){upd(r.id,{status:e.target.value});}}
+          style={{background:"#152135",border:"1px solid #1C3050",color:"#E8EDF5",
+            padding:"6px 10px",borderRadius:6,fontSize:12,cursor:"pointer",outline:"none"}}>
+          {["draft","review","sent"].map(function(s) {
+            return <option key={s} value={s}>{BM[s] ? BM[s].lbl : s}</option>;
+          })}
+        </select>
+        <Btn sm={true} onClick={function(){exportReportPdf(r); T2("PDF telecharge");}}>PDF</Btn>
+        <Btn sm={true} onClick={function(){window.print();}}>Imprimer</Btn>
+        <Btn sm={true} primary={true} onClick={function(){T2("Duplique");}}>Dupliquer</Btn>
+      </div>
+      <CoCl r={r} upd={upd} updD={updD} T2={T2}/>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+        padding:"13px 15px",marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:7,
+          textTransform:"uppercase"}}>Presentation</div>
+        <EF val={r.intro} multi={true}
+          onSave={function(v){upd(r.id,{intro:v});T2("OK");}}
+          style={{fontSize:12,lineHeight:1.7}}/>
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        overflow:"hidden",marginBottom:16}}>
+        <div style={{padding:"10px 15px",borderBottom:"1px solid #1C3050",
+          fontSize:12,fontWeight:700,color:"#E8EDF5"}}>Projets inclus</div>
+        <table style={{width:"100%",borderCollapse:"collapse"}}>
+          <thead>
+            <tr style={{background:"rgba(0,0,0,0.2)"}}>
+              {["Projet","Surface","Budget","Delai","Priorite"].map(function(h) {
+                return <th key={h} style={{padding:"7px 13px",textAlign:"left",fontSize:9,
+                  color:"#607898",fontWeight:600,textTransform:"uppercase"}}>{h}</th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {r.projs.map(function(p, i) {
+              return (
+                <tr key={i} style={{borderTop:"1px solid #1C3050"}}>
+                  {[["n","#E8EDF5"],["s","#607898"],["b","#00C2FF"],["d","#607898"],["p","#E8EDF5"]].map(function(pair) {
+                    var f2=pair[0], col2=pair[1];
+                    return (
+                      <td key={f2} style={{padding:"9px 13px",fontSize:12,color:col2,
+                        fontFamily:f2==="b"?"monospace":"inherit",fontWeight:f2==="b"?700:400}}>
+                        <EF val={p[f2]} onSave={function(v){updP(i,f2,v);}}/>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"14px 16px",marginBottom:16}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#E8EDF5",marginBottom:12}}>Planning (semaines)</div>
+        <div style={{display:"flex",gap:4,marginBottom:6,paddingLeft:130}}>
+          {WEEKS.map(function(w) {
+            return <div key={w} style={{flex:1,textAlign:"center",fontSize:9,color:"#607898",fontWeight:700}}>S{w}</div>;
+          })}
+        </div>
+        {r.gantt.map(function(g, i) {
+          return (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:7,marginBottom:5}}>
+              <div style={{width:124,fontSize:11,color:"#607898",textAlign:"right",flexShrink:0}}>{g.t}</div>
+              <div style={{flex:1,display:"flex",height:18}}>
+                {WEEKS.map(function(w) {
+                  var on = w >= g.s && w < g.s + g.dur;
+                  return (
+                    <div key={w} style={{flex:1,
+                      background:on ? g.col : "#1C3050",
+                      borderRadius:w===g.s ? "4px 0 0 4px" : w===g.s+g.dur-1 ? "0 4px 4px 0" : 0,
+                      opacity:on ? 0.85 : 0.22,
+                      margin:"0 1px"}}/>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,
+        padding:"13px 15px",marginBottom:16}}>
+        <div style={{fontSize:10,fontWeight:700,color:"#607898",marginBottom:7,
+          textTransform:"uppercase"}}>Conditions Generales</div>
+        <EF val={r.cgu} multi={true}
+          onSave={function(v){upd(r.id,{cgu:v});T2("OK");}}
+          style={{fontSize:11,lineHeight:1.6,color:"#607898"}}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+        {[["Signature Client","sigCl"],["Signature MesurePro","sigPro"]].map(function(pair) {
+          return (
+            <SignatureCanvas
+              key={pair[1]}
+              label={pair[0]}
+              value={r[pair[1]]}
+              onSave={function(v){ upd(r.id, {[pair[1]]: v}); T2 && T2("Signature enregistrée"); }}
+            />
+          );
+        })}
+      </div>
+
+      {/* Sections « auditeur senior » — méthodologie + références + équipe */}
+      <div style={{fontSize:11,fontWeight:800,color:"#00C2FF",textTransform:"uppercase",
+        letterSpacing:"0.08em",margin:"22px 0 10px",borderBottom:"1px solid #1C3050",
+        paddingBottom:6}}>Cadrage métier — niveau audit senior</div>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="methodology" label="Méthodologie d'intervention"   color="#00C2FF"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="references"  label="Références projets similaires" color="#FF8C42"/>
+      <RptSeniorField r={r} upd={upd} T2={T2} name="team"        label="Équipe affectée"               color="#00E5A0"/>
+    </div>
+  );
+}
+
+/* ---- Modal ---- */
+/* ---- AsyncAutoComplete: debounced async search dropdown
+   For Photon-based address/city searches. Debounces user keystrokes,
+   shows a loading dot while the request is in flight, picks reset
+   the input + close. */
+function AsyncAutoComplete({ value, onChange, onPick, fetchOptions, getLabel, getKey, placeholder, debounceMs, minChars }) {
+  var [items, setItems]   = useState([]);
+  var [open, setOpen]     = useState(false);
+  var [loading, setLoad]  = useState(false);
+  var [version, setVer]   = useState(0);
+  var timer = useRef(null);
+  var reqVersion = useRef(0);
+
+  useEffect(function() {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    var v = (value || "").trim();
+    var min = minChars || 3;
+    if (v.length < min) {
+      setItems([]); setLoad(false);
+      return;
+    }
+    setLoad(true);
+    var thisVer = version + 1;
+    setVer(thisVer);
+    reqVersion.current = thisVer;
+    timer.current = setTimeout(function() {
+      fetchOptions(v).then(function(arr) {
+        if (reqVersion.current !== thisVer) return; /* stale */
+        setItems(arr || []);
+        setLoad(false);
+      }).catch(function(){ setLoad(false); setItems([]); });
+    }, debounceMs || 320);
+    return function() { if (timer.current) clearTimeout(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  return (
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={function(e){ onChange(e.target.value); setOpen(true); }}
+        onFocus={function(){ setOpen(true); }}
+        onBlur={function(){ setTimeout(function(){ setOpen(false); }, 180); }}
+        placeholder={placeholder}
+        style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+          border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+          fontSize:13,padding:"9px 12px",paddingRight: loading ? 30 : 12,outline:"none"}}/>
+      {loading && (
+        <div style={{position:"absolute",right:10,top:11,fontSize:11,
+          color:"#00C2FF",animation:"none",fontWeight:700}}>⏳</div>
+      )}
+      {open && items.length > 0 && (
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,
+          background:"#0F1C2E",border:"1px solid #00C2FF",borderRadius:7,marginTop:3,
+          maxHeight:260,overflowY:"auto",
+          boxShadow:"0 6px 22px rgba(0,0,0,0.55)"}}>
+          {items.map(function(o, i) {
+            return (
+              <button key={getKey ? getKey(o) : i} type="button"
+                onMouseDown={function(e){ e.preventDefault(); onPick(o); setOpen(false); }}
+                style={{display:"block",width:"100%",padding:"8px 12px",
+                  background:"transparent",border:"none",textAlign:"left",
+                  color:"#E8EDF5",fontSize:12,cursor:"pointer",outline:"none",
+                  borderBottom: i < items.length - 1 ? "1px solid #1C3050" : "none",
+                  lineHeight:1.4}}
+                onMouseEnter={function(e){ e.currentTarget.style.background = "rgba(0,194,255,0.13)"; }}
+                onMouseLeave={function(e){ e.currentTarget.style.background = "transparent"; }}>
+                {getLabel(o)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- AutoComplete: simple inline dropdown (light, no external dep) ---- */
+function AutoComplete({ value, onChange, onPick, getLabel, options, placeholder, max }) {
+  var [open, setOpen] = useState(false);
+  max = max || 8;
+  var v = (value || "").toString().trim().toLowerCase();
+  var matches = !v ? [] : (options || []).filter(function(o){
+    return getLabel(o).toLowerCase().indexOf(v) === 0;
+  }).slice(0, max);
+  return (
+    <div style={{position:"relative"}}>
+      <input value={value} onChange={function(e){ onChange(e.target.value); setOpen(true); }}
+        onFocus={function(){ setOpen(true); }}
+        onBlur={function(){ setTimeout(function(){ setOpen(false); }, 180); }}
+        placeholder={placeholder}
+        style={{width:"100%",boxSizing:"border-box",background:"#08111E",
+          border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+          fontSize:13,padding:"9px 12px",outline:"none"}}/>
+      {open && matches.length > 0 && (
+        <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:30,
+          background:"#0F1C2E",border:"1px solid #00C2FF",borderRadius:7,marginTop:3,
+          maxHeight:220,overflowY:"auto",
+          boxShadow:"0 6px 22px rgba(0,0,0,0.55)"}}>
+          {matches.map(function(o, i) {
+            return (
+              <button key={i} type="button"
+                onMouseDown={function(e){ e.preventDefault(); onPick(o); setOpen(false); }}
+                style={{display:"block",width:"100%",padding:"7px 12px",
+                  background:"transparent",border:"none",textAlign:"left",
+                  color:"#E8EDF5",fontSize:12,cursor:"pointer",outline:"none",
+                  borderBottom: i < matches.length - 1 ? "1px solid #1C3050" : "none"}}
+                onMouseEnter={function(e){ e.currentTarget.style.background = "rgba(0,194,255,0.13)"; }}
+                onMouseLeave={function(e){ e.currentTarget.style.background = "transparent"; }}>
+                {getLabel(o)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------
+   BLE Laser drivers (Web Bluetooth API)
+
+   Each driver knows how to identify a device, find the right GATT
+   characteristic, and parse incoming measurements into meters.
+
+   Supported families:
+     • Leica DISTO (X3 / X4 / D2) — proprietary service, float32 LE meters
+     • Bosch GLM   (50C / 100C)   — Nordic UART, ASCII string
+
+   Browser support: Chrome, Edge, Brave (Chromium). Safari = no.
+   Firefox needs flag dom.webbluetooth.enabled. HTTPS required in prod.
+   ---------------------------------------------------------------------- */
+const BLE_DRIVERS = [
+  {
+    id: "leica",
+    label: "Leica DISTO",
+    namePattern: /disto|leica/i,
+    services: ["3ab10100-f831-4395-b29d-570977d5bf94"],
+    distanceCharacteristic: "3ab10101-f831-4395-b29d-570977d5bf94",
+    /* Trame Leica : float32 little-endian, valeur en mètres. */
+    parse: function(dataView) {
+      if (!dataView || dataView.byteLength < 4) return null;
+      var meters = dataView.getFloat32(0, true);
+      if (!isFinite(meters) || meters < 0 || meters > 200) return null;
+      return meters;
+    },
+  },
+  {
+    id: "bosch",
+    label: "Bosch GLM",
+    namePattern: /glm|bosch/i,
+    services: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"],
+    distanceCharacteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e",
+    /* Bosch GLM Nordic UART : ASCII genre "1.234m\r\n" ou "1234" (mm). */
+    parse: function(dataView) {
+      if (!dataView || dataView.byteLength === 0) return null;
+      var bytes = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+      var s = "";
+      for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      var m = s.match(/(-?\d+(?:\.\d+)?)/);
+      if (!m) return null;
+      var v = parseFloat(m[1]);
+      if (!isFinite(v) || v < 0) return null;
+      /* Heuristique : si valeur > 200 sans virgule, on suppose des millimètres. */
+      if (v > 200 && s.indexOf(".") === -1) v = v / 1000;
+      if (v > 200) return null;
+      return v;
+    },
+  },
+];
+
+/* requestDevice + GATT subscribe. Returns { device, driver, disconnect } or null. */
+function connectBleLaser(onMeasurement, onStatus) {
+  if (typeof navigator === "undefined" || !navigator.bluetooth) {
+    onStatus({ ok:false, msg:"Web Bluetooth non supporté (Safari/Firefox). Utilisez Chrome ou Edge." });
+    return Promise.resolve(null);
+  }
+  onStatus({ ok:true, msg:"Sélection de l'appareil…" });
+  var allServices = BLE_DRIVERS.reduce(function(a,d){ return a.concat(d.services); }, []);
+  return navigator.bluetooth.requestDevice({
+    filters: [
+      { namePrefix: "Leica" },
+      { namePrefix: "DISTO" },
+      { namePrefix: "Bosch" },
+      { namePrefix: "GLM" },
+    ],
+    optionalServices: allServices,
+  }).then(function(device){
+    var driver = BLE_DRIVERS.find(function(d){ return d.namePattern.test(device.name || ""); });
+    if (!driver) {
+      onStatus({ ok:false, msg:"Modèle non reconnu : " + (device.name || "appareil sans nom") });
+      return null;
+    }
+    onStatus({ ok:true, msg:"Connexion à " + device.name + "…" });
+
+    return device.gatt.connect().then(function(server){
+      /* try each service of the driver */
+      var tryServices = driver.services.slice();
+      function findService() {
+        if (!tryServices.length) return Promise.resolve(null);
+        var sUuid = tryServices.shift();
+        return server.getPrimaryService(sUuid).catch(function(){ return findService(); });
+      }
+      return findService().then(function(svc){
+        if (!svc) {
+          onStatus({ ok:false, msg:"Service BLE introuvable sur " + device.name });
+          try { device.gatt.disconnect(); } catch(e){}
+          return null;
+        }
+        return svc.getCharacteristic(driver.distanceCharacteristic).then(function(ch){
+          return ch.startNotifications().then(function(){
+            function onValue(ev) {
+              var meters = driver.parse(ev.target.value);
+              if (meters != null) onMeasurement(meters, driver);
+            }
+            function onDisconnect() {
+              onStatus({ ok:false, msg:"Déconnecté de " + device.name });
+            }
+            ch.addEventListener("characteristicvaluechanged", onValue);
+            device.addEventListener("gattserverdisconnected", onDisconnect);
+            onStatus({ ok:true, msg:"🟢 " + driver.label + " connecté — tirez le laser" });
+            return {
+              device: device,
+              driver: driver,
+              disconnect: function(){
+                try { ch.removeEventListener("characteristicvaluechanged", onValue); } catch(e){}
+                try { device.removeEventListener("gattserverdisconnected", onDisconnect); } catch(e){}
+                try { if (device.gatt.connected) device.gatt.disconnect(); } catch(e){}
+              },
+            };
+          });
+        });
+      });
+    });
+  }).catch(function(err){
+    if (err && err.name === "NotFoundError") {
+      onStatus({ ok:false, msg:"Aucun appareil sélectionné." });
+    } else {
+      onStatus({ ok:false, msg:"Erreur Bluetooth : " + ((err && err.message) || (err && err.name) || "inconnue") });
+    }
+    return null;
+  });
+}
+
+/* ----------------------------------------------------------------------
+   Google Solar API integration — Building Insights (Free Tier)
+   Géocode l'adresse → appelle Solar API findClosest → parse roofSegmentStats
+   pour récupérer surfaces / pentes / azimuts / hauteurs. Optimisé pour
+   ne consommer que 2 calls (1 Geocoding + 1 Solar).
+
+   Variables d'env Vite (.env à la racine du projet) :
+     VITE_GOOGLE_API_KEY=AIza...
+   La clé doit avoir Solar API + Geocoding API activées sur Google Cloud
+   Console, et idéalement être restreinte aux référents HTTP du domaine
+   pour éviter l'usage abusif.
+
+   Free tier Solar API (Building Insights) : ~1000 calls/jour, sans coût,
+   suffisant pour des milliers de projets. */
+function getGoogleApiKey() {
+  try {
+    return (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_GOOGLE_API_KEY) || "";
+  } catch (e) { return ""; }
+}
+
+function fetchSolarBuilding(address) {
+  var apiKey = getGoogleApiKey();
+  if (!apiKey) {
+    return Promise.reject(new Error("Clé API Google manquante. Créez un fichier .env à la racine avec VITE_GOOGLE_API_KEY=AIza... puis redémarrez Vite."));
+  }
+  if (!address || address.trim().length < 5) {
+    return Promise.reject(new Error("Adresse trop courte. Saisissez une adresse complète (numéro + rue + ville)."));
+  }
+  /* 1. Geocode — 1 free call */
+  var geoUrl = "https://maps.googleapis.com/maps/api/geocode/json"
+    + "?address=" + encodeURIComponent(address.trim())
+    + "&key=" + apiKey;
+  return fetch(geoUrl).then(function(r){ return r.json(); }).then(function(geo){
+    if (geo.status === "REQUEST_DENIED") {
+      throw new Error("Geocoding API refusée : " + (geo.error_message || "vérifiez la clé + activation API"));
+    }
+    if (!geo.results || geo.results.length === 0) {
+      throw new Error("Adresse introuvable. Essayez une formulation plus complète (numéro + rue + code postal + ville).");
+    }
+    var loc = geo.results[0].geometry.location;          /* {lat, lng} */
+    var formatted = geo.results[0].formatted_address;
+    /* 2. Solar API — 1 free call (Building Insights) */
+    var solarUrl = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
+      + "?location.latitude=" + loc.lat
+      + "&location.longitude=" + loc.lng
+      + "&requiredQuality=LOW"                            /* LOW = couverture max */
+      + "&key=" + apiKey;
+    return fetch(solarUrl).then(function(r){ return r.json(); }).then(function(solar){
+      if (solar.error) {
+        var msg = solar.error.message || "Bâtiment non couvert par Solar API à cette adresse.";
+        if (msg.indexOf("not enabled") !== -1) {
+          throw new Error("Solar API non activée sur Google Cloud Console. Activez-la pour ce projet.");
+        }
+        throw new Error(msg);
+      }
+      return parseSolarBuilding(solar, loc, formatted);
+    });
+  });
+}
+
+function parseSolarBuilding(solar, loc, formatted) {
+  var sp = solar.solarPotential || {};
+  var segments = sp.roofSegmentStats || [];
+  /* Surface totale toiture (somme des pans) */
+  var roofArea = 0;
+  segments.forEach(function(s){ roofArea += (s.stats && s.stats.areaMeters2) || 0; });
+  /* Emprise au sol (projection horizontale) */
+  var footprint = (sp.wholeRoofStats && sp.wholeRoofStats.groundAreaMeters2) || 0;
+  if (!footprint) {
+    segments.forEach(function(s){ footprint += (s.stats && s.stats.groundAreaMeters2) || 0; });
+  }
+  /* Hauteur max — max des planeHeightAtCenterMeters */
+  var maxHeight = 0;
+  segments.forEach(function(s){
+    if (s.planeHeightAtCenterMeters && s.planeHeightAtCenterMeters > maxHeight) {
+      maxHeight = s.planeHeightAtCenterMeters;
+    }
+  });
+  /* BoundingBox → dimensions Est-Ouest / Nord-Sud en mètres
+     Conversion deg → m : 1° lat ≈ 111000 m, 1° lng ≈ 111000 × cos(lat) */
+  var W = 0, D = 0;
+  if (solar.boundingBox && solar.boundingBox.ne && solar.boundingBox.sw) {
+    var ne = solar.boundingBox.ne, sw = solar.boundingBox.sw;
+    var avgLat = ((ne.latitude + sw.latitude) / 2) * Math.PI / 180;
+    D = Math.abs((ne.latitude  - sw.latitude)  * 111000);
+    W = Math.abs((ne.longitude - sw.longitude) * 111000 * Math.cos(avgLat));
+  }
+  /* Surface façades = périmètre × hauteur − 10% (estimation ouvertures) */
+  var perimeter = (W > 0 && D > 0) ? 2 * (W + D) : 0;
+  var wallArea = perimeter * maxHeight * 0.9;
+  /* Détail par pan */
+  var segmentsParsed = segments.map(function(s, i){
+    return {
+      idx: i,
+      pitchDeg:    s.pitchDegrees || 0,
+      azimuthDeg:  s.azimuthDegrees || 0,
+      areaM2:      (s.stats && s.stats.areaMeters2) || 0,
+      groundM2:    (s.stats && s.stats.groundAreaMeters2) || 0,
+      heightM:     s.planeHeightAtCenterMeters || 0,
+    };
+  });
+  return {
+    formatted: formatted,
+    location: loc,
+    summary: {
+      roofAreaTotalM2:   roofArea,
+      footprintM2:       footprint,
+      maxHeightM:        maxHeight,
+      perimeterM:        perimeter,
+      wallAreaEstimM2:   wallArea,
+      widthEW:           W,
+      depthNS:           D,
+      segmentCount:      segments.length,
+    },
+    segments: segmentsParsed,
+    raw: solar,
+  };
+}
+
+function Modal({ onClose, onCreate }) {
+  var [step, setStep]       = useState(0);
+  /* Identification fields */
+  var prefs = getPrefs();
+  var [civilite, setCivilite] = useState(prefs.defaultCivilite || "M.");
+  var [nom, setNom]         = useState("");
+  var [prenom, setPrenom]   = useState("");
+  /* Address fields */
+  var [rue, setRue]         = useState("");
+  var [num, setNum]         = useState("");
+  var [cp, setCp]           = useState("");
+  var [city, setCity]       = useState("");
+  /* Step 1 — Remplir : mesures façade par façade */
+  var [facades, setFacades] = useState({
+    sud:   { l:"", h:"", win:"", doors:"" },
+    est:   { l:"", h:"", win:"", doors:"" },
+    nord:  { l:"", h:"", win:"", doors:"" },
+    ouest: { l:"", h:"", win:"", doors:"" },
+  });
+  var [activeFacade, setActiveFacade] = useState("sud");
+  /* Google Solar API auto-fill — état + résultat */
+  var [solarBusy,   setSolarBusy]   = useState(false);
+  var [solarMsg,    setSolarMsg]    = useState("");
+  var [solarData,   setSolarData]   = useState(null);
+  var [activeField, setActiveField] = useState("sud:l");   /* "sud:l" | "est:h" ... — champ qui recevra la prochaine mesure laser */
+  var [bleStatus, setBleStatus] = useState("");
+  var [bleConn, setBleConn] = useState(null);   /* { device, driver, disconnect } | null */
+  /* Photos */
+  var [photos, setPhotos]   = useState([]);
+  var fRef = useRef();
+  /* Belgian postal codes loaded async */
+  var [bePostal, setBePostal] = useState([]);
+  var [geoStatus, setGeoStatus] = useState("");
+  /* Civilités configurables (from localStorage) */
+  var civilites = useMemo(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  }, []);
+
+  useEffect(function() {
+    loadBePostalCodes().then(function(j){ setBePostal(j); });
+  }, []);
+
+  /* "Civilité personne" => prénom required. Société/SCI/ASBL => nom only. */
+  var isPerson = ["M.","Mme","Mlle","Monsieur","Madame","Mademoiselle"].indexOf(civilite) !== -1;
+
+  /* Validation */
+  var step0Ok = nom.trim().length > 1
+    && (!isPerson || prenom.trim().length > 1)
+    && rue.trim().length > 2
+    && num.trim().length > 0
+    && /^\d{4,5}$/.test(cp.trim())
+    && city.trim().length > 1;
+  /* Step 1 OK : au moins une façade avec longueur ET hauteur > 0 */
+  var step1Ok = ["sud","est","nord","ouest"].some(function(side){
+    var f = facades[side];
+    return parseFloat(f.l) > 0 && parseFloat(f.h) > 0;
+  });
+  var stepOk = step === 0 ? step0Ok : step === 1 ? step1Ok : true;
+
+  /* Auto-fill mesures depuis adresse — Solar API (Google, clé payante)
+     puis fallback gratuit cadastre/OSM (IGN BDTOPO / UrbIS / PICC / Overpass). */
+  function runSolarAutoFill() {
+    var fullAddr = (num + " " + rue + ", " + cp + " " + city).trim();
+    if (!fullAddr || fullAddr.length < 8) {
+      setSolarMsg("⚠️ Remplissez d'abord l'étape 1 (rue + n° + CP + ville).");
+      return;
+    }
+    setSolarBusy(true);
+    setSolarMsg("📡 Géocodage + cadastre…");
+
+    function applyFromPolygon(ring, source, displayName) {
+      var bbox = polygonBBoxM_v2(ring);
+      var area = polygonAreaM2_v2(ring);
+      var W = bbox.W, D = bbox.D;
+      /* Hauteur estimée depuis nb étages saisi côté projet, défaut 2 → 6m + comble 0.5 */
+      var floors = 2, h = floors * 2.7 + 0.5;
+      var hs = h.toFixed(1), Ws = W.toFixed(1), Ds = D.toFixed(1);
+      setFacades({
+        sud:   { l: Ws, h: hs, win:"", doors:"" },
+        est:   { l: Ds, h: hs, win:"", doors:"" },
+        nord:  { l: Ws, h: hs, win:"", doors:"" },
+        ouest: { l: Ds, h: hs, win:"", doors:"" },
+      });
+      setSolarMsg("✓ " + (displayName || fullAddr) + " — " + sourceLabel(source)
+        + " · emprise " + Math.round(area) + " m², " + Ws + " × " + Ds + " m");
+      setSolarBusy(false);
+    }
+
+    function runCadastreFallback(prevErr) {
+      setSolarMsg("📡 Solar indisponible → cadastre/OSM…");
+      fetchBuildingFootprint(fullAddr).then(function(r){
+        applyFromPolygon(r.ring, r.source, r.displayName);
+      }).catch(function(err){
+        setSolarMsg("⚠️ Aucune source ne couvre cette adresse. Saisissez manuellement les façades.");
+        setSolarBusy(false);
+      });
+    }
+
+    fetchSolarBuilding(fullAddr).then(function(data){
+      setSolarData(data);
+      var s = data.summary;
+      var W = s.widthEW || 0, D = s.depthNS || 0, h = s.maxHeightM || 0;
+      var hs = h > 0 ? h.toFixed(1) : "";
+      var Ws = W > 0 ? W.toFixed(1) : "";
+      var Ds = D > 0 ? D.toFixed(1) : "";
+      setFacades({
+        sud:   { l: Ws, h: hs, win:"", doors:"" },
+        est:   { l: Ds, h: hs, win:"", doors:"" },
+        nord:  { l: Ws, h: hs, win:"", doors:"" },
+        ouest: { l: Ds, h: hs, win:"", doors:"" },
+      });
+      setSolarMsg("✓ " + data.formatted + " — Google Solar · " + s.segmentCount + " pans, " +
+        s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
+      setSolarBusy(false);
+    }).catch(function(err){
+      runCadastreFallback(err);
+    });
+  }
+
+  /* Auto-trigger autofill mesures dès le passage à l'étape "Remplir"
+     si pas déjà fait et adresse renseignée. Pas de clic manuel à attendre. */
+  useEffect(function(){
+    if (step === 1 && !solarBusy && !solarData && !solarMsg
+        && rue.trim().length > 2 && cp.trim().length >= 4 && city.trim().length > 1) {
+      runSolarAutoFill();
+    }
+    // eslint-disable-next-line
+  }, [step]);
+
+  function setFacadeField(side, field, val) {
+    setFacades(function(prev){
+      return Object.assign({}, prev, {
+        [side]: Object.assign({}, prev[side], {[field]: val})
+      });
+    });
+  }
+
+  /* Calcule meas global à partir des 4 façades (totaux pour TabMeas).
+     Gère les cas partiels (1 ou 2 façades remplies) en inférant la
+     profondeur manquante (~60 % de la largeur, ratio résidentiel courant). */
+  function computeMeasFromFacades() {
+    var sides = ["sud","est","nord","ouest"];
+    var lSud = parseFloat(facades.sud.l)||0, lNord = parseFloat(facades.nord.l)||0;
+    var lEst = parseFloat(facades.est.l)||0, lOuest = parseFloat(facades.ouest.l)||0;
+    var hMax = Math.max.apply(null, sides.map(function(s){ return parseFloat(facades[s].h)||0; }));
+
+    /* Largeur effective (paire Sud/Nord) : moy si les 2, sinon celle remplie. */
+    var W = (lSud > 0 && lNord > 0) ? (lSud + lNord) / 2
+          : (lSud > 0) ? lSud
+          : (lNord > 0) ? lNord : 0;
+    /* Profondeur effective (paire Est/Ouest). */
+    var D = (lEst > 0 && lOuest > 0) ? (lEst + lOuest) / 2
+          : (lEst > 0) ? lEst
+          : (lOuest > 0) ? lOuest : 0;
+    /* Si une seule paire est remplie, on infère l'autre dimension via le
+       ratio configurable (Paramètres → Préférences, défaut 0.6). */
+    var dr = (getPrefs().depthRatio) || 0.6;
+    if (W > 0 && D === 0) D = W * dr;
+    if (D > 0 && W === 0) W = D * dr;
+
+    var foot  = W * D;
+    var perim = 2 * (W + D);
+    var roof  = foot > 0 ? foot * 1.15 : 0;   /* pente ~15 % */
+    /* Murs : si les 4 façades sont remplies, somme exacte des surfaces ;
+       sinon estimation perim × hauteur (moins précis mais cohérent avec
+       la reconstruction du bâtiment). */
+    var fillCount = sides.filter(function(s){
+      return parseFloat(facades[s].l) > 0 && parseFloat(facades[s].h) > 0;
+    }).length;
+    var walls = (fillCount === 4)
+      ? sides.reduce(function(a,s){
+          var l = parseFloat(facades[s].l)||0, h = parseFloat(facades[s].h)||0;
+          return a + l*h;
+        }, 0)
+      : perim * hMax;
+    var win  = sides.reduce(function(a,s){ return a + (parseFloat(facades[s].win)||0); }, 0);
+    var doors= sides.reduce(function(a,s){ return a + (parseFloat(facades[s].doors)||0); }, 0);
+    var fmt = function(n){ return n > 0 ? n.toFixed(1) : ""; };
+    var fmtInt = function(n){ return n > 0 ? String(Math.round(n)) : ""; };
+    return {
+      walls: fmt(walls),
+      roof:  fmt(roof),
+      perim: fmt(perim),
+      h:     fmt(hMax),
+      foot:  fmt(foot),
+      win:   fmtInt(win),
+      doors: fmtInt(doors),
+    };
+  }
+  /* Génère 4 entrées rooms (TabMeas table) à partir des façades remplies */
+  function computeRoomsFromFacades() {
+    var labels = { sud:"Façade Sud", est:"Façade Est", nord:"Façade Nord", ouest:"Façade Ouest" };
+    return ["sud","est","nord","ouest"].filter(function(s){
+      var f = facades[s];
+      return parseFloat(f.l) > 0 || parseFloat(f.h) > 0;
+    }).map(function(s){
+      var f = facades[s];
+      var l = parseFloat(f.l)||0, h = parseFloat(f.h)||0;
+      return {
+        n: labels[s],
+        a: l*h > 0 ? (l*h).toFixed(1) : "",
+        l: l > 0 ? f.l : "",
+        h: h > 0 ? f.h : "",
+        t: "w",
+      };
+    });
+  }
+
+  /* Ref vers activeField pour que le callback BLE lise la valeur actuelle, pas
+     celle capturée au moment de la connexion. */
+  var activeFieldRef = useRef(activeField);
+  useEffect(function(){ activeFieldRef.current = activeField; }, [activeField]);
+
+  /* Bluetooth laser — connecte un Leica DISTO ou Bosch GLM, écrit la mesure
+     reçue dans le champ actuellement en focus (ex. "sud:l" → façade Sud,
+     longueur). */
+  function connectLaser() {
+    if (bleConn) {
+      bleConn.disconnect();
+      setBleConn(null);
+      setBleStatus("Déconnecté.");
+      setTimeout(function(){ setBleStatus(""); }, 2000);
+      return;
+    }
+    function onMeasurement(meters) {
+      var f = activeFieldRef.current;
+      if (!f) {
+        setBleStatus("⚠️ Sélectionnez un champ avant de tirer le laser.");
+        return;
+      }
+      var parts = f.split(":");
+      var side = parts[0], field = parts[1];
+      /* Pour fenêtres/portes le laser n'a pas de sens : on écrit quand même
+         la valeur entière comme indicateur, le user corrigera. */
+      var val = (field === "win" || field === "doors") ? String(Math.round(meters)) : meters.toFixed(2);
+      setFacadeField(side, field, val);
+      setBleStatus("✓ " + meters.toFixed(2) + " m → " + side + " / " + field);
+    }
+    function onStatus(s) { setBleStatus((s.ok ? "" : "⚠️ ") + s.msg); }
+    connectBleLaser(onMeasurement, onStatus).then(function(conn){
+      if (conn) setBleConn(conn);
+    });
+  }
+  /* Cleanup BLE on unmount */
+  useEffect(function(){
+    return function(){ if (bleConn) { try { bleConn.disconnect(); } catch(e){} } };
+  }, [bleConn]);
+
+  function geoLocate() {
+    if (!navigator.geolocation) {
+      setGeoStatus("Géolocalisation non supportée par ce navigateur");
+      return;
+    }
+    setGeoStatus("Localisation en cours…");
+
+    function onSuccess(pos) {
+      setGeoStatus("Lecture de l'adresse…");
+      reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(function(d){
+        if (!d || !d.address) {
+          setGeoStatus("Adresse introuvable — saisissez manuellement");
+          return;
+        }
+        var a = d.address;
+        if (a.road) setRue(a.road);
+        if (a.house_number) setNum(a.house_number);
+        if (a.postcode) setCp(a.postcode);
+        var v = a.city || a.town || a.village || a.municipality || a.suburb;
+        if (v) setCity(v);
+        setGeoStatus("✓ Adresse localisée");
+      }).catch(function(){ setGeoStatus("Erreur de géolocalisation — saisissez manuellement"); });
+    }
+
+    function describeError(err, attempted) {
+      if (err.code === 1) return "Permission refusée — autorisez la position dans Réglages › Confidentialité › Service de localisation › Chrome.";
+      if (err.code === 2) {
+        var hint = (location.hostname === "127.0.0.1")
+          ? " Astuce : ouvrez l'app sur http://localhost:3000 (Chrome traite 127.0.0.1 différemment)."
+          : "";
+        return "Position indisponible — Wi-Fi/GPS non détecté." + hint + " Saisissez manuellement.";
+      }
+      if (err.code === 3) return attempted === "high" ? "Délai dépassé en haute précision — nouvelle tentative…" : "Délai dépassé — saisissez manuellement.";
+      return "Erreur " + err.code + " — saisissez manuellement.";
+    }
+
+    /* Tente d'abord la haute précision (GPS), puis si POSITION_UNAVAILABLE
+       ou TIMEOUT bascule sur low-accuracy (Wi-Fi/IP) avec un timeout plus long.
+       Sur Mac sans GPS le low-accuracy passe souvent quand le high-accuracy
+       échoue. */
+    navigator.geolocation.getCurrentPosition(
+      onSuccess,
+      function(err) {
+        if (err.code === 2 || err.code === 3) {
+          setGeoStatus("Tentative basse précision…");
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            function(err2){ setGeoStatus(describeError(err2, "low")); },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
+          );
+        } else {
+          setGeoStatus(describeError(err, "high"));
+        }
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+    );
+  }
+
+  function pickPostalByCp(item) {
+    setCp(item[0]);
+    setCity(item[1]);
+  }
+  function pickPostalByCity(item) {
+    setCity(item[1]);
+    setCp(item[0]);
+  }
+
+  function onFiles(fileList) {
+    var arr = Array.prototype.slice.call(fileList).filter(function(f){
+      return f.type && f.type.indexOf("image/") === 0;
+    });
+    if (arr.length === 0) return;
+    /* Compression côté client — data URL persistant (les blob URLs étaient
+       invalidés au reload). Cf. compressImageFile pour détail. */
+    Promise.all(arr.map(function(f){
+      return compressImageFile(f, 1280, 0.75).catch(function(){ return null; });
+    })).then(function(results){
+      var ok = results.filter(function(r){ return r && !r.error; });
+      if (ok.length > 0) setPhotos(function(prev){ return prev.concat(ok); });
+    });
+  }
+  function removePhoto(i) {
+    setPhotos(function(prev) {
+      return prev.filter(function(_, j){ return j !== i; });
+    });
+  }
+
+  /* Composed values for the project record */
+  var fullClient = isPerson ? (civilite + " " + prenom.trim() + " " + nom.trim()).trim()
+                            : (civilite + " " + nom.trim()).trim();
+  var fullAddr   = (num.trim() + " " + rue.trim()).trim();
+
+  var labelStyle = {fontSize:11,color:"#607898",marginBottom:4};
+  var inputStyle = {width:"100%",boxSizing:"border-box",background:"#08111E",
+    border:"1px solid #1C3050",borderRadius:7,color:"#E8EDF5",
+    fontSize:13,padding:"9px 12px",outline:"none"};
+
+  var FACADE_LABELS = [
+    {key:"sud",   label:"Sud",   color:"#FF8C42"},
+    {key:"est",   label:"Est",   color:"#00C2FF"},
+    {key:"nord",  label:"Nord",  color:"#00E5A0"},
+    {key:"ouest", label:"Ouest", color:"#B580FF"},
+  ];
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.72)",
+      display:"flex",alignItems:"center",justifyContent:"center",zIndex:200}}>
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:14,
+        padding:24,width:600,maxWidth:"94vw",maxHeight:"94vh",overflowY:"auto",
+        boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+        <div style={{display:"flex",gap:5,marginBottom:22}}>
+          {["Identification","Remplir","Photos","Lancement"].map(function(s, i) {
+            return (
+              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",
+                alignItems:"center",gap:4}}>
+                <div style={{width:24,height:24,borderRadius:"50%",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:11,fontWeight:700,
+                  background:i<=step ? "#00C2FF" : "#1C3050",
+                  color:i<=step ? "#000" : "#607898"}}>{i+1}</div>
+                <div style={{width:"100%",height:2,
+                  background:i<step ? "#00C2FF" : "#1C3050",borderRadius:2}}/>
+                <span style={{fontSize:10,color:i<=step ? "#E8EDF5" : "#607898"}}>{s}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {step === 0 && (
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Identification du chantier</div>
+              <button type="button" onClick={geoLocate}
+                title="Localiser automatiquement via le GPS"
+                style={{background:"#152135",border:"1px solid #00C2FF",
+                  color:"#00C2FF",borderRadius:7,padding:"5px 11px",fontSize:11,
+                  fontWeight:700,cursor:"pointer",outline:"none"}}>
+                📍 Géolocaliser
+              </button>
+            </div>
+            {geoStatus && (
+              <div style={{fontSize:10,color:"#00C2FF",marginBottom:10,fontStyle:"italic"}}>
+                {geoStatus}
+              </div>
+            )}
+
+            {/* Address: async autocomplete via Photon (covers all BE
+                streets + sub-municipalities). Picking a result fills
+                rue / num / cp / ville in one shot. */}
+            <div style={{display:"grid",gridTemplateColumns:"3fr 1fr",gap:8,marginBottom:9}}>
+              <div>
+                <div style={labelStyle}>Adresse (rue) *</div>
+                <AsyncAutoComplete
+                  value={rue}
+                  onChange={setRue}
+                  onPick={function(o){
+                    setRue(o.street || "");
+                    if (o.num) setNum(o.num);
+                    if (o.postcode) setCp(o.postcode);
+                    if (o.city) setCity(o.city);
+                  }}
+                  fetchOptions={searchAddressBE}
+                  getLabel={function(o){ return o.display; }}
+                  getKey={function(o){ return o.display; }}
+                  placeholder="Boulevard Haussmann (toute adresse Belgique)"
+                  minChars={3}/>
+              </div>
+              <div>
+                <div style={labelStyle}>N° *</div>
+                <input value={num} onChange={function(e){setNum(e.target.value);}}
+                  placeholder="15"
+                  style={inputStyle}/>
+              </div>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginBottom:9}}>
+              <div>
+                <div style={labelStyle}>Code postal *</div>
+                <AutoComplete
+                  value={cp}
+                  onChange={setCp}
+                  onPick={pickPostalByCp}
+                  getLabel={function(o){ return o[0]; }}
+                  options={bePostal}
+                  placeholder="1000"
+                  max={10}/>
+              </div>
+              <div>
+                <div style={labelStyle}>Ville (incl. sous-communes) *</div>
+                <AsyncAutoComplete
+                  value={city}
+                  onChange={setCity}
+                  onPick={function(o){
+                    setCity(o.city);
+                    if (o.postcode) setCp(o.postcode);
+                  }}
+                  fetchOptions={searchCityBE}
+                  getLabel={function(o){ return o.display; }}
+                  getKey={function(o){ return o.city + ":" + o.postcode; }}
+                  placeholder="Bruxelles, Templeuve, Schaerbeek..."
+                  minChars={2}/>
+              </div>
+            </div>
+
+            <div style={{height:1,background:"#1C3050",margin:"14px 0 12px"}}/>
+
+            {/* Client identity */}
+            <div style={{display:"grid",
+              gridTemplateColumns: isPerson ? "1fr 1.5fr 1.5fr" : "1fr 3fr",
+              gap:8}}>
+              <div>
+                <div style={labelStyle}>Civilité *</div>
+                <select value={civilite} onChange={function(e){setCivilite(e.target.value);}}
+                  style={Object.assign({}, inputStyle, {cursor:"pointer"})}>
+                  {civilites.map(function(c){ return <option key={c} value={c}>{c}</option>; })}
+                </select>
+              </div>
+              <div>
+                <div style={labelStyle}>{isPerson ? "Nom *" : "Raison sociale *"}</div>
+                <input value={nom} onChange={function(e){setNom(e.target.value);}}
+                  placeholder={isPerson ? "Bernard" : "SCI Haussmann"}
+                  style={inputStyle}/>
+              </div>
+              {isPerson && (
+                <div>
+                  <div style={labelStyle}>Prénom *</div>
+                  <input value={prenom} onChange={function(e){setPrenom(e.target.value);}}
+                    placeholder="Laurent"
+                    style={inputStyle}/>
+                </div>
+              )}
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",marginTop:11,lineHeight:1.5}}>
+              Tous les champs marqués * sont obligatoires.
+              <br/>Les civilités sont configurables dans <span style={{color:"#607898",fontWeight:700}}>Paramètres</span>.
+            </div>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5"}}>Mesures façade par façade</div>
+              <button type="button" onClick={connectLaser}
+                title={bleConn ? "Déconnecter le laser" : "Optionnel — connecter un laser mètre Bluetooth (Leica DISTO, Bosch GLM). La saisie clavier marche très bien aussi."}
+                style={{background: bleConn ? "#00E5A0" : "transparent",
+                  border:"1px solid " + (bleConn ? "#00E5A0" : "#2E4A6A"),
+                  color: bleConn ? "#000" : "#607898",
+                  borderRadius:7, padding:"4px 10px", fontSize:10,
+                  fontWeight:600, cursor:"pointer", outline:"none"}}>
+                {bleConn ? "🟢 " + bleConn.driver.label + " — déconnecter" : "📡 Laser BLE (optionnel)"}
+              </button>
+            </div>
+            {bleStatus && (
+              <div style={{fontSize:10,color:"#FFB35E",marginBottom:10,fontStyle:"italic"}}>
+                {bleStatus}
+              </div>
+            )}
+
+            {/* 🛰️ Saisie automatique Google Solar API (Building Insights) */}
+            <div style={{background:"#08111E",border:"1px solid #1C3050",
+              borderRadius:9, padding:"10px 12px", marginBottom:12,
+              display:"flex",alignItems:"center",gap:10}}>
+              <div style={{fontSize:14}}>🛰️</div>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:11, color:"#E8EDF5", fontWeight:700}}>
+                  Saisie auto via Google Solar API <span style={{color:"#607898",fontWeight:400}}>(optionnel)</span>
+                </div>
+                <div style={{fontSize:9, color:"#607898", marginTop:2,
+                  whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>
+                  {solarMsg
+                    ? solarMsg
+                    : "Pré-remplit largeur/profondeur/hauteur depuis Building Insights (free tier ~1000/jour). Step 1 doit être complétée."}
+                </div>
+              </div>
+              <button type="button" onClick={runSolarAutoFill}
+                disabled={solarBusy}
+                title={getGoogleApiKey()
+                  ? "Récupère les dimensions du bâtiment depuis Google Solar API"
+                  : "Clé API absente — créez .env avec VITE_GOOGLE_API_KEY puis relancez Vite"}
+                style={{background: solarBusy ? "#152135" : "transparent",
+                  border:"1px solid " + (solarBusy ? "#2E4A6A" : "#3a78b5"),
+                  color: solarBusy ? "#607898" : "#3a78b5",
+                  borderRadius:7, padding:"6px 12px", fontSize:10,
+                  fontWeight:700, cursor: solarBusy ? "wait" : "pointer",
+                  outline:"none", flexShrink:0,
+                  opacity: solarBusy ? 0.6 : 1}}>
+                {solarBusy ? "…" : "Récupérer"}
+              </button>
+            </div>
+
+            {/* Récap Solar (si données reçues) — segments + dimensions */}
+            {solarData && solarData.summary && (
+              <div style={{background:"#152135",border:"1px solid #1C3050",
+                borderRadius:9, padding:"8px 12px", marginBottom:12, fontSize:10}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
+                  {[
+                    ["Toit",       solarData.summary.roofAreaTotalM2.toFixed(1)+" m²"],
+                    ["Emprise",    solarData.summary.footprintM2.toFixed(1)+" m²"],
+                    ["Hauteur",    solarData.summary.maxHeightM.toFixed(1)+" m"],
+                    ["Pans",       String(solarData.summary.segmentCount)],
+                  ].map(function(p){
+                    return (
+                      <div key={p[0]}>
+                        <div style={{color:"#607898",fontSize:8,textTransform:"uppercase"}}>{p[0]}</div>
+                        <div style={{color:"#3a78b5",fontFamily:"monospace",fontWeight:700}}>{p[1]}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {solarData.segments.length > 0 && (
+                  <details style={{marginTop:8,fontSize:9,color:"#607898"}}>
+                    <summary style={{cursor:"pointer"}}>Détail des {solarData.segments.length} pans</summary>
+                    <div style={{marginTop:6,fontFamily:"monospace",lineHeight:1.5}}>
+                      {solarData.segments.slice(0,8).map(function(s){
+                        return (
+                          <div key={s.idx} style={{display:"grid",gridTemplateColumns:"30px 1fr 1fr 1fr",gap:6,color:"#8DAFC8"}}>
+                            <span>#{s.idx+1}</span>
+                            <span>{s.areaM2.toFixed(1)} m²</span>
+                            <span>{s.pitchDeg.toFixed(0)}° pente</span>
+                            <span>{s.azimuthDeg.toFixed(0)}° azimut</span>
+                          </div>
+                        );
+                      })}
+                      {solarData.segments.length > 8 && (
+                        <div style={{color:"#2E4A6A",fontStyle:"italic"}}>… et {solarData.segments.length - 8} autres pans</div>
+                      )}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {/* Façade tabs */}
+            <div style={{display:"flex",gap:4,marginBottom:14}}>
+              {FACADE_LABELS.map(function(f){
+                var active = activeFacade === f.key;
+                var fd = facades[f.key];
+                var hasData = parseFloat(fd.l) > 0 || parseFloat(fd.h) > 0;
+                return (
+                  <button key={f.key} type="button"
+                    onClick={function(){setActiveFacade(f.key);}}
+                    title={"Façade " + f.label + " — saisir longueur, hauteur, fenêtres, portes" + (hasData ? " (déjà renseignée ✓)" : "")}
+                    style={{flex:1, background: active ? f.color : "#152135",
+                      color: active ? "#000" : f.color,
+                      border:"1px solid " + f.color, borderRadius:7,
+                      padding:"7px 6px", fontSize:11, fontWeight:800,
+                      cursor:"pointer", outline:"none", position:"relative"}}>
+                    {f.label}
+                    {hasData && (
+                      <span style={{position:"absolute", top:3, right:5,
+                        fontSize:8, color: active ? "#000" : "#00E5A0"}}>✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active façade fields */}
+            {(function(){
+              var fd = facades[activeFacade];
+              var col = (FACADE_LABELS.find(function(f){return f.key === activeFacade;}) || {}).color || "#00C2FF";
+              var fieldStyle = function(name){
+                var focused = activeField === activeFacade + ":" + name;
+                return Object.assign({}, inputStyle, {
+                  borderColor: focused ? col : "#1C3050",
+                  borderWidth: focused ? 2 : 1,
+                  textAlign:"right", fontFamily:"monospace",
+                  fontSize:14, fontWeight:700,
+                });
+              };
+              return (
+                <div style={{background:"#08111E",border:"1px solid #1C3050",
+                  borderRadius:9, padding:14, marginBottom:12}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div>
+                      <div style={labelStyle}>Longueur (m) *</div>
+                      <input type="number" step="any" value={fd.l}
+                        onFocus={function(){setActiveField(activeFacade+":l");}}
+                        onChange={function(e){setFacadeField(activeFacade,"l",e.target.value);}}
+                        placeholder="0.0" style={fieldStyle("l")}/>
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Hauteur (m) *</div>
+                      <input type="number" step="any" value={fd.h}
+                        onFocus={function(){setActiveField(activeFacade+":h");}}
+                        onChange={function(e){setFacadeField(activeFacade,"h",e.target.value);}}
+                        placeholder="0.0" style={fieldStyle("h")}/>
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                    <div>
+                      <div style={labelStyle}>Fenêtres</div>
+                      <input type="number" min="0" step="1" value={fd.win}
+                        onFocus={function(){setActiveField(activeFacade+":win");}}
+                        onChange={function(e){setFacadeField(activeFacade,"win",e.target.value);}}
+                        placeholder="0" style={fieldStyle("win")}/>
+                    </div>
+                    <div>
+                      <div style={labelStyle}>Portes</div>
+                      <input type="number" min="0" step="1" value={fd.doors}
+                        onFocus={function(){setActiveField(activeFacade+":doors");}}
+                        onChange={function(e){setFacadeField(activeFacade,"doors",e.target.value);}}
+                        placeholder="0" style={fieldStyle("doors")}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Récap visuel des 4 façades */}
+            <div style={{background:"#152135",border:"1px solid #1C3050",
+              borderRadius:9, padding:"10px 14px"}}>
+              <div style={{fontSize:9,color:"#607898",textTransform:"uppercase",
+                letterSpacing:"0.08em",marginBottom:8}}>Récap des 4 façades</div>
+              {FACADE_LABELS.map(function(f){
+                var fd = facades[f.key];
+                var l = parseFloat(fd.l)||0, h = parseFloat(fd.h)||0;
+                var area = l*h;
+                var filled = l>0 && h>0;
+                return (
+                  <div key={f.key} style={{display:"flex",justifyContent:"space-between",
+                    padding:"4px 0",fontSize:11,
+                    color: filled ? "#E8EDF5" : "#2E4A6A"}}>
+                    <span style={{color:f.color,fontWeight:700,minWidth:50}}>{f.label}</span>
+                    <span style={{fontFamily:"monospace"}}>
+                      {filled ? l.toFixed(1)+" × "+h.toFixed(1)+" m" : "non saisi"}
+                    </span>
+                    <span style={{fontFamily:"monospace",fontWeight:700,minWidth:60,textAlign:"right"}}>
+                      {filled ? area.toFixed(1)+" m²" : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{fontSize:9,color:"#2E4A6A",marginTop:10,lineHeight:1.5}}>
+              Au moins une façade complète (longueur + hauteur) requise.
+              <br/>Les totaux (périmètre, surface murs, emprise au sol) sont calculés automatiquement à l'étape Lancement.
+              <br/>Le laser Bluetooth est <span style={{fontWeight:700}}>optionnel</span> — la saisie au clavier suffit.
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div>
+            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:5}}>Photos</div>
+            <div onClick={function(){fRef.current.click();}}
+              style={{border:"2px dashed #1C3050",borderRadius:10,padding:"24px",
+                textAlign:"center",cursor:"pointer",marginBottom:12,
+                background:"rgba(0,194,255,0.04)"}}>
+              <div style={{fontSize:32,marginBottom:7}}>{photos.length > 0 ? "=" : "+"}</div>
+              <div style={{color:"#E8EDF5",fontSize:13,fontWeight:600}}>
+                {photos.length > 0 ? photos.length+" photo(s) sélectionnée(s)" : "Glisser vos photos ici ou cliquer"}
+              </div>
+              <div style={{color:"#607898",fontSize:11,marginTop:3}}>JPG, PNG, WEBP</div>
+              <input ref={fRef} type="file" multiple accept="image/*" style={{display:"none"}}
+                onChange={function(e){onFiles(e.target.files); e.target.value="";}}/>
+            </div>
+            {photos.length > 0 && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,
+                maxHeight:160,overflowY:"auto",padding:"4px 2px"}}>
+                {photos.map(function(p, i) {
+                  return (
+                    <div key={i} style={{position:"relative",aspectRatio:"1/1",
+                      borderRadius:6,overflow:"hidden",border:"1px solid #1C3050"}}>
+                      <img src={p.url} alt={p.name}
+                        style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+                      <button type="button" onClick={function(){removePhoto(i);}}
+                        style={{position:"absolute",top:3,right:3,
+                          background:"rgba(255,71,87,0.92)",color:"#fff",
+                          border:"none",borderRadius:4,width:18,height:18,
+                          fontSize:11,fontWeight:900,cursor:"pointer",lineHeight:1,
+                          display:"flex",alignItems:"center",justifyContent:"center"}}>X</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 3 && (
+          <div>
+            <div style={{fontSize:16,fontWeight:800,color:"#E8EDF5",marginBottom:8}}>Récapitulatif</div>
+            <div style={{background:"#152135",border:"1px solid #1C3050",borderRadius:9,
+              padding:"13px 16px",marginBottom:14}}>
+              {(function(){
+                var meas = computeMeasFromFacades();
+                var nbFacades = FACADE_LABELS.filter(function(f){
+                  var fd = facades[f.key];
+                  return parseFloat(fd.l) > 0 && parseFloat(fd.h) > 0;
+                }).length;
+                var rows = [
+                  ["Client",fullClient||"--"],
+                  ["Adresse",fullAddr||"--"],
+                  ["Code postal / Ville", (cp||"--") + " " + (city||"--")],
+                  ["Façades saisies", nbFacades + " / 4"],
+                  ["Périmètre (auto)", meas.perim ? meas.perim+" m" : "--"],
+                  ["Surface murs (auto)", meas.walls ? meas.walls+" m²" : "--"],
+                  ["Emprise sol (auto)", meas.foot ? meas.foot+" m²" : "--"],
+                  ["Hauteur max (auto)", meas.h ? meas.h+" m" : "--"],
+                  ["Fenêtres + portes", (meas.win||"0") + " + " + (meas.doors||"0")],
+                  ["Photos",photos.length+" fichier(s)"]
+                ];
+                return rows.map(function(pair) {
+                  return (
+                    <div key={pair[0]} style={{display:"flex",justifyContent:"space-between",
+                      padding:"5px 0",borderBottom:"1px solid #1C3050"}}>
+                      <span style={{fontSize:12,color:"#607898"}}>{pair[0]}</span>
+                      <span style={{fontSize:12,color:"#E8EDF5",fontWeight:600,
+                        maxWidth:"60%",textAlign:"right",overflow:"hidden",textOverflow:"ellipsis"}}>{pair[1]}</span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:9,justifyContent:"flex-end",marginTop:18}}>
+          <Btn sm={true} onClick={onClose} title="Fermer sans créer de projet — toutes les saisies seront perdues">Annuler</Btn>
+          {step > 0 && <Btn sm={true}
+            title="Revenir à l'étape précédente — vos saisies sont conservées"
+            onClick={function(){setStep(function(s){return s-1;});}}>Précédent</Btn>}
+          <Btn sm={true} primary={true}
+            title={
+              !stepOk ? "Remplissez d'abord les champs obligatoires *" :
+              step < 3 ? "Passer à l'étape suivante" :
+              "Créer le projet et atterrir sur l'onglet Mesures"
+            }
+            onClick={function(){
+              if (!stepOk) return;
+              if (step < 3) setStep(function(s){return s+1;});
+              else {
+                onCreate({
+                  addr:fullAddr, city:(cp+" "+city).trim(),
+                  client:fullClient, photos:photos,
+                  civilite:civilite, nom:nom, prenom:prenom,
+                  cp:cp, rue:rue, num:num,
+                  meas: computeMeasFromFacades(),
+                  rooms: computeRoomsFromFacades(),
+                  facades: facades,
+                });
+                onClose();
+              }
+            }}
+            style={{opacity:stepOk ? 1 : 0.4, cursor:stepOk ? "pointer" : "not-allowed"}}>
+            {step < 3 ? "Suivant" : "Lancer"}
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Settings ---- */
+var DEFAULT_PROFILE = { nom:"Jean Dupont", role:"Entrepreneur", ville:"Paris", tel:"", email:"" };
+
+function Settings({ projects, reports }) {
+  var [profile, setProfile] = useState(function(){
+    return loadStored(STORE_KEY_PROFILE, DEFAULT_PROFILE);
+  });
+  var [toast, setToast] = useState("");
+  useEffect(function(){ saveStored(STORE_KEY_PROFILE, profile); }, [profile]);
+
+  function setField(k, v) { setProfile(function(p){ return Object.assign({},p,{[k]:v}); }); }
+  function resetDemo() {
+    if (!window.confirm("Effacer toutes vos donnees (projets + rapports + profil) et restaurer la demo?")) return;
+    try {
+      window.localStorage.removeItem(STORE_KEY_PROJECTS);
+      window.localStorage.removeItem(STORE_KEY_REPORTS);
+      window.localStorage.removeItem(STORE_KEY_PROFILE);
+    } catch(e) {}
+    window.location.reload();
+  }
+
+  var stats = [
+    {lbl:"Projets",   val:(projects||[]).length, col:"#00C2FF"},
+    {lbl:"Rapports",  val:(reports||[]).length,  col:"#00E5A0"},
+    {lbl:"En cours",  val:(projects||[]).filter(function(p){return p.status==="processing";}).length, col:"#FF8C42"},
+    {lbl:"Termines",  val:(projects||[]).filter(function(p){return p.status==="done";}).length, col:"#E8EDF5"},
+  ];
+
+  var fields = [
+    ["Nom", "nom"],
+    ["Role", "role"],
+    ["Ville", "ville"],
+    ["Telephone", "tel"],
+    ["Email", "email"],
+  ];
+
+  return (
+    <div style={{padding:"26px 28px",overflowY:"auto",height:"100vh",boxSizing:"border-box"}}>
+      {toast && <Toast msg={toast} onDone={function(){setToast("");}}/>}
+      <div style={{fontSize:21,fontWeight:900,color:"#E8EDF5",marginBottom:18}}>Parametres</div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:22}}>
+        {stats.map(function(s) {
+          return (
+            <div key={s.lbl} style={{background:"#0F1C2E",border:"1px solid #1C3050",
+              borderRadius:10,padding:"12px 14px"}}>
+              <div style={{fontSize:20,fontWeight:900,color:s.col,fontFamily:"monospace"}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#607898",textTransform:"uppercase",marginTop:3}}>{s.lbl}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:14}}>Profil utilisateur</div>
+        {fields.map(function(f) {
+          return (
+            <div key={f[1]} style={{display:"flex",alignItems:"center",gap:12,marginBottom:9}}>
+              <div style={{width:90,fontSize:11,color:"#607898"}}>{f[0]}</div>
+              <input value={profile[f[1]]||""}
+                onChange={function(e){setField(f[1], e.target.value);}}
+                style={{flex:1,background:"#08111E",border:"1px solid #1C3050",
+                  borderRadius:6,color:"#E8EDF5",fontSize:13,padding:"7px 10px",outline:"none"}}/>
+            </div>
+          );
+        })}
+        <div style={{fontSize:10,color:"#2E4A6A",marginTop:8}}>
+          Modifications sauvegardees automatiquement dans votre navigateur
+        </div>
+      </div>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:8}}>Stockage</div>
+        <div style={{fontSize:11,color:"#607898",marginBottom:12}}>
+          Toutes vos donnees sont stockees localement dans votre navigateur (localStorage).
+          Effacer le cache du navigateur supprimera tout.
+        </div>
+        <Btn sm={true} onClick={resetDemo}
+          style={{background:"rgba(255,71,87,0.13)",border:"1px solid #FF4757",color:"#FF4757"}}>
+          Reinitialiser (restaurer la demo)
+        </Btn>
+      </div>
+
+      <PreferencesEditor onSaved={function(){ setToast("Préférences enregistrées"); }}/>
+
+      <CivilitesEditor/>
+
+      <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+        padding:"16px 18px",marginBottom:14,opacity:0.6}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5",marginBottom:6}}>Apparence</div>
+        <div style={{fontSize:11,color:"#607898"}}>
+          Theme clair - prevu dans une prochaine version (refonte CSS variables requise)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Préférences fines : TVA, devise, ratio profondeur, civilité par défaut.
+   Branchées dans TabDevis (TVA + devise), Modal computeMeasFromFacades
+   (depthRatio), Modal Identification (defaultCivilite). Persistées dans
+   localStorage sous STORE_KEY_PREFS. */
+function PreferencesEditor({ onSaved }) {
+  var [prefs, setPrefs] = useState(function(){ return getPrefs(); });
+  var civilites = useMemo(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  }, []);
+
+  function save(next) {
+    var merged = Object.assign({}, prefs, next);
+    setPrefs(merged);
+    saveStored(STORE_KEY_PREFS, merged);
+    /* Notifie App pour ré-render global (i18n + thème) */
+    try { window.dispatchEvent(new Event("mesurepro:prefs")); } catch(e){}
+    onSaved && onSaved();
+  }
+  function resetPrefs() {
+    if (!window.confirm("Restaurer les préférences par défaut ?")) return;
+    setPrefs(DEFAULT_PREFS);
+    saveStored(STORE_KEY_PREFS, DEFAULT_PREFS);
+    onSaved && onSaved();
+  }
+
+  var fieldStyle = {
+    background:"#08111E", border:"1px solid #1C3050",
+    borderRadius:6, color:"#E8EDF5", fontSize:13,
+    padding:"7px 10px", outline:"none",
+  };
+  var rowStyle = {display:"flex",alignItems:"center",gap:12,marginBottom:11};
+  var labelStyle = {width:160,fontSize:11,color:"#607898",flexShrink:0};
+
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+      padding:"16px 18px",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>{t("settings.preferences")}</div>
+        <button type="button" onClick={resetPrefs}
+          style={{background:"transparent",border:"1px solid #2E4A6A",
+            color:"#607898",borderRadius:5,padding:"3px 9px",fontSize:10,
+            cursor:"pointer",outline:"none"}}>
+          {t("common.delete") === "Supprimer" ? "Réinitialiser" : t("common.delete")}
+        </button>
+      </div>
+
+      {/* Langue — switcher 4 langues (FR/NL/EN/DE) */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>{t("settings.language")}</div>
+        <div style={{display:"flex",gap:6,flex:1,flexWrap:"wrap"}}>
+          {SUPPORTED_LANGS.map(function(L){
+            var active = (prefs.lang || detectLang()) === L.code;
+            return (
+              <button key={L.code} type="button"
+                onClick={function(){ save({ lang: L.code }); /* re-render */ }}
+                title={"Changer l'interface en " + L.label}
+                style={{flex:"1 1 0", minWidth:80,
+                  background: active ? "#00C2FF" : "transparent",
+                  border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                  color: active ? "#000" : "#8DAFC8",
+                  borderRadius:6, padding:"7px 10px", fontSize:11,
+                  fontWeight:700, cursor:"pointer", outline:"none",
+                  display:"flex", alignItems:"center", justifyContent:"center", gap:6}}>
+                <span style={{fontSize:14}}>{L.flag}</span>
+                <span>{L.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* TVA */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>TVA (%)</div>
+        <input type="number" min="0" max="100" step="0.5"
+          value={prefs.tva}
+          onChange={function(e){ save({ tva: parseFloat(e.target.value) || 0 }); }}
+          style={Object.assign({}, fieldStyle, {width:90,fontFamily:"monospace",textAlign:"right"})}/>
+        <span style={{fontSize:10,color:"#2E4A6A"}}>BE 21 % · FR 20 % · LU 17 %</span>
+      </div>
+
+      {/* Devise */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Devise</div>
+        <input type="text" maxLength="4"
+          value={prefs.currency}
+          onChange={function(e){ save({ currency: e.target.value.slice(0,4) }); }}
+          style={Object.assign({}, fieldStyle, {width:90,fontFamily:"monospace",textAlign:"center"})}/>
+        <span style={{fontSize:10,color:"#2E4A6A"}}>€ · CHF · USD · GBP · …</span>
+      </div>
+
+      {/* Civilité par défaut */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Civilité par défaut</div>
+        <select value={prefs.defaultCivilite}
+          onChange={function(e){ save({ defaultCivilite: e.target.value }); }}
+          style={Object.assign({}, fieldStyle, {flex:1,cursor:"pointer"})}>
+          {civilites.map(function(c){ return <option key={c} value={c}>{c}</option>; })}
+        </select>
+      </div>
+
+      {/* Ratio profondeur */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Ratio profondeur (1 façade)</div>
+        <input type="range" min="0.4" max="0.9" step="0.05"
+          value={prefs.depthRatio}
+          onChange={function(e){ save({ depthRatio: parseFloat(e.target.value) }); }}
+          style={{flex:1,accentColor:"#00C2FF",cursor:"pointer"}}/>
+        <span style={{width:48,fontSize:12,fontFamily:"monospace",color:"#E8EDF5",textAlign:"right"}}>
+          {prefs.depthRatio.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Décimales mesures */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>Décimales (m, m²)</div>
+        <input type="range" min="0" max="3" step="1"
+          value={prefs.decimals}
+          onChange={function(e){ save({ decimals: parseInt(e.target.value, 10) }); }}
+          style={{flex:1,accentColor:"#00E5A0",cursor:"pointer"}}/>
+        <span style={{width:48,fontSize:12,fontFamily:"monospace",color:"#E8EDF5",textAlign:"right"}}>
+          {prefs.decimals}
+        </span>
+      </div>
+
+      {/* Thème — toggle dark / light */}
+      <div style={rowStyle}>
+        <div style={labelStyle}>{t("settings.theme")}</div>
+        <div style={{display:"flex",gap:8,flex:1}}>
+          {[["dark",t("settings.themeDark")],["light",t("settings.themeLight")]].map(function(opt){
+            var active = (prefs.theme || "dark") === opt[0];
+            return (
+              <button key={opt[0]} type="button"
+                onClick={function(){ save({ theme: opt[0] }); applyTheme(opt[0]); }}
+                title={opt[0] === "light" ? "Bascule sur le thème clair (filtre CSS inverse — fonctionnel mais imparfait)" : "Bascule sur le thème sombre (défaut)"}
+                style={{flex:1, background: active ? "#00C2FF" : "transparent",
+                  border:"1px solid " + (active ? "#00C2FF" : "#2E4A6A"),
+                  color: active ? "#000" : "#8DAFC8",
+                  borderRadius:6, padding:"7px 12px", fontSize:11,
+                  fontWeight:700, cursor:"pointer", outline:"none"}}>
+                {opt[1]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{fontSize:10,color:"#2E4A6A",marginTop:6,lineHeight:1.5}}>
+        Sauvegarde automatique à chaque modification.<br/>
+        TVA + devise s'appliquent immédiatement à l'onglet <span style={{fontWeight:700}}>Devis</span> de chaque projet.<br/>
+        Le ratio profondeur n'affecte que les nouveaux projets créés avec une seule paire de façades remplie.<br/>
+        Le thème clair utilise un filtre CSS d'inversion — fonctionnel mais quelques couleurs accentuées peuvent paraître décalées.
+      </div>
+    </div>
+  );
+}
+
+function CivilitesEditor() {
+  var [list, setList] = useState(function(){
+    return loadStored(STORE_KEY_CIVILITES, DEFAULT_CIVILITES);
+  });
+  var [draft, setDraft] = useState("");
+  useEffect(function(){ saveStored(STORE_KEY_CIVILITES, list); }, [list]);
+  function add() {
+    var v = draft.trim();
+    if (!v || list.indexOf(v) !== -1) return;
+    setList(list.concat([v]));
+    setDraft("");
+  }
+  function remove(c) {
+    setList(list.filter(function(x){ return x !== c; }));
+  }
+  function reset() {
+    if (!window.confirm("Restaurer la liste par defaut?")) return;
+    setList(DEFAULT_CIVILITES.slice());
+  }
+  return (
+    <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:12,
+      padding:"16px 18px",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#E8EDF5"}}>Civilités</div>
+        <button type="button" onClick={reset}
+          style={{background:"transparent",border:"1px solid #1C3050",
+            color:"#607898",borderRadius:5,padding:"4px 10px",fontSize:10,
+            cursor:"pointer",outline:"none"}}>Réinitialiser</button>
+      </div>
+      <div style={{fontSize:11,color:"#607898",marginBottom:10}}>
+        Apparaissent dans le menu déroulant de l'étape Identification.
+        M./Mme/Mlle... = personne (prénom requis). Société/SCI/ASBL = entité (nom seul).
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+        {list.map(function(c) {
+          return (
+            <div key={c} style={{display:"inline-flex",alignItems:"center",gap:6,
+              background:"#152135",border:"1px solid #1C3050",borderRadius:14,
+              padding:"4px 4px 4px 11px",fontSize:11,color:"#E8EDF5"}}>
+              {c}
+              <button type="button" onClick={function(){remove(c);}}
+                style={{background:"rgba(255,71,87,0.2)",border:"none",
+                  color:"#FF4757",borderRadius:"50%",width:16,height:16,
+                  fontSize:10,fontWeight:900,cursor:"pointer",outline:"none",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        <input value={draft} onChange={function(e){setDraft(e.target.value);}}
+          onKeyDown={function(e){ if (e.key === "Enter") add(); }}
+          placeholder="Ajouter une civilité (ex: Maître)"
+          style={{flex:1,boxSizing:"border-box",background:"#08111E",
+            border:"1px solid #1C3050",borderRadius:6,color:"#E8EDF5",
+            fontSize:12,padding:"7px 10px",outline:"none"}}/>
+        <Btn sm={true} primary={true} onClick={add}>+ Ajouter</Btn>
+      </div>
+    </div>
+  );
+}
+
+/* ---- HelpPage : guide pas-à-pas + FAQ + raccourcis. Accessible via la
+   sidebar (entrée « Aide »). Conçue comme une page autonome scrollable
+   à l'intérieur de son panneau, sectionnée par module pour qu'on retrouve
+   l'info en quelques secondes. */
+function HelpPage() {
+  var [query, setQuery] = useState("");
+  var sections = [
+    {
+      id:"intro", icon:"🚀", title:"Démarrage rapide",
+      body: [
+        "Bienvenue dans MesurePro — une app de mesure immobilière 3D.",
+        "Le parcours type prend 5 minutes : ➀ créer un projet via « + Nouveau projet » sur le Dashboard, ➁ remplir les 4 façades (longueur × hauteur × fenêtres × portes), ➂ optionnellement ajouter des photos, ➃ cliquer Lancer.",
+        "Vous atterrissez ensuite sur l'onglet Mesures avec tous les totaux auto-calculés (périmètre, surface murs, emprise, toit, etc.).",
+        "Les onglets Modèle 3D et Plans s'actualisent automatiquement à partir de vos saisies.",
+      ]
+    },
+    {
+      id:"projets", icon:"📂", title:"Module Projets",
+      body: [
+        "Créer : bouton « + Nouveau projet » en haut du Dashboard. Modal en 4 étapes guidées : Identification → Remplir (façades) → Photos → Lancement.",
+        "Modifier : ouvre un projet, bouton « Modifier » dans le header. Édite l'adresse, la ville, le client ou le statut.",
+        "Supprimer : bouton rouge « Supprimer » dans le header. Confirmation avec l'adresse + ville. Action irréversible.",
+        "Exports disponibles : PDF (texte indexable + métadonnées), CSV/Excel (tableurs), DXF (AutoCAD/LibreCAD/FreeCAD pour les 4 plans d'élévation).",
+        "Statuts : « En traitement » (3 s) → « Brouillon » (modifiable) → « Terminé » (verrouillé). Le bouton « Terminer » bascule automatiquement.",
+      ]
+    },
+    {
+      id:"remplir", icon:"📐", title:"Remplir les façades (étape 2)",
+      body: [
+        "4 onglets Sud / Est / Nord / Ouest. L'onglet actif est en couleur, les façades remplies montrent un ✓.",
+        "Champs par façade : longueur (m), hauteur (m), nombre de fenêtres, nombre de portes.",
+        "Au moins 1 façade doit avoir longueur ET hauteur > 0 pour pouvoir lancer.",
+        "Avec 1 seule façade saisie, l'app infère la profondeur manquante via le ratio paramétrable (par défaut 60 % de la frontage). Modifiable dans Paramètres → Préférences.",
+        "Bouton 📡 Laser BLE : optionnel, connecte un Leica DISTO / Bosch GLM / Stanley TLM via Bluetooth pour saisie auto. Chrome/Edge requis (Safari non supporté).",
+      ]
+    },
+    {
+      id:"3d", icon:"🏠", title:"Modèle 3D",
+      body: [
+        "Vue WebGL temps réel. Faites tourner le modèle au glisser, zoomez à la molette, cliquez ▶ Lecture pour rotation auto.",
+        "Sliders Édition rapide : Étages, Hauteur, Emprise sol — recalcule auto périmètre + murs + toit.",
+        "Photos chantier : si vous avez taggé une photo « Sud », « Nord », « Est » ou « Ouest » dans l'onglet Photos, elle est appliquée automatiquement comme texture sur la façade correspondante du modèle 3D.",
+        "Sans photo taggée, le modèle utilise le matériau choisi dans l'onglet Design (bardage bois, pierre, brique, blanc, gris, ardoise…).",
+      ]
+    },
+    {
+      id:"plans", icon:"📏", title:"Plans d'élévation",
+      body: [
+        "4 plans d'élévation cotés au format A4 paysage : Sud, Est, Nord, Ouest.",
+        "Chaque plan inclut : cotes verticales (par étage + total), niveaux altimétriques (±0.00 = TN, +X.XX), gouttière zinc Ø100, descente EP Ø80 avec pente 2 %, cheminée maçonnée + mitron, velux (sur Sud/Nord), cotes des fenêtres et portes en cm, labels architecte (faîtage, égout, sablière), repère de coupe A-A.",
+        "Les limites de propriété sont représentées en orange pointillé.",
+        "Si une photo est taggée pour la façade, elle apparaît à côté du plan dans la grille.",
+        "Bouton « Télécharger PDF » : tous les plans en un seul PDF A4 paysage (2 plans/page).",
+        "Pour récupérer les plans en CAO, utilisez le bouton DXF du header projet.",
+      ]
+    },
+    {
+      id:"mesures", icon:"📊", title:"Mesures",
+      body: [
+        "Bandeau du haut : barre de progression X/7 champs renseignés, passe en vert quand tout est rempli.",
+        "Barre BLE (optionnelle) : connecter un laser mètre Bluetooth pour remplir auto le champ actif.",
+        "7 cartes de mesures globales : surface murs, surface toit, périmètre, hauteur, emprise sol, fenêtres, portes. Bordure orange si vide.",
+        "Tableau « Façades et zones » : 1 ligne par façade créée à l'étape Remplir. Cliquez dans une cellule pour modifier. Bouton + Ajouter pour ajouter une zone supplémentaire.",
+      ]
+    },
+    {
+      id:"devis", icon:"💶", title:"Devis",
+      body: [
+        "Calcul automatique : sous-total HT + TVA + total TTC + prix de vente avec marge commerciale (slider 0-60 %).",
+        "TVA et devise paramétrables dans Paramètres → Préférences (par défaut 21 % BE et €).",
+        "Le matériau choisi dans l'onglet Design détermine le prix au m².",
+        "Bouton « Générer la proposition » + « Exporter en PDF » pour un document client final.",
+      ]
+    },
+    {
+      id:"rapports", icon:"📄", title:"Rapports niveau auditeur senior",
+      body: [
+        "4 types de rapports : Mesures, Devis, Inspection, Proposition. Tous accessibles via la sidebar « Rapports ».",
+        "Bouton « + Nouveau rapport » : sélection du type → modèle pré-rempli avec sections détaillées.",
+        "Mesures : méthodologie, conditions de relevé, normes NBN/DTU, tolérances, observations, conclusions, identité auditeur.",
+        "Inspection : checklist 16 points sur 7 zones (Façade, Toiture, Eaux pluviales, Structure, Étanchéité, Isolation, Ventilation, Sécurité), score de risque global, date de ré-inspection.",
+        "Devis : adresses chantier + facturation séparées, pénalités de retard, garantie décennale, modalités de paiement.",
+        "Proposition : méthodologie Phase 1/2/3, références projets similaires, équipe affectée, signatures électroniques.",
+      ]
+    },
+    {
+      id:"prefs", icon:"⚙️", title:"Paramètres et préférences",
+      body: [
+        "Profil utilisateur : nom, rôle, ville, téléphone, email — sauvegardé localement.",
+        "Préférences fines : TVA (%), devise, civilité par défaut, ratio de profondeur (cas 1 façade), décimales d'affichage. Bouton « Réinitialiser » pour revenir aux défauts.",
+        "Civilités : liste éditable (M., Mme, Société, SCI, ASBL…) — utilisée dans le Modal de création.",
+        "Stockage : tout est local (localStorage du navigateur). Bouton « Réinitialiser (restaurer la démo) » pour repartir des 5 projets d'exemple.",
+      ]
+    },
+    {
+      id:"solar", icon:"🛰️", title:"Saisie auto via Google Solar API",
+      body: [
+        "Sur le Modal de création, étape 2 « Remplir », un encart 🛰️ apparaît au-dessus des onglets façade. Cliquez « Récupérer » : l'app appelle l'API Google Solar (Building Insights) avec votre adresse de l'étape 1 et pré-remplit largeur, profondeur, hauteur des 4 façades.",
+        "L'API fournit aussi le détail des pans de toiture (surface en m², pente en degrés, azimut). Ces données sont visibles dans le récap dépliable.",
+        "Compte tenu du Free Tier Google : ~1000 appels/jour, suffisant pour des milliers de projets. L'app n'effectue que 2 calls par récupération (Geocoding + Solar).",
+        "Setup : créez un projet sur Google Cloud Console, activez Solar API + Geocoding API, créez une clé API. Copiez `.env.example` en `.env` à la racine du projet, mettez votre clé dans `VITE_GOOGLE_API_KEY=AIza...`, redémarrez Vite (`npm run dev`).",
+        "Si « Bâtiment non couvert » : Solar API ne couvre pas encore tous les pays / régions. Couverture en expansion (Belgique partielle en 2026). Saisie clavier comme fallback.",
+      ]
+    },
+    {
+      id:"laser", icon:"📡", title:"Laser Bluetooth",
+      body: [
+        "Modèles supportés : Leica DISTO (X3 / X4 / D2), Bosch GLM (50C / 100C), Stanley TLM (TLM65 / TLM99 / TLM330 — UUIDs à valider).",
+        "Compatibilité navigateur : Chrome, Edge, Brave (Chromium). Safari NON supporté. Firefox : flag dom.webbluetooth.enabled.",
+        "Connexion : bouton « Connecter » dans le Modal Remplir ou la barre BLE de l'onglet Mesures. Sélectionnez votre appareil dans la fenêtre du navigateur.",
+        "Usage : cliquez dans un champ (la bordure devient verte), tirez le laser, la valeur s'écrit automatiquement.",
+        "L'app est utilisable à 100 % sans laser : la saisie clavier marche tout aussi bien.",
+      ]
+    },
+    {
+      id:"raccourcis", icon:"⌨️", title:"Raccourcis clavier et astuces",
+      body: [
+        "Raccourcis clavier disponibles dans l'app (ignorés quand vous tapez dans un champ) :",
+        "? — ouvrir cette page d'aide depuis n'importe où",
+        "n — créer un nouveau projet (depuis le Dashboard)",
+        "Esc — fermer le modal de création de projet en cours",
+        "h — bascule directe vers l'Aide",
+        "g puis d — go Dashboard (projets)",
+        "g puis r — go Rapports",
+        "g puis p — go Paramètres",
+        "g puis h — go Aide",
+        "Cmd+F (navigateur natif) — chercher dans la page courante.",
+        "Cmd+Shift+R (Mac) / Ctrl+Shift+R (Windows) : forcer le rechargement après une mise à jour.",
+        "Localhost vs 127.0.0.1 : préférez `http://localhost:3000` — Chrome macOS gère mieux la géolocalisation et le Bluetooth.",
+        "Tooltips : passez la souris sur n'importe quel bouton pour obtenir une explication courte.",
+      ]
+    },
+    {
+      id:"faq", icon:"❓", title:"FAQ",
+      body: [
+        "Q : Mes mesures ne sont pas sauvegardées ? — R : Tout passe par le localStorage du navigateur. Vérifiez que vous n'êtes pas en navigation privée.",
+        "Q : Le 3D affiche un autre bâtiment ? — R : Bug fixé en v2.7. Si ça persiste, faites Cmd+Shift+R + ouvrez Settings → Réinitialiser.",
+        "Q : La géolocalisation dit « Position indisponible » ? — R : Système macOS → Confidentialité → Service de localisation → activez Chrome. Préférez `localhost` à `127.0.0.1`.",
+        "Q : Le laser BLE ne se connecte pas ? — R : Vérifiez que vous utilisez Chrome/Edge, pas Safari. Et que le laser est en mode appairage (long appui sur le bouton Bluetooth).",
+        "Q : Les exports PDF s'ouvrent comme des images ? — R : Non, le contenu est du vrai texte indexable. Utilisez Cmd+F dans Aperçu ou Acrobat pour rechercher.",
+      ]
+    },
+  ];
+  /* Filtrage des sections en fonction de la query — match dans le title
+     ou dans n'importe quel paragraphe du body, insensible à la casse. */
+  var q = query.trim().toLowerCase();
+  var filtered = q.length === 0 ? sections : sections.filter(function(s){
+    if (s.title.toLowerCase().indexOf(q) !== -1) return true;
+    return s.body.some(function(p){ return p.toLowerCase().indexOf(q) !== -1; });
+  });
+
+  /* Surligne les occurrences de la query dans un paragraphe — version
+     vanilla qui découpe en segments + applique <mark>. */
+  function highlight(text) {
+    if (q.length < 2) return text;
+    var lower = text.toLowerCase();
+    var idx = lower.indexOf(q);
+    if (idx === -1) return text;
+    var out = [];
+    var pos = 0;
+    while (idx !== -1) {
+      if (idx > pos) out.push(text.slice(pos, idx));
+      out.push(
+        <mark key={"m"+idx} style={{background:"#FFB35E",color:"#000",padding:"0 3px",borderRadius:3}}>
+          {text.slice(idx, idx + q.length)}
+        </mark>
+      );
+      pos = idx + q.length;
+      idx = lower.indexOf(q, pos);
+    }
+    if (pos < text.length) out.push(text.slice(pos));
+    return out;
+  }
+
+  return (
+    <div style={{padding:"30px 32px",overflowY:"auto",height:"100vh",
+      boxSizing:"border-box",background:"#08111E"}}>
+      <div style={{maxWidth:880, margin:"0 auto"}}>
+        <div style={{fontSize:24, fontWeight:900, color:"#E8EDF5", marginBottom:8}}>Aide MesurePro</div>
+        <div style={{fontSize:13, color:"#607898", marginBottom:18, lineHeight:1.6}}>
+          Guide pas-à-pas + FAQ. Trouvez votre réponse en quelques secondes —
+          chaque section correspond à un module de l'app. Survolez un bouton n'importe où dans l'app
+          pour obtenir une infobulle d'explication courte.
+        </div>
+
+        {/* Barre de recherche */}
+        <div style={{position:"relative", marginBottom:16}}>
+          <input type="search" value={query}
+            onChange={function(e){ setQuery(e.target.value); }}
+            placeholder="🔎 Rechercher dans l'aide (ex. laser, devis, façade, RGPD…)"
+            style={{width:"100%", background:"#0F1C2E", border:"1px solid #1C3050",
+              borderRadius:9, color:"#E8EDF5", fontSize:13, padding:"10px 14px",
+              outline:"none", boxSizing:"border-box"}}/>
+          {query && (
+            <button type="button" onClick={function(){ setQuery(""); }}
+              title="Effacer la recherche"
+              style={{position:"absolute", right:10, top:9, background:"transparent",
+                border:"none", color:"#607898", cursor:"pointer", fontSize:14, padding:"2px 6px"}}>
+              ×
+            </button>
+          )}
+          {q.length >= 1 && (
+            <div style={{fontSize:10, color:"#607898", marginTop:6}}>
+              {filtered.length === 0
+                ? "Aucune section ne correspond — essayez un autre mot-clé."
+                : filtered.length + " section(s) trouvée(s) sur " + sections.length}
+            </div>
+          )}
+        </div>
+
+        {/* Index sticky en haut */}
+        {filtered.length > 0 && (
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,
+            padding:"10px 12px",marginBottom:22,
+            background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:9}}>
+            {filtered.map(function(s){
+              return (
+                <a key={s.id} href={"#help-"+s.id}
+                  style={{fontSize:11, color:"#00C2FF", textDecoration:"none",
+                    background:"rgba(0,194,255,0.07)", padding:"4px 10px",
+                    borderRadius:5, fontWeight:600}}>
+                  {s.icon} {s.title}
+                </a>
+              );
+            })}
+          </div>
+        )}
+
+        {filtered.map(function(s){
+          return (
+            <div key={s.id} id={"help-"+s.id}
+              style={{background:"#0F1C2E",border:"1px solid #1C3050",
+                borderRadius:12, padding:"22px 26px", marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                <div style={{fontSize:26}}>{s.icon}</div>
+                <div style={{fontSize:17, fontWeight:800, color:"#00C2FF"}}>{s.title}</div>
+              </div>
+              {s.body.map(function(p, i){
+                return (
+                  <div key={i} style={{fontSize:13, color:"#E8EDF5", lineHeight:1.7,
+                    marginBottom: i === s.body.length-1 ? 0 : 9,
+                    paddingLeft:14, position:"relative"}}>
+                    <span style={{position:"absolute",left:0,top:9,width:6,height:6,
+                      background:"#00C2FF",borderRadius:"50%",opacity:0.7}}/>
+                    {highlight(p)}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+
+        <div style={{textAlign:"center", color:"#2E4A6A", fontSize:11,
+          padding:"14px 0 30px"}}>
+          Si vous bloquez, repérez la version dans la sidebar (v2.7) et faites un screenshot —
+          ça aide énormément le support.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- localStorage persistence ---- */
+var STORE_KEY_PROJECTS  = "mesurepro.projects.v1";
+var STORE_KEY_REPORTS   = "mesurepro.reports.v1";
+var STORE_KEY_PROFILE   = "mesurepro.profile.v1";
+var STORE_KEY_CIVILITES = "mesurepro.civilites.v1";
+var STORE_KEY_PREFS     = "mesurepro.prefs.v1";
+
+var DEFAULT_CIVILITES = ["M.", "Mme", "Mlle", "Monsieur", "Madame", "Société", "SCI", "ASBL"];
+
+/* Préférences utilisateur — branchées dans toute l'app via getPrefs().
+   Modifiables depuis Paramètres → Préférences. Tout est rétro-compatible :
+   un projet sans pref enregistré utilise les valeurs par défaut ci-dessous. */
+var DEFAULT_PREFS = {
+  tva: 21,                /* TVA % — 21 BE par défaut, 20 FR, configurable */
+  currency: "€",           /* Devise affichée dans les calculs */
+  depthRatio: 0.6,         /* Ratio profondeur/façade pour inférer la dim manquante */
+  defaultCivilite: "M.",   /* Civilité pré-cochée en création de projet */
+  decimals: 1,             /* Décimales affichées sur les mesures (m, m²) */
+  theme: "dark",           /* "dark" (défaut) ou "light" — bascule via Paramètres */
+  lang: null,              /* Code ISO (fr/nl/en/de) — null = auto-détecté du navigateur */
+};
+
+/* Applique le data-theme au <html> — sépare ce side-effect de React
+   pour qu'il soit applicable avant le premier render (anti-flash). */
+function applyTheme(theme) {
+  if (typeof document === "undefined") return;
+  try { document.documentElement.setAttribute("data-theme", theme === "light" ? "light" : "dark"); } catch(e){}
+}
+
+/* ============================================================================
+   i18n — Internationalization (FR/NL/EN/DE)
+
+   La Belgique est officiellement trilingue (FR Wallonie + NL Flandre + DE
+   Ostbelgien), Bruxelles étant bilingue FR/NL. Le marché expatrié premium
+   exige aussi EN. Aucun concurrent US (Hover, EagleView, Roofr) ne livre
+   d'UI localisée pour ces marchés européens : c'est notre fossé géographique.
+
+   Architecture :
+   - I18N[lang][key] → traduction
+   - Fallback FR si manquant dans la langue cible
+   - Fallback clé brute si manquant aussi en FR (utile en dev)
+   - Auto-détection navigator.language au boot via getPrefs() si lang=null
+   - Helper t(key, params?) supporte interpolation {name}
+============================================================================ */
+var SUPPORTED_LANGS = [
+  { code: "fr", label: "Français",   flag: "🇫🇷" },
+  { code: "nl", label: "Nederlands", flag: "🇧🇪" },
+  { code: "en", label: "English",    flag: "🇬🇧" },
+  { code: "de", label: "Deutsch",    flag: "🇩🇪" },
+];
+
+function detectLang() {
+  try {
+    var raw = (typeof navigator !== "undefined" ? (navigator.language || "fr") : "fr").toLowerCase().slice(0, 2);
+    var supported = ["fr","nl","en","de"];
+    return supported.indexOf(raw) >= 0 ? raw : "fr";
+  } catch(e) { return "fr"; }
+}
+
+var I18N = {
+  fr: {
+    "nav.projects":"Projets","nav.reports":"Rapports","nav.settings":"Paramètres","nav.help":"Aide",
+    "common.search":"Rechercher...","common.save":"Enregistrer","common.cancel":"Annuler","common.delete":"Supprimer","common.edit":"Modifier","common.close":"Fermer","common.next":"Suivant","common.prev":"Précédent","common.back":"Retour","common.export":"Exporter","common.import":"Importer","common.share":"Partager","common.copy":"Copier","common.yes":"Oui","common.no":"Non","common.optional":"(optionnel)","common.required":"Requis","common.open":"Ouvrir","common.new":"Nouveau",
+    "dashboard.newProject":"+ Nouveau projet","dashboard.allStatus":"Tous les statuts","dashboard.empty":"Aucun projet pour le moment","dashboard.startNew":"Créez votre premier projet pour commencer.",
+    "status.draft":"Brouillon","status.processing":"En cours","status.done":"Terminé",
+    "tab.photos":"Photos","tab.model":"Modèle 3D","tab.plans":"Plans","tab.meas":"Mesures","tab.exterior":"Extérieur","tab.interior":"Intérieur","tab.design":"Design","tab.devis":"Devis","tab.materials":"Matériaux","tab.peb":"PEB","tab.share":"Partage",
+    "int.title":"Relevé intérieur","int.empty":"Aucun niveau pour le moment","int.addLevel":"+ Ajouter un niveau","int.addRoom":"+ Ajouter une pièce","int.totalArea":"Surface totale","int.totalRooms":"pièces","int.score":"Validées","int.backLevels":"← Niveaux","int.length":"Longueur (m)","int.width":"Largeur (m)","int.height":"Hauteur (m)","int.area":"Surface (m²)","int.areaAuto":"Surface calculée","int.volume":"Volume","int.remarks":"Remarques / anomalies","int.photo":"Photo de la pièce","int.photoTake":"Choisir une photo","int.photoOk":"Photo OK","int.validate":"Valider la pièce","int.validated":"✓ Validée","int.delete":"Supprimer","int.confirmDelete":"Supprimer définitivement ?","int.pickLevel":"Choisir le type de niveau","int.pickRoom":"Choisir le type de pièce","int.requiredHint":"Photo + surface + hauteur requises pour valider",
+    "ext.title":"Relevé extérieur — 4 façades","ext.facade.sud":"Sud","ext.facade.est":"Est","ext.facade.nord":"Nord","ext.facade.ouest":"Ouest","ext.facadeDetail":"Saisie temps réel + ElevationDiagram SVG live","ext.notFilled":"Non renseignée","ext.brute":"brute","ext.net":"nette","ext.validated":"validées","ext.validatedBadge":"✓ Validée","ext.backList":"← Façades","ext.pitch":"Pente toiture","ext.dimensions":"Dimensions principales","ext.widthTotal":"Largeur totale (m)","ext.heightLeft":"Hauteur gauche (m)","ext.heightLeftHelp":"Sol → corniche côté gauche","ext.heightRight":"Hauteur droite (m)","ext.heightRightHelp":"Sol → corniche côté droit","ext.heightCorniche":"Hauteur corniche (m)","ext.heightCornicheHelp":"Ligne de gouttière","ext.hasPignon":"Cette façade montre le pignon (faîtage visible)","ext.heightFaitage":"Hauteur faîtage (m)","ext.heightFaitageHelp":"Sol → sommet du toit","ext.openings":"Ouvertures","ext.doors":"Portes","ext.windows":"Fenêtres","ext.bays":"Baies vitrées","ext.surface":"Surface (m²)","ext.materialState":"Matériau & état","ext.material":"Matériau","ext.mat.enduit":"Enduit / Crépi","ext.mat.brique":"Brique","ext.mat.pierre":"Pierre","ext.mat.bardage":"Bardage","ext.mat.beton":"Béton","ext.mat.verre":"Vitrage","ext.mat.autre":"Autre","ext.condition":"État général","ext.cond.bon":"Bon","ext.cond.moyen":"Moyen","ext.cond.mauvais":"Mauvais","ext.hasDevers":"Dévers / aplomb non vertical","ext.remarks":"Remarques & anomalies","ext.requiredHint":"Largeur + hauteur gauche requises pour valider cette façade","ext.validate":"✓ Valider cette façade","ext.saisirDim":"Saisir les dimensions →",
+    "modal.step1":"Identification","modal.step2":"Remplir","modal.step3":"Photos","modal.step4":"Lancement","modal.launch":"Lancer","modal.template":"Type de bâtiment",
+    "report.meas":"Mesures","report.devis":"Devis","report.insp":"Inspection","report.prop":"Propriété",
+    "settings.profile":"Mon profil","settings.preferences":"Préférences","settings.civilites":"Civilités","settings.language":"Langue","settings.theme":"Thème","settings.themeDark":"🌙 Sombre","settings.themeLight":"☀️ Clair","settings.reset":"Réinitialiser les données démo",
+    "tpl.maisonLibre":"Maison 4 façades","tpl.maisonLibreDesc":"Villa libre 9 × 12 m","tpl.mitoyenne":"Maison mitoyenne","tpl.mitoyenneDesc":"2 façades libres + 2 mitoyennes","tpl.semiMitoyenne":"3 façades","tpl.semiMitoyenneDesc":"Semi-mitoyenne 8 × 10 m","tpl.fermette":"Fermette","tpl.fermetteDesc":"Fermette traditionnelle 12 × 15 m","tpl.appart":"Immeuble appart.","tpl.appartDesc":"Immeuble 5 niveaux","tpl.skip":"Saisie manuelle",
+    "peb.title":"Performance énergétique (PEB)","peb.estimated":"Estimation indicative basée sur les données du projet","peb.inputs":"Données utilisées","peb.kwhM2":"kWh/m²/an","peb.recos":"Recommandations","peb.yearBuilt":"Année de construction","peb.insulation":"Isolation","peb.insulationFull":"Complète","peb.insulationPartial":"Partielle","peb.insulationNone":"Aucune",
+    "mat.quantitative":"Quantitatif matériaux","mat.subtotal":"Sous-total","mat.unitPrice":"Prix unitaire","mat.qty":"Quantité","mat.total":"Total HT","mat.roof":"Toiture","mat.facade":"Façades","mat.insulation":"Isolation","mat.copyDevis":"Copier vers Devis","mat.exportPdf":"Export PDF",
+    "share.title":"Partager ce projet","share.copyLink":"Copier le lien","share.viewMode":"Vue client","share.signature":"Signature client","share.signed":"Signé le","share.regenerate":"Régénérer le lien","share.linkCopied":"Lien copié dans le presse-papier","share.qrCode":"QR code","share.notice":"Le lien contient toutes les données du projet (chiffrées dans l'URL). Partagez-le à votre client par email/SMS.",
+    "ar.viewIn":"Voir en réalité augmentée","ar.downloadGlb":"Télécharger modèle 3D (.glb)","ar.scanQr":"Scannez avec votre iPhone pour voir en AR","ar.iosNotice":"Sur iPhone, ouvrez ce lien dans Safari pour la vue AR Quick Look.","ar.androidNotice":"Sur Android, ouvrez avec Google Scene Viewer.",
+  },
+  nl: {
+    "nav.projects":"Projecten","nav.reports":"Rapporten","nav.settings":"Instellingen","nav.help":"Hulp",
+    "common.search":"Zoeken...","common.save":"Opslaan","common.cancel":"Annuleren","common.delete":"Verwijderen","common.edit":"Bewerken","common.close":"Sluiten","common.next":"Volgende","common.prev":"Vorige","common.back":"Terug","common.export":"Exporteren","common.import":"Importeren","common.share":"Delen","common.copy":"Kopiëren","common.yes":"Ja","common.no":"Nee","common.optional":"(optioneel)","common.required":"Vereist","common.open":"Openen","common.new":"Nieuw",
+    "dashboard.newProject":"+ Nieuw project","dashboard.allStatus":"Alle statussen","dashboard.empty":"Nog geen projecten","dashboard.startNew":"Maak je eerste project aan om te starten.",
+    "status.draft":"Concept","status.processing":"Bezig","status.done":"Voltooid",
+    "tab.photos":"Foto's","tab.model":"3D-model","tab.plans":"Plannen","tab.meas":"Metingen","tab.exterior":"Buiten","tab.interior":"Binnen","tab.design":"Ontwerp","tab.devis":"Offerte","tab.materials":"Materialen","tab.peb":"EPB","tab.share":"Delen",
+    "int.title":"Binnenmeting","int.empty":"Nog geen niveaus","int.addLevel":"+ Niveau toevoegen","int.addRoom":"+ Kamer toevoegen","int.totalArea":"Totale oppervlakte","int.totalRooms":"kamers","int.score":"Gevalideerd","int.backLevels":"← Niveaus","int.length":"Lengte (m)","int.width":"Breedte (m)","int.height":"Hoogte (m)","int.area":"Oppervlakte (m²)","int.areaAuto":"Berekende oppervlakte","int.volume":"Volume","int.remarks":"Opmerkingen","int.photo":"Foto van de kamer","int.photoTake":"Foto kiezen","int.photoOk":"Foto OK","int.validate":"Kamer valideren","int.validated":"✓ Gevalideerd","int.delete":"Verwijderen","int.confirmDelete":"Definitief verwijderen?","int.pickLevel":"Kies het type niveau","int.pickRoom":"Kies het type kamer","int.requiredHint":"Foto + oppervlakte + hoogte vereist voor validatie",
+    "ext.title":"Buitenmeting — 4 gevels","ext.facade.sud":"Zuid","ext.facade.est":"Oost","ext.facade.nord":"Noord","ext.facade.ouest":"West","ext.facadeDetail":"Real-time invoer + ElevationDiagram SVG live","ext.notFilled":"Niet ingevuld","ext.brute":"bruto","ext.net":"netto","ext.validated":"gevalideerd","ext.validatedBadge":"✓ Gevalideerd","ext.backList":"← Gevels","ext.pitch":"Dakhelling","ext.dimensions":"Hoofdafmetingen","ext.widthTotal":"Totale breedte (m)","ext.heightLeft":"Hoogte links (m)","ext.heightLeftHelp":"Grond → kroonlijst links","ext.heightRight":"Hoogte rechts (m)","ext.heightRightHelp":"Grond → kroonlijst rechts","ext.heightCorniche":"Kroonlijst hoogte (m)","ext.heightCornicheHelp":"Goothoogte","ext.hasPignon":"Deze gevel toont de topgevel (nokhoogte zichtbaar)","ext.heightFaitage":"Noklijn hoogte (m)","ext.heightFaitageHelp":"Grond → daktop","ext.openings":"Openingen","ext.doors":"Deuren","ext.windows":"Ramen","ext.bays":"Glaspuien","ext.surface":"Oppervlak (m²)","ext.materialState":"Materiaal & staat","ext.material":"Materiaal","ext.mat.enduit":"Bepleistering","ext.mat.brique":"Baksteen","ext.mat.pierre":"Natuursteen","ext.mat.bardage":"Houten/metalen bekleding","ext.mat.beton":"Beton","ext.mat.verre":"Glasgevel","ext.mat.autre":"Anders","ext.condition":"Algemene staat","ext.cond.bon":"Goed","ext.cond.moyen":"Matig","ext.cond.mauvais":"Slecht","ext.hasDevers":"Scheefstand / niet verticaal","ext.remarks":"Opmerkingen","ext.requiredHint":"Breedte + hoogte links vereist voor validatie","ext.validate":"✓ Gevel valideren","ext.saisirDim":"Vul de afmetingen in →",
+    "modal.step1":"Identificatie","modal.step2":"Invullen","modal.step3":"Foto's","modal.step4":"Lancering","modal.launch":"Starten","modal.template":"Gebouwtype",
+    "report.meas":"Metingen","report.devis":"Offerte","report.insp":"Inspectie","report.prop":"Eigendom",
+    "settings.profile":"Mijn profiel","settings.preferences":"Voorkeuren","settings.civilites":"Aanspreektitels","settings.language":"Taal","settings.theme":"Thema","settings.themeDark":"🌙 Donker","settings.themeLight":"☀️ Licht","settings.reset":"Demogegevens herstellen",
+    "tpl.maisonLibre":"Vrijstaande woning","tpl.maisonLibreDesc":"Villa 9 × 12 m","tpl.mitoyenne":"Rijwoning","tpl.mitoyenneDesc":"2 vrije + 2 gedeelde gevels","tpl.semiMitoyenne":"3 gevels","tpl.semiMitoyenneDesc":"Halfopen 8 × 10 m","tpl.fermette":"Hoeve","tpl.fermetteDesc":"Traditionele hoeve 12 × 15 m","tpl.appart":"Appartementsgebouw","tpl.appartDesc":"Gebouw 5 verdiepingen","tpl.skip":"Handmatige invoer",
+    "peb.title":"Energieprestatie (EPB)","peb.estimated":"Indicatieve schatting op basis van projectgegevens","peb.inputs":"Gebruikte gegevens","peb.kwhM2":"kWh/m²/jaar","peb.recos":"Aanbevelingen","peb.yearBuilt":"Bouwjaar","peb.insulation":"Isolatie","peb.insulationFull":"Volledig","peb.insulationPartial":"Gedeeltelijk","peb.insulationNone":"Geen",
+    "mat.quantitative":"Materialenoverzicht","mat.subtotal":"Subtotaal","mat.unitPrice":"Eenheidsprijs","mat.qty":"Hoeveelheid","mat.total":"Totaal excl. btw","mat.roof":"Dakbedekking","mat.facade":"Gevels","mat.insulation":"Isolatie","mat.copyDevis":"Kopiëren naar offerte","mat.exportPdf":"PDF exporteren",
+    "share.title":"Dit project delen","share.copyLink":"Link kopiëren","share.viewMode":"Klantweergave","share.signature":"Handtekening klant","share.signed":"Getekend op","share.regenerate":"Link vernieuwen","share.linkCopied":"Link gekopieerd","share.qrCode":"QR-code","share.notice":"De link bevat alle projectgegevens (gecodeerd in de URL). Deel hem met je klant via e-mail/SMS.",
+    "ar.viewIn":"Bekijk in augmented reality","ar.downloadGlb":"3D-model downloaden (.glb)","ar.scanQr":"Scan met je iPhone om AR te bekijken","ar.iosNotice":"Open deze link in Safari op iPhone voor AR Quick Look.","ar.androidNotice":"Open met Google Scene Viewer op Android.",
+  },
+  en: {
+    "nav.projects":"Projects","nav.reports":"Reports","nav.settings":"Settings","nav.help":"Help",
+    "common.search":"Search...","common.save":"Save","common.cancel":"Cancel","common.delete":"Delete","common.edit":"Edit","common.close":"Close","common.next":"Next","common.prev":"Previous","common.back":"Back","common.export":"Export","common.import":"Import","common.share":"Share","common.copy":"Copy","common.yes":"Yes","common.no":"No","common.optional":"(optional)","common.required":"Required","common.open":"Open","common.new":"New",
+    "dashboard.newProject":"+ New project","dashboard.allStatus":"All statuses","dashboard.empty":"No projects yet","dashboard.startNew":"Create your first project to get started.",
+    "status.draft":"Draft","status.processing":"In progress","status.done":"Done",
+    "tab.photos":"Photos","tab.model":"3D model","tab.plans":"Plans","tab.meas":"Measurements","tab.exterior":"Exterior","tab.interior":"Interior","tab.design":"Design","tab.devis":"Quote","tab.materials":"Materials","tab.peb":"EPC","tab.share":"Share",
+    "int.title":"Interior survey","int.empty":"No levels yet","int.addLevel":"+ Add level","int.addRoom":"+ Add room","int.totalArea":"Total area","int.totalRooms":"rooms","int.score":"Validated","int.backLevels":"← Levels","int.length":"Length (m)","int.width":"Width (m)","int.height":"Height (m)","int.area":"Area (m²)","int.areaAuto":"Computed area","int.volume":"Volume","int.remarks":"Remarks / issues","int.photo":"Room photo","int.photoTake":"Choose photo","int.photoOk":"Photo OK","int.validate":"Validate room","int.validated":"✓ Validated","int.delete":"Delete","int.confirmDelete":"Delete permanently?","int.pickLevel":"Choose level type","int.pickRoom":"Choose room type","int.requiredHint":"Photo + area + height required to validate",
+    "ext.title":"Exterior survey — 4 facades","ext.facade.sud":"South","ext.facade.est":"East","ext.facade.nord":"North","ext.facade.ouest":"West","ext.facadeDetail":"Real-time input + ElevationDiagram SVG live","ext.notFilled":"Not filled in","ext.brute":"gross","ext.net":"net","ext.validated":"validated","ext.validatedBadge":"✓ Validated","ext.backList":"← Facades","ext.pitch":"Roof pitch","ext.dimensions":"Main dimensions","ext.widthTotal":"Total width (m)","ext.heightLeft":"Left height (m)","ext.heightLeftHelp":"Ground → eave on left","ext.heightRight":"Right height (m)","ext.heightRightHelp":"Ground → eave on right","ext.heightCorniche":"Eave height (m)","ext.heightCornicheHelp":"Gutter line","ext.hasPignon":"This facade shows the gable (ridge visible)","ext.heightFaitage":"Ridge height (m)","ext.heightFaitageHelp":"Ground → top of roof","ext.openings":"Openings","ext.doors":"Doors","ext.windows":"Windows","ext.bays":"Bay windows","ext.surface":"Surface (m²)","ext.materialState":"Material & state","ext.material":"Material","ext.mat.enduit":"Render / plaster","ext.mat.brique":"Brick","ext.mat.pierre":"Natural stone","ext.mat.bardage":"Wood/metal cladding","ext.mat.beton":"Concrete","ext.mat.verre":"Curtain wall","ext.mat.autre":"Other","ext.condition":"Overall state","ext.cond.bon":"Good","ext.cond.moyen":"Average","ext.cond.mauvais":"Poor","ext.hasDevers":"Tilt / not vertical","ext.remarks":"Remarks","ext.requiredHint":"Width + left height required to validate","ext.validate":"✓ Validate this facade","ext.saisirDim":"Enter dimensions →",
+    "modal.step1":"Identification","modal.step2":"Fill in","modal.step3":"Photos","modal.step4":"Launch","modal.launch":"Launch","modal.template":"Building type",
+    "report.meas":"Measurements","report.devis":"Quote","report.insp":"Inspection","report.prop":"Property",
+    "settings.profile":"My profile","settings.preferences":"Preferences","settings.civilites":"Civility titles","settings.language":"Language","settings.theme":"Theme","settings.themeDark":"🌙 Dark","settings.themeLight":"☀️ Light","settings.reset":"Reset demo data",
+    "tpl.maisonLibre":"Detached house","tpl.maisonLibreDesc":"Standalone 9 × 12 m","tpl.mitoyenne":"Terraced house","tpl.mitoyenneDesc":"2 free + 2 shared walls","tpl.semiMitoyenne":"3 walls","tpl.semiMitoyenneDesc":"Semi-detached 8 × 10 m","tpl.fermette":"Farmhouse","tpl.fermetteDesc":"Traditional farmhouse 12 × 15 m","tpl.appart":"Apartment building","tpl.appartDesc":"5-story building","tpl.skip":"Manual entry",
+    "peb.title":"Energy performance (EPC)","peb.estimated":"Indicative estimate based on project data","peb.inputs":"Inputs used","peb.kwhM2":"kWh/m²/year","peb.recos":"Recommendations","peb.yearBuilt":"Year built","peb.insulation":"Insulation","peb.insulationFull":"Full","peb.insulationPartial":"Partial","peb.insulationNone":"None",
+    "mat.quantitative":"Material takeoff","mat.subtotal":"Subtotal","mat.unitPrice":"Unit price","mat.qty":"Quantity","mat.total":"Total excl. VAT","mat.roof":"Roof","mat.facade":"Facades","mat.insulation":"Insulation","mat.copyDevis":"Copy to Quote","mat.exportPdf":"Export PDF",
+    "share.title":"Share this project","share.copyLink":"Copy link","share.viewMode":"Customer view","share.signature":"Customer signature","share.signed":"Signed on","share.regenerate":"Regenerate link","share.linkCopied":"Link copied to clipboard","share.qrCode":"QR code","share.notice":"The link contains all project data (encoded in URL). Share via email/SMS with your customer.",
+    "ar.viewIn":"View in augmented reality","ar.downloadGlb":"Download 3D model (.glb)","ar.scanQr":"Scan with iPhone to view in AR","ar.iosNotice":"On iPhone, open this link in Safari for AR Quick Look.","ar.androidNotice":"On Android, open with Google Scene Viewer.",
+  },
+  de: {
+    "nav.projects":"Projekte","nav.reports":"Berichte","nav.settings":"Einstellungen","nav.help":"Hilfe",
+    "common.search":"Suchen...","common.save":"Speichern","common.cancel":"Abbrechen","common.delete":"Löschen","common.edit":"Bearbeiten","common.close":"Schließen","common.next":"Weiter","common.prev":"Zurück","common.back":"Zurück","common.export":"Exportieren","common.import":"Importieren","common.share":"Teilen","common.copy":"Kopieren","common.yes":"Ja","common.no":"Nein","common.optional":"(optional)","common.required":"Erforderlich","common.open":"Öffnen","common.new":"Neu",
+    "dashboard.newProject":"+ Neues Projekt","dashboard.allStatus":"Alle Status","dashboard.empty":"Noch keine Projekte","dashboard.startNew":"Erstellen Sie Ihr erstes Projekt.",
+    "status.draft":"Entwurf","status.processing":"In Bearbeitung","status.done":"Fertig",
+    "tab.photos":"Fotos","tab.model":"3D-Modell","tab.plans":"Pläne","tab.meas":"Messungen","tab.exterior":"Außen","tab.interior":"Innen","tab.design":"Design","tab.devis":"Angebot","tab.materials":"Materialien","tab.peb":"EPC","tab.share":"Teilen",
+    "int.title":"Innenaufmaß","int.empty":"Noch keine Etagen","int.addLevel":"+ Etage hinzufügen","int.addRoom":"+ Raum hinzufügen","int.totalArea":"Gesamtfläche","int.totalRooms":"Räume","int.score":"Validiert","int.backLevels":"← Etagen","int.length":"Länge (m)","int.width":"Breite (m)","int.height":"Höhe (m)","int.area":"Fläche (m²)","int.areaAuto":"Berechnete Fläche","int.volume":"Volumen","int.remarks":"Anmerkungen","int.photo":"Raumfoto","int.photoTake":"Foto wählen","int.photoOk":"Foto OK","int.validate":"Raum validieren","int.validated":"✓ Validiert","int.delete":"Löschen","int.confirmDelete":"Endgültig löschen?","int.pickLevel":"Etagentyp wählen","int.pickRoom":"Raumtyp wählen","int.requiredHint":"Foto + Fläche + Höhe erforderlich für Validierung",
+    "ext.title":"Außenaufmaß — 4 Fassaden","ext.facade.sud":"Süd","ext.facade.est":"Ost","ext.facade.nord":"Nord","ext.facade.ouest":"West","ext.facadeDetail":"Echtzeit-Eingabe + ElevationDiagram SVG live","ext.notFilled":"Nicht ausgefüllt","ext.brute":"brutto","ext.net":"netto","ext.validated":"validiert","ext.validatedBadge":"✓ Validiert","ext.backList":"← Fassaden","ext.pitch":"Dachneigung","ext.dimensions":"Hauptabmessungen","ext.widthTotal":"Gesamtbreite (m)","ext.heightLeft":"Höhe links (m)","ext.heightLeftHelp":"Boden → Traufe links","ext.heightRight":"Höhe rechts (m)","ext.heightRightHelp":"Boden → Traufe rechts","ext.heightCorniche":"Traufhöhe (m)","ext.heightCornicheHelp":"Rinnenhöhe","ext.hasPignon":"Diese Fassade zeigt den Giebel (Firsthöhe sichtbar)","ext.heightFaitage":"Firsthöhe (m)","ext.heightFaitageHelp":"Boden → Dachfirst","ext.openings":"Öffnungen","ext.doors":"Türen","ext.windows":"Fenster","ext.bays":"Fenstererker","ext.surface":"Fläche (m²)","ext.materialState":"Material & Zustand","ext.material":"Material","ext.mat.enduit":"Putz","ext.mat.brique":"Ziegel","ext.mat.pierre":"Naturstein","ext.mat.bardage":"Holz-/Metallverkleidung","ext.mat.beton":"Beton","ext.mat.verre":"Glasfassade","ext.mat.autre":"Andere","ext.condition":"Allgemeiner Zustand","ext.cond.bon":"Gut","ext.cond.moyen":"Mittel","ext.cond.mauvais":"Schlecht","ext.hasDevers":"Schiefstellung / nicht senkrecht","ext.remarks":"Anmerkungen","ext.requiredHint":"Breite + Höhe links erforderlich für Validierung","ext.validate":"✓ Fassade validieren","ext.saisirDim":"Abmessungen eingeben →",
+    "modal.step1":"Identifikation","modal.step2":"Ausfüllen","modal.step3":"Fotos","modal.step4":"Start","modal.launch":"Starten","modal.template":"Gebäudetyp",
+    "report.meas":"Messungen","report.devis":"Angebot","report.insp":"Inspektion","report.prop":"Immobilie",
+    "settings.profile":"Mein Profil","settings.preferences":"Einstellungen","settings.civilites":"Anrede","settings.language":"Sprache","settings.theme":"Erscheinungsbild","settings.themeDark":"🌙 Dunkel","settings.themeLight":"☀️ Hell","settings.reset":"Demo-Daten zurücksetzen",
+    "tpl.maisonLibre":"Freistehendes Haus","tpl.maisonLibreDesc":"Einfamilienhaus 9 × 12 m","tpl.mitoyenne":"Reihenhaus","tpl.mitoyenneDesc":"2 freie + 2 gemeinsame Fassaden","tpl.semiMitoyenne":"3 Fassaden","tpl.semiMitoyenneDesc":"Doppelhaushälfte 8 × 10 m","tpl.fermette":"Bauernhaus","tpl.fermetteDesc":"Traditionelles Bauernhaus 12 × 15 m","tpl.appart":"Mehrfamilienhaus","tpl.appartDesc":"Gebäude mit 5 Stockwerken","tpl.skip":"Manuelle Eingabe",
+    "peb.title":"Energieeffizienz (EPC)","peb.estimated":"Richtwert basierend auf Projektdaten","peb.inputs":"Verwendete Daten","peb.kwhM2":"kWh/m²/Jahr","peb.recos":"Empfehlungen","peb.yearBuilt":"Baujahr","peb.insulation":"Dämmung","peb.insulationFull":"Vollständig","peb.insulationPartial":"Teilweise","peb.insulationNone":"Keine",
+    "mat.quantitative":"Materialliste","mat.subtotal":"Zwischensumme","mat.unitPrice":"Stückpreis","mat.qty":"Menge","mat.total":"Summe netto","mat.roof":"Dach","mat.facade":"Fassaden","mat.insulation":"Dämmung","mat.copyDevis":"In Angebot kopieren","mat.exportPdf":"PDF exportieren",
+    "share.title":"Dieses Projekt teilen","share.copyLink":"Link kopieren","share.viewMode":"Kundenansicht","share.signature":"Kundenunterschrift","share.signed":"Unterzeichnet am","share.regenerate":"Link erneuern","share.linkCopied":"Link in Zwischenablage kopiert","share.qrCode":"QR-Code","share.notice":"Der Link enthält alle Projektdaten (in URL kodiert). Teilen Sie ihn per E-Mail/SMS mit Ihrem Kunden.",
+    "ar.viewIn":"In AR anzeigen","ar.downloadGlb":"3D-Modell herunterladen (.glb)","ar.scanQr":"Mit iPhone scannen für AR-Ansicht","ar.iosNotice":"Auf iPhone in Safari öffnen für AR Quick Look.","ar.androidNotice":"Auf Android mit Google Scene Viewer öffnen.",
+  },
+};
+
+/* Lookup d'une chaîne traduite. Tombe en fallback FR si absente, puis sur
+   la clé brute (utile au dev). Supporte interpolation {name} via params. */
+function t(key, params) {
+  var lang;
+  try { lang = (getPrefs().lang || "fr").toLowerCase(); } catch(e) { lang = "fr"; }
+  if (!I18N[lang]) lang = "fr";
+  var s = I18N[lang][key] || I18N.fr[key] || key;
+  if (params) Object.keys(params).forEach(function(k){
+    s = s.replace(new RegExp("\\{" + k + "\\}", "g"), params[k]);
+  });
+  return s;
+}
+
+function getPrefs() {
+  var merged = Object.assign({}, DEFAULT_PREFS, loadStored(STORE_KEY_PREFS, {}));
+  /* Auto-détection langue au premier accès (lang=null = jamais setté) */
+  if (!merged.lang) merged.lang = detectLang();
+  return merged;
+}
+
+/* Cached Belgian postal codes data, loaded once on first need */
+var BE_POSTAL_CACHE = null;
+function loadBePostalCodes() {
+  if (BE_POSTAL_CACHE) return Promise.resolve(BE_POSTAL_CACHE);
+  return fetch("/data/be-postal-codes.json")
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(j){ BE_POSTAL_CACHE = j; return j; })
+    .catch(function(){ BE_POSTAL_CACHE = []; return []; });
+}
+
+/* Reverse-geocode a lat/lng into address pieces using Nominatim (free
+   OpenStreetMap geocoder). Polite User-Agent header is recommended in
+   production but the dev server doesn't strictly need it. */
+function reverseGeocode(lat, lng) {
+  var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&accept-language=fr&lat=" + lat + "&lon=" + lng;
+  return fetch(url, { headers: { "Accept-Language": "fr" } })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
+}
+
+/* Belgium bbox = west,south,east,north. Used to restrict autocomplete
+   results to Belgian addresses (incl. all sub-municipalities). */
+var BE_BBOX = "2.5,49.4,6.5,51.6";
+
+/* Live address search via Photon (Komoot's open OSM-backed
+   autocomplete service - faster than Nominatim for as-you-type). */
+function searchAddressBE(query) {
+  var q = (query || "").trim();
+  if (q.length < 3) return Promise.resolve([]);
+  var url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(q)
+    + "&lang=fr&limit=8&bbox=" + BE_BBOX;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.features) return [];
+      return j.features
+        .filter(function(f){ return f.properties && f.properties.countrycode === "BE"; })
+        .map(function(f){
+          var p = f.properties;
+          var name = p.name || p.street || "";
+          var city = p.city || p.district || p.locality || p.county || "";
+          var pc   = p.postcode || "";
+          /* "type" can be street, house, locality, region... */
+          var disp = name;
+          if (p.housenumber) disp += " " + p.housenumber;
+          if (pc || city) disp += "  ·  " + (pc ? pc + " " : "") + city;
+          return {
+            street: name, num: p.housenumber || "",
+            city: city, postcode: pc, type: p.type || "",
+            display: disp,
+          };
+        });
+    })
+    .catch(function(){ return []; });
+}
+
+/* Live place search (cities + sub-municipalities + hamlets) for the
+   "Ville" field. Filters on osm_tag=place (excludes streets/POIs). */
+function searchCityBE(query) {
+  var q = (query || "").trim();
+  if (q.length < 2) return Promise.resolve([]);
+  var url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(q)
+    + "&lang=fr&limit=10&osm_tag=place&bbox=" + BE_BBOX;
+  return fetch(url)
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(j){
+      if (!j || !j.features) return [];
+      return j.features
+        .filter(function(f){ return f.properties && f.properties.countrycode === "BE"; })
+        .map(function(f){
+          var p = f.properties;
+          var name = p.name || "";
+          var pc = p.postcode || "";
+          var state = p.state || "";
+          var disp = name + (pc ? "  ·  " + pc : "") + (state ? "  ·  " + state : "");
+          return { city: name, postcode: pc, state: state, display: disp };
+        })
+        .filter(function(o){ return o.city; });
+    })
+    .catch(function(){ return []; });
+}
+
+function loadStored(key, fallback) {
+  try {
+    var raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    var parsed = JSON.parse(raw);
+    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : fallback;
+    if (parsed && typeof parsed === "object") return parsed;
+    return fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function saveStored(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+
+/* Merge stored items with hardcoded defaults: keeps user-created or
+   user-edited entries from localStorage, but adds any default item
+   whose id is not present yet. Lets new demo projects/reports show
+   up automatically on next reload without wiping user data. */
+function mergeWithDefaults(stored, defaults) {
+  if (!stored || !Array.isArray(stored)) return defaults;
+  var defMap = {};
+  defaults.forEach(function(d){ if (d && d.id != null) defMap[String(d.id)] = d; });
+  /* For known demo entries, force-refresh the `photos` field from defaults
+     so iterations to the bundled demo content (e.g. swapping inline-SVG
+     placeholders for real Unsplash URLs) reach the user without wiping
+     their other edits to the same project. User-created entries
+     (id not in defMap) are left untouched. */
+  var merged = stored.map(function(s){
+    var d = defMap[String(s.id)];
+    if (!d) return s;
+    var refreshed = Object.assign({}, s);
+    if (Array.isArray(d.photos)) refreshed.photos = d.photos;
+    return refreshed;
+  });
+  /* Add any default that is not yet present */
+  var ids = {};
+  merged.forEach(function(x){ if (x && x.id != null) ids[String(x.id)] = true; });
+  var missing = defaults.filter(function(d){ return d && d.id != null && !ids[String(d.id)]; });
+  return missing.length === 0 ? merged : merged.concat(missing);
+}
+
+/* ---- App root ---- */
+/* React error boundary — capture les erreurs JS imprévues (ex. crash R3F
+   sur perte de contexte WebGL, exception dans un useEffect, etc.) et
+   affiche une page de récupération propre plutôt qu'un écran blanc.
+   Sauvegarde la stack trace dans la console + propose 2 actions :
+   - Recharger (Cmd+R équivalent) — résout 80% des cas
+   - Réinitialiser localStorage (nuke option) — si données corrompues */
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) { return { error: error }; }
+  componentDidCatch(error, info) {
+    /* eslint-disable no-console */
+    console.error("MesurePro ErrorBoundary :", error, info);
+  }
+  reload = () => { try { window.location.reload(); } catch(e){} };
+  reset = () => {
+    if (!window.confirm("Effacer toutes les données locales (projets, rapports, préférences) et recharger l'app ?")) return;
+    try {
+      Object.keys(window.localStorage).forEach(function(k){
+        if (k.indexOf("mesurepro") === 0) window.localStorage.removeItem(k);
+      });
+    } catch(e){}
+    try { window.location.reload(); } catch(e){}
+  };
+  render() {
+    if (this.state.error) {
+      var msg = (this.state.error && (this.state.error.stack || this.state.error.message)) || String(this.state.error);
+      return (
+        <div style={{minHeight:"100vh", background:"#08111E", color:"#E8EDF5",
+          padding:"40px 24px", fontFamily:"system-ui, -apple-system, sans-serif",
+          boxSizing:"border-box"}}>
+          <div style={{maxWidth:680, margin:"0 auto"}}>
+            <div style={{fontSize:48, marginBottom:18}}>⚠️</div>
+            <div style={{fontSize:24, fontWeight:800, marginBottom:14}}>
+              Une erreur inattendue s'est produite
+            </div>
+            <p style={{color:"#8DAFC8", lineHeight:1.65, fontSize:13.5, marginBottom:22}}>
+              MesurePro a rencontré un problème et a dû interrompre l'opération en cours.
+              Vos données restent sauvegardées localement, elles ne sont pas perdues.
+              Recharge la page — si l'erreur revient, réinitialise les données locales en
+              dernier recours.
+            </p>
+            <details style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:9,
+              padding:"12px 16px", marginBottom:22, fontSize:12, color:"#607898"}}>
+              <summary style={{cursor:"pointer", fontWeight:700, color:"#FF8C42"}}>
+                Détails techniques (pour debug)
+              </summary>
+              <pre style={{whiteSpace:"pre-wrap", marginTop:10, fontSize:10.5,
+                fontFamily:"monospace", color:"#FF8C42", overflow:"auto", maxHeight:240}}>
+                {msg}
+              </pre>
+            </details>
+            <div style={{display:"flex", gap:10, flexWrap:"wrap"}}>
+              <button type="button" onClick={this.reload}
+                style={{background:"#00C2FF", color:"#000", border:"none",
+                  borderRadius:7, padding:"10px 22px", fontSize:13, fontWeight:800,
+                  cursor:"pointer", outline:"none"}}>
+                ⟳ Recharger l'app
+              </button>
+              <button type="button" onClick={this.reset}
+                style={{background:"transparent", color:"#FF4757",
+                  border:"1px solid #FF4757", borderRadius:7,
+                  padding:"10px 22px", fontSize:13, fontWeight:600, cursor:"pointer", outline:"none"}}>
+                Réinitialiser les données locales
+              </button>
+            </div>
+            <p style={{marginTop:30, fontSize:11, color:"#2E4A6A"}}>
+              MesurePro v2.7 — Si l'erreur persiste, faites un screenshot de cette page (avec les détails techniques ouverts) pour diagnostic.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function App() {
+  /* Mode partage : si ?share=... dans l'URL, on render uniquement ShareView
+     en read-only (pas d'app complète, pas de sidebar). L'utilisateur peut
+     quitter via le bouton ← Quitter qui retire le param de l'URL.
+
+     IMPORTANT (Rules of Hooks) : tous les hooks doivent rester appelés
+     inconditionnellement et dans le même ordre. On déclare donc tous les
+     useState d'abord, puis on early-return SEULEMENT après. */
+  var [shareProject, setShareProject] = useState(function(){
+    try {
+      var params = new URLSearchParams(window.location.search || "");
+      var enc = params.get("share");
+      if (enc) {
+        var p = decodeProjectFromShare(enc);
+        if (p && p.addr) return p;
+      }
+    } catch(e) {}
+    return null;
+  });
+
+  var [projects, setProjects] = useState(function(){
+    return mergeWithDefaults(loadStored(STORE_KEY_PROJECTS, null), PROJS);
+  });
+  var [reports,  setReports]  = useState(function(){
+    return mergeWithDefaults(loadStored(STORE_KEY_REPORTS, null), RPTS);
+  });
+  var [view,     setView]     = useState("dash");
+  var [openId,   setOpenId]   = useState(null);
+  var [openTab,  setOpenTab]  = useState("model");   /* tab d'atterrissage de ProjectDetail */
+  var [modal,    setModal]    = useState(false);
+  /* prefsTick : incrément à chaque event "mesurepro:prefs" — force ré-render
+     global de l'arbre pour propager les changements de langue/thème vers
+     tous les consommateurs de t() et applyTheme() sans context API lourd. */
+  var [, setPrefsTick] = useState(0);
+
+  useEffect(function(){ saveStored(STORE_KEY_PROJECTS, projects); }, [projects]);
+  useEffect(function(){ saveStored(STORE_KEY_REPORTS,  reports);  }, [reports]);
+
+  /* Boot: applique thème + langue dès le premier render + écoute les
+     changements de prefs pour ré-rendre l'app entière. */
+  useEffect(function(){
+    var p = getPrefs();
+    applyTheme(p.theme);
+    /* Marque la lang sur <html lang="..."> pour SEO + tooling navigateur */
+    try { document.documentElement.setAttribute("lang", p.lang || "fr"); } catch(e){}
+    function onPrefsChange() {
+      var np = getPrefs();
+      applyTheme(np.theme);
+      try { document.documentElement.setAttribute("lang", np.lang || "fr"); } catch(e){}
+      setPrefsTick(function(n){ return n + 1; });
+    }
+    window.addEventListener("mesurepro:prefs", onPrefsChange);
+    return function(){ window.removeEventListener("mesurepro:prefs", onPrefsChange); };
+  }, []);
+
+  /* Raccourcis clavier globaux. Ignorés quand l'utilisateur tape dans un
+     champ de saisie (input/textarea/contenteditable). Liste :
+       ?            → ouvre l'Aide
+       Esc          → ferme le Modal Nouveau projet s'il est ouvert
+       n            → Nouveau projet (depuis le Dashboard)
+       h            → bascule sur l'Aide
+       g puis d     → go Dashboard
+       g puis r     → go Rapports
+       g puis p     → go Paramètres */
+  useEffect(function(){
+    var pendingG = false;
+    var gTimeout = null;
+    function isTyping(target) {
+      if (!target) return false;
+      var tag = (target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      if (target.isContentEditable) return true;
+      return false;
+    }
+    function onKey(e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTyping(e.target)) return;
+      var k = e.key;
+      if (pendingG) {
+        pendingG = false;
+        if (gTimeout) clearTimeout(gTimeout);
+        if (k === "d") { setView("dash"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "r") { setView("reports"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "p") { setView("settings"); setOpenId(null); e.preventDefault(); return; }
+        if (k === "h") { setView("help"); setOpenId(null); e.preventDefault(); return; }
+        return;
+      }
+      if (k === "?" || (k === "/" && e.shiftKey)) { setView("help"); setOpenId(null); e.preventDefault(); return; }
+      if (k === "Escape" && modal) { setModal(false); e.preventDefault(); return; }
+      if (k === "n" && view === "dash") { setModal(true); e.preventDefault(); return; }
+      if (k === "h") { setView("help"); setOpenId(null); e.preventDefault(); return; }
+      if (k === "g") {
+        pendingG = true;
+        gTimeout = setTimeout(function(){ pendingG = false; }, 800);
+        e.preventDefault();
+        return;
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return function(){
+      window.removeEventListener("keydown", onKey);
+      if (gTimeout) clearTimeout(gTimeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modal, view]);
+
+  /* Boot-time auto-promote: any project stuck in 'processing' (demo data
+     or a refresh during the 3s window) gets bumped to 'draft' after 3s. */
+  useEffect(function() {
+    var stuck = projects.filter(function(p){ return p.status === "processing"; });
+    if (stuck.length === 0) return;
+    var timeouts = stuck.map(function(p) {
+      return setTimeout(function() {
+        setProjects(function(ps) {
+          return ps.map(function(x) {
+            return x.id === p.id && x.status === "processing"
+              ? Object.assign({},x,{status:"draft"})
+              : x;
+          });
+        });
+      }, 3000);
+    });
+    return function() { timeouts.forEach(clearTimeout); };
+  }, []);
+
+  var openP = projects.find(function(p){ return p.id === openId; }) || null;
+
+  function nav(v) {
+    if (v === "dash") setOpenId(null);
+    setView(v);
+  }
+
+  function openProject(p, tab) {
+    setOpenId(p.id);
+    setView("project");
+    setOpenTab(tab || "model");   /* "model" par défaut pour click Dashboard, "meas" après création */
+  }
+
+  function updateProject(id, patch) {
+    setProjects(function(ps) {
+      return ps.map(function(p){ return p.id === id ? Object.assign({},p,patch) : p; });
+    });
+  }
+
+  function deleteProject(id) {
+    setProjects(function(ps){ return ps.filter(function(p){ return p.id !== id; }); });
+    /* Si on était en train de regarder le projet supprimé, on rebascule
+       sur le Dashboard. Le if est défensif : on garde la nav même si openId
+       a déjà été nettoyé entre-temps. */
+    if (openId === id) {
+      setOpenId(null);
+      setView("dash");
+    }
+  }
+
+  function addProject(info) {
+    var meas = info.meas ? Object.assign({}, EMPTY_MEAS, info.meas) : Object.assign({}, EMPTY_MEAS);
+    var area = parseFloat(meas.walls) || 0;
+    var hMax = parseFloat(meas.h) || 0;
+    var floors = hMax > 0 ? Math.max(1, Math.round(hMax / 3)) : 0;   /* ~3 m / étage */
+    var np = {
+      id: Date.now(),
+      addr: info.addr || "Nouvelle adresse",
+      city: info.city || "Ville",
+      status:"processing",
+      date: new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}),
+      area: area, floors: floors, roof:"--", shape:"M",
+      client: info.client || "",
+      photos: info.photos || [],
+      meas: meas,
+      rooms: info.rooms && info.rooms.length ? info.rooms : [],
+      facades: info.facades || null,
+    };
+    setProjects(function(ps){ return ps.concat([np]); });
+    /* Bascule auto sur la fiche du nouveau projet, onglet Mesures —
+       l'utilisateur vient de saisir ses 4 façades, c'est le bon endroit
+       pour vérifier les totaux auto-calculés. */
+    openProject(np, "meas");
+    /* Auto-promote processing -> draft after 3s (no real CV pipeline yet) */
+    setTimeout(function() {
+      setProjects(function(ps) {
+        return ps.map(function(p) {
+          return p.id === np.id && p.status === "processing"
+            ? Object.assign({},p,{status:"draft"})
+            : p;
+        });
+      });
+    }, 3000);
+  }
+
+  /* Mode partage ?share=... — branchement APRÈS tous les hooks (Rules of Hooks).
+     ShareView est read-only, pas de sidebar, pas d'édition. */
+  if (shareProject) {
+    return <ShareView project={shareProject} onExitShare={function(){
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.delete("share");
+        window.history.replaceState({}, "", url.toString());
+      } catch(e){}
+      setShareProject(null);
+    }}/>;
+  }
+
+  return (
+    <div style={{fontFamily:"system-ui,-apple-system,sans-serif",
+      background:"#08111E",color:"#E8EDF5",minHeight:"100vh"}}>
+      <Sidebar view={view} setView={nav}/>
+      <div style={{marginLeft:W,minHeight:"100vh"}}>
+        {view === "dash" && (
+          <Dashboard projects={projects} reports={reports} onOpen={openProject}
+            onNew={function(){setModal(true);}}
+            onOpenReports={function(){nav("reports");}}/>
+        )}
+        {view === "project" && openP && (
+          <ProjectDetail
+            key={openP.id + ":" + openTab}
+            project={openP}
+            onBack={function(){nav("dash");}}
+            onUpdate={function(patch){updateProject(openP.id,patch);}}
+            onDelete={function(){deleteProject(openP.id);}}
+            initialTab={openTab}
+          />
+        )}
+        {view === "reports"  && <Reports reports={reports} setReports={setReports}/>}
+        {view === "settings" && <Settings projects={projects} reports={reports}/>}
+        {view === "help"     && <HelpPage/>}
+      </div>
+      {modal && (
+        <Modal
+          onClose={function(){setModal(false);}}
+          onCreate={function(info){addProject(info); setModal(false);}}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ---- Named exports for unit tests (vitest) — purs, pas de side effect.
+   Permet d'importer ces helpers depuis src/App.test.js sans monter le
+   composant App. Garder cette liste à jour quand on ajoute des helpers
+   testables. */
+
+/* =============================================================
+   Phase A — Module Intérieur (mesurepro v1 + JSX merge — 2026-05-20)
+   Niveaux (cave / RDC / étages / combles) + pièces (salon / cuisine
+   / SDB / chambre / couloir / WC / garage / bureau / buanderie /
+   autre) avec photo, dimensions L×l, surface auto-calculée, hauteur,
+   volume, remarques et validation. Idiome v1 : function declarations,
+   var pour state local, styles inline palette navy/cyan.
+   ============================================================= */
+
+const LEVEL_TYPES = [
+  { id:"cave",    label:"Cave / Sous-sol",   emoji:"⬇️" },
+  { id:"rdc",     label:"Rez-de-chaussée",   emoji:"🏠" },
+  { id:"etage1",  label:"1er Étage",         emoji:"①"       },
+  { id:"etage2",  label:"2ème Étage",        emoji:"②"       },
+  { id:"combles", label:"Combles",           emoji:"🔺" },
+];
+
+const ROOM_TYPES = [
+  { id:"salon",     label:"Salon",         emoji:"🛋️" },
+  { id:"cuisine",   label:"Cuisine",       emoji:"🍳"       },
+  { id:"chambre",   label:"Chambre",       emoji:"🛏️" },
+  { id:"sdb",       label:"Salle de bain", emoji:"🚿"       },
+  { id:"couloir",   label:"Couloir",       emoji:"🚪"       },
+  { id:"wc",        label:"WC",            emoji:"🚽"       },
+  { id:"garage",    label:"Garage",        emoji:"🚗"       },
+  { id:"bureau",    label:"Bureau",        emoji:"💻"       },
+  { id:"buanderie", label:"Buanderie",     emoji:"🧺"       },
+  { id:"autre",     label:"Autre",         emoji:"📦"       },
+];
+
+function uidInterior() {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function emptyInterior() {
+  return { levels: [] };
+}
+
+function emptyLevel(type) {
+  var lt = LEVEL_TYPES.find(function(l){ return l.id === type; }) || LEVEL_TYPES[1];
+  return {
+    id: uidInterior(),
+    type: lt.id,
+    label: lt.label,
+    emoji: lt.emoji,
+    rooms: [],
+  };
+}
+
+function emptyRoom(type) {
+  var rt = ROOM_TYPES.find(function(r){ return r.id === type; }) || ROOM_TYPES[0];
+  return {
+    id: uidInterior(),
+    type: rt.id,
+    label: rt.label,
+    emoji: rt.emoji,
+    length: "",
+    width: "",
+    height: "",
+    area: "",
+    hasPhoto: false,
+    photoUrl: null,
+    remarks: "",
+    validated: false,
+  };
+}
+
+function roomArea(length, width) {
+  var l = parseFloat(length);
+  var w = parseFloat(width);
+  if (!isFinite(l) || !isFinite(w) || l <= 0 || w <= 0) return 0;
+  return Math.round(l * w * 100) / 100;
+}
+
+function roomVolume(area, height) {
+  var a = parseFloat(area);
+  var h = parseFloat(height);
+  if (!isFinite(a) || !isFinite(h) || a <= 0 || h <= 0) return 0;
+  return Math.round(a * h * 100) / 100;
+}
+
+function levelArea(level) {
+  if (!level || !level.rooms) return 0;
+  return level.rooms.reduce(function(sum, r){
+    var a = parseFloat(r.area);
+    return sum + (isFinite(a) && a > 0 ? a : 0);
+  }, 0);
+}
+
+function interiorArea(project) {
+  if (!project || !project.interior || !project.interior.levels) return 0;
+  return project.interior.levels.reduce(function(sum, lvl){
+    return sum + levelArea(lvl);
+  }, 0);
+}
+
+function interiorIsValidated(project) {
+  if (!project || !project.interior || !project.interior.levels) return false;
+  var hasAny = false;
+  for (var i = 0; i < project.interior.levels.length; i++) {
+    var rooms = project.interior.levels[i].rooms || [];
+    for (var j = 0; j < rooms.length; j++) {
+      hasAny = true;
+      if (!rooms[j].validated) return false;
+    }
+  }
+  return hasAny;
+}
+
+function interiorCount(project) {
+  if (!project || !project.interior || !project.interior.levels) {
+    return { levels: 0, rooms: 0, validated: 0 };
+  }
+  var levels = project.interior.levels;
+  var rooms = 0, validated = 0;
+  for (var i = 0; i < levels.length; i++) {
+    var lr = levels[i].rooms || [];
+    rooms += lr.length;
+    for (var j = 0; j < lr.length; j++) if (lr[j].validated) validated++;
+  }
+  return { levels: levels.length, rooms: rooms, validated: validated };
+}
+
+function TabInterior({ project, onUpdate }) {
+  var interior = project.interior || emptyInterior();
+  var [view, setView] = useState("levels");
+  var [lvlId, setLvlId] = useState(null);
+  var [roomId, setRoomId] = useState(null);
+  var [newLvlType, setNewLvlType] = useState(null);
+  var [newRoomType, setNewRoomType] = useState(null);
+
+  var selLevel = interior.levels.find(function(l){ return l.id === lvlId; });
+  var selRoom = selLevel ? selLevel.rooms.find(function(r){ return r.id === roomId; }) : null;
+  var stats = interiorCount(project);
+  var totalArea = interiorArea(project);
+
+  function updateInterior(next) { onUpdate({ interior: next }); }
+
+  function doAddLevel() {
+    if (!newLvlType) return;
+    var nl = emptyLevel(newLvlType);
+    updateInterior({ levels: interior.levels.concat([nl]) });
+    setNewLvlType(null);
+    setLvlId(nl.id);
+    setView("level");
+  }
+
+  function doAddRoom() {
+    if (!newRoomType || !lvlId) return;
+    var nr = emptyRoom(newRoomType);
+    var next = {
+      levels: interior.levels.map(function(l){
+        return l.id === lvlId ? Object.assign({}, l, { rooms: l.rooms.concat([nr]) }) : l;
+      })
+    };
+    updateInterior(next);
+    setNewRoomType(null);
+    setRoomId(nr.id);
+    setView("room");
+  }
+
+  function updateRoomField(field, value) {
+    var next = {
+      levels: interior.levels.map(function(l){
+        if (l.id !== lvlId) return l;
+        return Object.assign({}, l, {
+          rooms: l.rooms.map(function(r){
+            if (r.id !== roomId) return r;
+            var patch = {}; patch[field] = value;
+            return Object.assign({}, r, patch);
+          })
+        });
+      })
+    };
+    updateInterior(next);
+  }
+
+  function doDeleteLevel(id) {
+    if (!window.confirm(t("int.confirmDelete"))) return;
+    updateInterior({ levels: interior.levels.filter(function(l){ return l.id !== id; }) });
+    setLvlId(null);
+    setView("levels");
+  }
+
+  function doDeleteRoom(id) {
+    if (!window.confirm(t("int.confirmDelete"))) return;
+    var next = {
+      levels: interior.levels.map(function(l){
+        if (l.id !== lvlId) return l;
+        return Object.assign({}, l, { rooms: l.rooms.filter(function(r){ return r.id !== id; }) });
+      })
+    };
+    updateInterior(next);
+    setRoomId(null);
+    setView("level");
+  }
+
+  function readPhotoFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var url = ev.target.result;
+      var next = {
+        levels: interior.levels.map(function(l){
+          if (l.id !== lvlId) return l;
+          return Object.assign({}, l, {
+            rooms: l.rooms.map(function(r){
+              return r.id === roomId ? Object.assign({}, r, { photoUrl: url, hasPhoto: true }) : r;
+            })
+          });
+        })
+      };
+      updateInterior(next);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  var P = { padding:"22px 24px", overflowY:"auto", minHeight:"calc(100vh - 92px)" };
+  var CARD = { background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:10, padding:"14px 18px", marginBottom:12, cursor:"pointer", transition:"border-color .15s" };
+  var CARD_OK = Object.assign({}, CARD, { borderColor:"#00E5A0", background:"rgba(0,229,160,0.05)" });
+  var H1 = { fontSize:18, fontWeight:800, color:"#E8EDF5", marginBottom:4 };
+  var H2 = { fontSize:14, fontWeight:700, color:"#E8EDF5", marginBottom:2 };
+  var MUT = { fontSize:12, color:"#607898" };
+  var INP = { width:"100%", boxSizing:"border-box", background:"#0A1828", border:"1px solid #1C3050", borderRadius:6, color:"#E8EDF5", fontSize:13, padding:"8px 10px", outline:"none" };
+  var LBL = { fontSize:11, fontWeight:700, color:"#607898", letterSpacing:1.2, textTransform:"uppercase", marginBottom:4, display:"block" };
+
+  if (view === "levels") {
+    return (
+      <div style={P}>
+        <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid #00C2FF", borderRadius:10, padding:"12px 18px", marginBottom:22, display:"flex", alignItems:"center", gap:14}}>
+          <div style={{fontSize:28}}>🏠</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14, fontWeight:800, color:"#00C2FF", marginBottom:4}}>{t("int.title")}</div>
+            <div style={MUT}>
+              {stats.levels} {stats.levels === 1 ? "niveau" : "niveaux"} · {stats.rooms} {t("int.totalRooms")} · {stats.validated} {t("int.score")} · {totalArea.toFixed(1)} m²
+            </div>
+          </div>
+        </div>
+
+        {interior.levels.length === 0 ? (
+          <div style={{textAlign:"center", padding:"50px 20px"}}>
+            <div style={{fontSize:56, marginBottom:14}}>🏘️</div>
+            <div style={H2}>{t("int.empty")}</div>
+          </div>
+        ) : (
+          interior.levels.map(function(level){
+            var la = levelArea(level);
+            var lvalid = level.rooms.filter(function(r){ return r.validated; }).length;
+            return (
+              <div key={level.id} style={CARD} onClick={function(){ setLvlId(level.id); setView("level"); }}>
+                <div style={{display:"flex", alignItems:"center", gap:12}}>
+                  <div style={{fontSize:26, width:44, textAlign:"center"}}>{level.emoji}</div>
+                  <div style={{flex:1}}>
+                    <div style={H2}>{level.label}</div>
+                    <div style={MUT}>
+                      {level.rooms.length} {t("int.totalRooms")}
+                      {la > 0 ? " · " + la.toFixed(1) + " m²" : ""}
+                      {lvalid > 0 ? " · " + lvalid + " ✓" : ""}
+                    </div>
+                  </div>
+                  <div style={{color:"#00C2FF", fontSize:20}}>›</div>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div style={{marginTop:16}}>
+          <Btn primary={true} onClick={function(){ setNewLvlType(null); setView("addLevel"); }}>{t("int.addLevel")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "addLevel") {
+    return (
+      <div style={P}>
+        <div style={H1}>{t("int.pickLevel")}</div>
+        <div style={Object.assign({}, MUT, { marginBottom:18 })}>{t("int.title")}</div>
+        {LEVEL_TYPES.map(function(lt){
+          var sel = newLvlType === lt.id;
+          return (
+            <div key={lt.id} style={sel ? CARD_OK : CARD} onClick={function(){ setNewLvlType(lt.id); }}>
+              <div style={{display:"flex", alignItems:"center", gap:12}}>
+                <div style={{fontSize:26, width:44, textAlign:"center"}}>{lt.emoji}</div>
+                <div style={Object.assign({}, H2, { color: sel ? "#00E5A0" : "#E8EDF5", flex:1 })}>{lt.label}</div>
+                {sel ? <div style={{color:"#00E5A0", fontSize:22, fontWeight:900}}>✓</div> : null}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{display:"flex", gap:8, marginTop:18}}>
+          <Btn onClick={function(){ setView("levels"); setNewLvlType(null); }}>{t("common.cancel")}</Btn>
+          <Btn primary={!!newLvlType} onClick={doAddLevel}>{t("common.save")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "level" && selLevel) {
+    var la = levelArea(selLevel);
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("levels"); setLvlId(null); }} style={{marginBottom:14}}>{t("int.backLevels")}</Btn>
+        <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:18}}>
+          <div style={{fontSize:34}}>{selLevel.emoji}</div>
+          <div style={{flex:1}}>
+            <div style={H1}>{selLevel.label}</div>
+            <div style={MUT}>{selLevel.rooms.length} {t("int.totalRooms")} · {la.toFixed(1)} m²</div>
+          </div>
+          <Btn sm={true} onClick={function(){ doDeleteLevel(selLevel.id); }} style={{background:"#3a0f12", border:"1px solid #FF4757", color:"#FF4757"}}>{t("int.delete")}</Btn>
+        </div>
+
+        {selLevel.rooms.length === 0 ? (
+          <div style={{textAlign:"center", padding:"40px 20px"}}>
+            <div style={{fontSize:48, marginBottom:10}}>🚪</div>
+            <div style={H2}>{t("int.empty")}</div>
+          </div>
+        ) : (
+          selLevel.rooms.map(function(room){
+            return (
+              <div key={room.id} style={room.validated ? CARD_OK : CARD} onClick={function(){ setRoomId(room.id); setView("room"); }}>
+                <div style={{display:"flex", alignItems:"center", gap:12}}>
+                  <div style={{fontSize:22, width:44, textAlign:"center"}}>{room.emoji}</div>
+                  <div style={{flex:1}}>
+                    <div style={H2}>{room.label}</div>
+                    <div style={Object.assign({}, MUT, { fontFamily:"monospace" })}>
+                      {room.area ? room.area + " m²" : "—"}
+                      {room.height ? " · h " + room.height + " m" : ""}
+                    </div>
+                  </div>
+                  <div style={{color: room.validated ? "#00E5A0" : "#00C2FF", fontSize:20}}>{room.validated ? "✓" : "›"}</div>
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        <div style={{marginTop:16}}>
+          <Btn primary={true} onClick={function(){ setNewRoomType(null); setView("addRoom"); }}>{t("int.addRoom")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "addRoom" && selLevel) {
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("level"); setNewRoomType(null); }} style={{marginBottom:14}}>{"← " + selLevel.label}</Btn>
+        <div style={H1}>{t("int.pickRoom")}</div>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(140px, 1fr))", gap:10, marginTop:14}}>
+          {ROOM_TYPES.map(function(rt){
+            var sel = newRoomType === rt.id;
+            return (
+              <div key={rt.id} style={Object.assign({}, sel ? CARD_OK : CARD, { textAlign:"center", padding:"16px 8px", marginBottom:0 })} onClick={function(){ setNewRoomType(rt.id); }}>
+                <div style={{fontSize:28, marginBottom:6}}>{rt.emoji}</div>
+                <div style={{fontSize:12, fontWeight:700, color: sel ? "#00E5A0" : "#E8EDF5"}}>{rt.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{display:"flex", gap:8, marginTop:18}}>
+          <Btn onClick={function(){ setView("level"); setNewRoomType(null); }}>{t("common.cancel")}</Btn>
+          <Btn primary={!!newRoomType} onClick={doAddRoom}>{t("common.save")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "room" && selLevel && selRoom) {
+    var autoA = roomArea(selRoom.length, selRoom.width);
+    var vol = roomVolume(selRoom.area, selRoom.height);
+    var canValidate = selRoom.hasPhoto && parseFloat(selRoom.area) > 0 && parseFloat(selRoom.height) > 0;
+    return (
+      <div style={P}>
+        <Btn sm={true} onClick={function(){ setView("level"); setRoomId(null); }} style={{marginBottom:14}}>{"← " + selLevel.label}</Btn>
+        <div style={{display:"flex", alignItems:"center", gap:12, marginBottom:18}}>
+          <div style={{fontSize:34}}>{selRoom.emoji}</div>
+          <div style={{flex:1}}>
+            <div style={H1}>{selRoom.label}</div>
+            <div style={MUT}>{selLevel.label}</div>
+          </div>
+          {selRoom.validated ? <span style={{background:"rgba(0,229,160,0.18)", color:"#00E5A0", padding:"4px 10px", borderRadius:6, fontSize:11, fontWeight:700}}>{t("int.validated")}</span> : null}
+        </div>
+
+        <div style={{marginBottom:16}}>
+          <label style={LBL}>{t("int.photo")}</label>
+          <input id={"int-cam-" + selRoom.id} type="file" accept="image/*" capture="environment" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
+          <input id={"int-gal-" + selRoom.id} type="file" accept="image/*" onChange={function(e){ readPhotoFile(e.target.files[0]); e.target.value = ""; }} style={{position:"absolute", width:1, height:1, opacity:0, pointerEvents:"none"}} />
+          {selRoom.photoUrl ? (
+            <div style={{position:"relative", borderRadius:8, overflow:"hidden", background:"#0A1828"}}>
+              <img src={selRoom.photoUrl} alt="" style={{width:"100%", height:200, objectFit:"cover", display:"block"}} />
+              <span style={{position:"absolute", top:8, right:8, background:"rgba(0,229,160,0.9)", color:"#08111E", padding:"3px 8px", borderRadius:5, fontSize:11, fontWeight:700}}>{t("int.photoOk")}</span>
+              <div style={{display:"flex", gap:6, padding:8, background:"rgba(0,0,0,0.7)"}}>
+                <label htmlFor={"int-cam-" + selRoom.id} style={{flex:1, background:"#00C2FF", color:"#000", borderRadius:6, padding:"9px 0", fontSize:13, fontWeight:800, cursor:"pointer", textAlign:"center", userSelect:"none"}}>📷 Reprendre</label>
+                <label htmlFor={"int-gal-" + selRoom.id} style={{flex:1, background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", borderRadius:6, padding:"9px 0", fontSize:13, fontWeight:700, cursor:"pointer", textAlign:"center", userSelect:"none"}}>🖼 Galerie</label>
+              </div>
+            </div>
+          ) : (
+            <div style={{background:"#0A1828", border:"2px dashed #00C2FF", borderRadius:10, padding:"26px 20px", textAlign:"center"}}>
+              <div style={{fontSize:44, marginBottom:10}}>📸</div>
+              <div style={{fontSize:13, color:"#E8EDF5", marginBottom:14}}>{t("int.photoTake")}</div>
+              <div style={{display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap"}}>
+                <label htmlFor={"int-cam-" + selRoom.id} style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:"#00C2FF", color:"#000", borderRadius:8, padding:"11px 22px", fontSize:14, fontWeight:800, cursor:"pointer", userSelect:"none", letterSpacing:0.3}}>📷 Caméra</label>
+                <label htmlFor={"int-gal-" + selRoom.id} style={{display:"inline-flex", alignItems:"center", justifyContent:"center", gap:6, background:"#152135", color:"#E8EDF5", border:"1px solid #1C3050", borderRadius:8, padding:"11px 22px", fontSize:14, fontWeight:700, cursor:"pointer", userSelect:"none", letterSpacing:0.3}}>🖼 Galerie</label>
+              </div>
+              <div style={{fontSize:10, color:"#607898", marginTop:12, letterSpacing:0.5}}>📷 Caméra ouvre directement l'appareil sur iPhone · 🖼 Galerie sur Mac/PC</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={LBL}>{t("int.length")}</label>
+            <input type="number" step="0.01" value={selRoom.length} onChange={function(e){
+              var v = e.target.value;
+              updateRoomField("length", v);
+              var au = roomArea(v, selRoom.width);
+              if (au > 0) updateRoomField("area", au.toFixed(2));
+            }} style={INP} placeholder="0.00" />
+          </div>
+          <div>
+            <label style={LBL}>{t("int.width")}</label>
+            <input type="number" step="0.01" value={selRoom.width} onChange={function(e){
+              var v = e.target.value;
+              updateRoomField("width", v);
+              var au = roomArea(selRoom.length, v);
+              if (au > 0) updateRoomField("area", au.toFixed(2));
+            }} style={INP} placeholder="0.00" />
+          </div>
+        </div>
+        {autoA > 0 ? (
+          <div style={{background:"rgba(0,194,255,0.08)", border:"1px solid rgba(0,194,255,0.3)", borderRadius:8, padding:"10px 14px", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+            <span style={MUT}>{t("int.areaAuto")}</span>
+            <span style={{fontFamily:"monospace", fontSize:18, fontWeight:700, color:"#00C2FF"}}>{autoA.toFixed(2)} m²</span>
+          </div>
+        ) : null}
+
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={LBL}>{t("int.area")} *</label>
+            <input type="number" step="0.01" value={selRoom.area} onChange={function(e){ updateRoomField("area", e.target.value); }} style={INP} placeholder="0.00" />
+          </div>
+          <div>
+            <label style={LBL}>{t("int.height")} *</label>
+            <input type="number" step="0.01" value={selRoom.height} onChange={function(e){ updateRoomField("height", e.target.value); }} style={INP} placeholder="2.50" />
+          </div>
+        </div>
+        {vol > 0 ? (
+          <div style={{background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:8, padding:"10px 14px", marginBottom:12, display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+            <span style={MUT}>{t("int.volume")}</span>
+            <span style={{fontFamily:"monospace", fontSize:16, fontWeight:700, color:"#E8EDF5"}}>{vol.toFixed(2)} m³</span>
+          </div>
+        ) : null}
+
+        <div style={{marginBottom:16}}>
+          <label style={LBL}>{t("int.remarks")}</label>
+          <textarea value={selRoom.remarks} onChange={function(e){ updateRoomField("remarks", e.target.value); }} style={Object.assign({}, INP, { minHeight:60, fontFamily:"inherit", resize:"vertical" })} placeholder="..." />
+        </div>
+
+        {!canValidate ? (
+          <div style={{background:"rgba(255,140,66,0.10)", border:"1px solid #FF8C42", borderRadius:8, padding:"10px 14px", marginBottom:16, fontSize:12, color:"#FF8C42"}}>{t("int.requiredHint")}</div>
+        ) : null}
+
+        <div style={{display:"flex", gap:8}}>
+          <Btn onClick={function(){ doDeleteRoom(selRoom.id); }} style={{background:"#3a0f12", border:"1px solid #FF4757", color:"#FF4757"}}>{t("int.delete")}</Btn>
+          <Btn primary={canValidate} onClick={function(){
+            if (!canValidate) return;
+            updateRoomField("validated", true);
+            setView("level");
+            setRoomId(null);
+          }}>{t("int.validate")}</Btn>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={P}>
+      <div style={H1}>{t("int.title")}</div>
+      <Btn primary={true} onClick={function(){ setLvlId(null); setRoomId(null); setView("levels"); }}>{t("int.backLevels")}</Btn>
+    </div>
+  );
+}
+
+/* =============================================================
+   Helpers façades (Sud/Est/Nord/Ouest) — constantes + calculs de surface
+   brute/nette. Consommés par TabExteriorAuto et la suite de tests.
+   ============================================================= */
+
+const FACADE_SIDES = [
+  { id:"sud",   short:"S" },
+  { id:"est",   short:"E" },
+  { id:"nord",  short:"N" },
+  { id:"ouest", short:"O" }
+];
+
+const FACADE_MATERIALS = [
+  { id:"enduit"   },
+  { id:"brique"   },
+  { id:"pierre"   },
+  { id:"bardage"  },
+  { id:"beton"    },
+  { id:"verre"    },
+  { id:"autre"    }
+];
+
+const FACADE_CONDITIONS = [
+  { id:"bon",     color:"#00E5A0" },
+  { id:"moyen",   color:"#F5C400" },
+  { id:"mauvais", color:"#FF4757" }
+];
+
+/* Phase B refonte 2026-05-20 — Reprise fidèle artifact JSX :
+   config bâtiment + N façades + toiture + validation score */
+
+function emptyBuildingConfig() {
+  return {
+    buildingType:"", facadeCount:4, floorCount:1,
+    hasBasement:false, roofType:"", yearApprox:"",
+    buildingWidth:"", buildingDepth:""
+  };
+}
+
+function emptyRoof() {
+  return { hasPhoto:false, photoUrl:null, access:"", condition:"", notes:"", validated:false, data:{} };
+}
+
+function getFacadeListBySide(count) {
+  var n = parseInt(count) || 4;
+  if (n === 2) return [FACADE_SIDES[0], FACADE_SIDES[2]];        /* sud + nord */
+  if (n === 3) return [FACADE_SIDES[0], FACADE_SIDES[1], FACADE_SIDES[2]];
+  if (n >= 4)  return FACADE_SIDES.slice(0, Math.min(n, 4));
+  return FACADE_SIDES;
+}
+
+function uidExterior() {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function emptyFacade(side) {
+  var s = FACADE_SIDES.find(function(x){ return x.id === side; }) || FACADE_SIDES[0];
+  return {
+    id: uidExterior(),
+    side: s.id,
+    widthTotal: "", heightLeft: "", heightRight: "",
+    heightCorniche: "", heightSabliere: "",
+    hasPignon: false, heightFaitage: "",
+    heightRdc: "", heightFloor: "",
+    doors: "", surfDoors: "",
+    windows: "", surfWindows: "",
+    bays: "", surfBays: "",
+    material: "", condition: "", hasDevers: false,
+    remarks: "", hasPhoto: false, photoUrl: null,
+    validated: false
+  };
+}
+
+function emptyExterior() {
+  /* Refonte fidèle artifact JSX : config bâtiment + N façades + toiture */
+  return {
+    config: emptyBuildingConfig(),
+    facades: getFacadeListBySide(4).map(function(s){ return emptyFacade(s.id); }),
+    roof: emptyRoof()
+  };
+}
+
+function facadeBruteArea(facade) {
+  if (!facade) return 0;
+  var w = parseFloat(facade.widthTotal);
+  var hL = parseFloat(facade.heightLeft);
+  var hR = parseFloat(facade.heightRight);
+  if (!isFinite(w) || w <= 0) return 0;
+  var hLeft = isFinite(hL) && hL > 0 ? hL : 0;
+  var hRight = isFinite(hR) && hR > 0 ? hR : hLeft;
+  var hAvg = (hLeft + hRight) / 2;
+  if (hAvg <= 0) return 0;
+  var area = w * hAvg;
+  if (facade.hasPignon) {
+    var hF = parseFloat(facade.heightFaitage);
+    var hC = parseFloat(facade.heightCorniche);
+    if (!isFinite(hC) || hC <= 0) hC = hAvg;
+    if (isFinite(hF) && hF > hC) {
+      area += w * (hF - hC) / 2;
+    }
+  }
+  return Math.round(area * 100) / 100;
+}
+
+function facadeOpeningsArea(facade) {
+  if (!facade) return 0;
+  return (parseFloat(facade.surfDoors) || 0)
+       + (parseFloat(facade.surfWindows) || 0)
+       + (parseFloat(facade.surfBays) || 0);
+}
+
+function facadeNetArea(facade) {
+  var brute = facadeBruteArea(facade);
+  if (brute <= 0) return 0;
+  var ops = facadeOpeningsArea(facade);
+  return Math.max(0, Math.round((brute - ops) * 100) / 100);
+}
+
+function exteriorTotalBrute(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return 0;
+  return project.exterior.facades.reduce(function(sum, f){ return sum + facadeBruteArea(f); }, 0);
+}
+
+function exteriorTotalNet(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return 0;
+  return project.exterior.facades.reduce(function(sum, f){ return sum + facadeNetArea(f); }, 0);
+}
+
+function exteriorCount(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return { total: 0, validated: 0 };
+  var facades = project.exterior.facades;
+  var validated = facades.filter(function(f){ return f.validated; }).length;
+  return { total: facades.length, validated: validated };
+}
+
+function roofPitchFromFacades(project) {
+  if (!project || !project.exterior || !project.exterior.facades) return null;
+  var pignon = project.exterior.facades.find(function(f){ return f.hasPignon; });
+  if (!pignon) return null;
+  var w = parseFloat(pignon.widthTotal);
+  var hF = parseFloat(pignon.heightFaitage);
+  var hC = parseFloat(pignon.heightCorniche);
+  if (!isFinite(hC) || hC <= 0) hC = parseFloat(pignon.heightLeft);
+  if (!isFinite(w) || w <= 0 || !isFinite(hF) || !isFinite(hC) || hF <= hC) return null;
+  var halfW = w / 2;
+  var rise = hF - hC;
+  var angle = Math.atan(rise / halfW) * 180 / Math.PI;
+  return Math.round(angle * 10) / 10;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TabExteriorAuto — autofill emprise depuis adresse projet (2026-05-21)
+   Source : IGN BDTOPO (FR) → UrbIS (BE-BXL) → PICC (BE-WAL) →
+   Overpass OSM (universel). Polygone RÉEL, mesures géométriques.
+   ═══════════════════════════════════════════════════════════════════ */
+
+function polygonAreaM2_v2(ring) {
+  if (!ring || ring.length < 3) return 0;
+  var lat0 = 0;
+  for (var i = 0; i < ring.length; i++) lat0 += ring[i][0];
+  lat0 = lat0 / ring.length;
+  var R = 6378137, rad = Math.PI / 180;
+  var pts = ring.map(function(p){
+    return [R * p[1] * rad * Math.cos(lat0 * rad), R * p[0] * rad];
+  });
+  var a = 0;
+  for (var j = 0; j < pts.length; j++) {
+    var p1 = pts[j], p2 = pts[(j + 1) % pts.length];
+    a += p1[0] * p2[1] - p2[0] * p1[1];
+  }
+  return Math.abs(a) / 2;
+}
+
+function polygonPerimM_v2(ring) {
+  if (!ring || ring.length < 2) return 0;
+  var sum = 0, R = 6378137, rad = Math.PI / 180;
+  for (var i = 0; i < ring.length; i++) {
+    var p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+    var dLat = (p2[0] - p1[0]) * rad, dLon = (p2[1] - p1[1]) * rad;
+    var lat0 = ((p1[0] + p2[0]) / 2) * rad;
+    var dy = dLat * R, dx = dLon * R * Math.cos(lat0);
+    sum += Math.sqrt(dx * dx + dy * dy);
+  }
+  return sum;
+}
+
+function polygonBBoxM_v2(ring) {
+  if (!ring || ring.length < 2) return { W:0, D:0, minLat:0, maxLat:0, minLon:0, maxLon:0 };
+  var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (var i = 0; i < ring.length; i++) {
+    if (ring[i][0] < minLat) minLat = ring[i][0];
+    if (ring[i][0] > maxLat) maxLat = ring[i][0];
+    if (ring[i][1] < minLon) minLon = ring[i][1];
+    if (ring[i][1] > maxLon) maxLon = ring[i][1];
+  }
+  var avgLat = ((minLat + maxLat) / 2) * Math.PI / 180;
+  return {
+    W: (maxLon - minLon) * 111000 * Math.cos(avgLat),
+    D: (maxLat - minLat) * 111000,
+    minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon
+  };
+}
+
+function nearestPolygonRing(features, lat, lon, extractRing) {
+  var best = null, bestFeat = null, bestD = Infinity;
+  for (var i = 0; i < features.length; i++) {
+    var ring = extractRing(features[i]);
+    if (!ring || ring.length < 3) continue;
+    var cLat = 0, cLon = 0;
+    for (var j = 0; j < ring.length; j++) { cLat += ring[j][0]; cLon += ring[j][1]; }
+    cLat /= ring.length; cLon /= ring.length;
+    var d = (cLat - lat) * (cLat - lat) + (cLon - lon) * (cLon - lon);
+    if (d < bestD) { bestD = d; best = ring; bestFeat = features[i]; }
+  }
+  return best ? { ring: best, feature: bestFeat } : null;
+}
+
+function geojsonRingToLatLng(coords) {
+  if (!coords || !coords.length) return null;
+  return coords.map(function(p){ return [p[1], p[0]]; });
+}
+
+/* Extrait les données bâtiment disponibles selon la source.
+   Retourne { hauteur, etages, usage, matToit, nature } — clés absentes si non fournies. */
+function extractBuildingProps(feature, source) {
+  if (!feature) return {};
+  var p = feature.properties || feature.tags || {};
+  var out = {};
+  if (source === "fr-ign") {
+    if (p.hauteur != null && p.hauteur > 0) out.hauteur = parseFloat(p.hauteur);
+    if (p.nombre_d_etages != null && p.nombre_d_etages > 0) out.etages = parseInt(p.nombre_d_etages);
+    if (p.usage_1) out.usage = p.usage_1;
+    if (p.materiaux_de_la_toiture) out.matToit = p.materiaux_de_la_toiture;
+    if (p.nature) out.nature = p.nature;
+  } else if (source === "osm") {
+    if (p.height) out.hauteur = parseFloat(p.height);
+    if (p["building:levels"]) out.etages = parseInt(p["building:levels"]);
+    if (p.building && p.building !== "yes") out.usage = p.building;
+    if (p["roof:material"]) out.matToit = p["roof:material"];
+    if (p["roof:shape"]) out.formeToit = p["roof:shape"];
+    if (p["roof:angle"]) out.penteToit = parseFloat(p["roof:angle"]);
+    if (p["roof:levels"]) out.etagesToit = parseInt(p["roof:levels"]);
+  } else if (source === "be-picc") {
+    if (p.NATUR_DESC) out.usage = p.NATUR_DESC;
+    if (p.HAUTEUR != null && p.HAUTEUR > 0) out.hauteur = parseFloat(p.HAUTEUR);
+  } else if (source === "be-urbis") {
+    if (p.NB_FLOORS != null && p.NB_FLOORS > 0) out.etages = parseInt(p.NB_FLOORS);
+  }
+  return out;
+}
+
+/* fetch avec timeout dur — sans ça un endpoint lent/down bloque l'UI à l'infini. */
+function fetchWithTimeout(url, opts, ms) {
+  var ctrl = new AbortController();
+  var to = setTimeout(function(){ ctrl.abort(); }, ms || 10000);
+  var merged = Object.assign({}, opts || {}, { signal: ctrl.signal });
+  return fetch(url, merged).then(
+    function(r){ clearTimeout(to); return r; },
+    function(e){ clearTimeout(to); throw e; }
+  );
+}
+
+function fetchFootprintIGN(lat, lon) {
+  var d = 0.0004;
+  var url = "https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetFeature"
+    + "&typeName=BDTOPO_V3:batiment&srsName=EPSG:4326"
+    + "&bbox=" + (lat - d) + "," + (lon - d) + "," + (lat + d) + "," + (lon + d)
+    + "&outputFormat=application/json&count=20";
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      var c = f.geometry.coordinates;
+      if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
+      if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
+      return null;
+    });
+    return hit ? { ring: hit.ring, source: "fr-ign", props: extractBuildingProps(hit.feature, "fr-ign") } : null;
+  });
+}
+
+function fetchFootprintUrbIS(lat, lon) {
+  var d = 0.0005;
+  var cql = "BBOX(GEOMETRY," + (lon - d) + "," + (lat - d) + "," + (lon + d) + "," + (lat + d) + ",'EPSG:4326')";
+  var url = "https://gis.urban.brussels/geoserver/ows?service=WFS&version=2.0.0&request=GetFeature"
+    + "&typeName=URBAN_DCC_ER:VM_URBIS_M8_BUILDINGS&srsName=EPSG:4326"
+    + "&CQL_FILTER=" + encodeURIComponent(cql)
+    + "&outputFormat=application/json&count=20";
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      var c = f.geometry.coordinates;
+      if (f.geometry.type === "MultiPolygon") return geojsonRingToLatLng(c[0][0]);
+      if (f.geometry.type === "Polygon")      return geojsonRingToLatLng(c[0]);
+      return null;
+    });
+    return hit ? { ring: hit.ring, source: "be-urbis", props: extractBuildingProps(hit.feature, "be-urbis") } : null;
+  });
+}
+
+function fetchFootprintPICC(lat, lon) {
+  var url = "https://geoservices.wallonie.be/arcgis/rest/services/TOPOGRAPHIE/PICC_VDIFF/MapServer/11/query"
+    + "?f=geojson&geometry=" + lon + "," + lat
+    + "&geometryType=esriGeometryPoint&inSR=4326&outSR=4326"
+    + "&distance=30&units=esriSRUnit_Meter&spatialRel=esriSpatialRelIntersects"
+    + "&outFields=*&returnGeometry=true&resultRecordCount=10";
+  return fetchWithTimeout(url, {}, 10000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.features || !j.features.length) return null;
+    var hit = nearestPolygonRing(j.features, lat, lon, function(f){
+      if (!f.geometry || !f.geometry.coordinates) return null;
+      return geojsonRingToLatLng(f.geometry.coordinates[0]);
+    });
+    return hit ? { ring: hit.ring, source: "be-picc", props: extractBuildingProps(hit.feature, "be-picc") } : null;
+  });
+}
+
+function fetchFootprintOSM(lat, lon) {
+  var query = "[out:json][timeout:20];way(around:40," + lat + "," + lon + ")[\"building\"];out geom;";
+  return fetchWithTimeout("https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: { "Accept": "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+    body: "data=" + encodeURIComponent(query)
+  }, 14000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j.elements || !j.elements.length) return null;
+    var hit = nearestPolygonRing(j.elements, lat, lon, function(e){
+      if (!e.geometry) return null;
+      return e.geometry.map(function(p){ return [p.lat, p.lon]; });
+    });
+    return hit ? { ring: hit.ring, source: "osm", props: extractBuildingProps(hit.feature, "osm") } : null;
+  });
+}
+
+/* Géocodage adresse → lat/lon. Photon (komoot) en premier — toléré pour
+   les apps browser, contrairement à Nominatim qui throttle/bloque sans
+   User-Agent applicatif. Nominatim en secours. Timeout dur des deux côtés. */
+function geocodeAddress(query) {
+  var pUrl = "https://photon.komoot.io/api/?q=" + encodeURIComponent(query) + "&limit=1&lang=fr";
+  return fetchWithTimeout(pUrl, {}, 9000).then(function(r){ return r.json(); }).then(function(j){
+    if (!j || !j.features || !j.features.length) throw new Error("photon-empty");
+    var f = j.features[0];
+    var c = (f.geometry && f.geometry.coordinates) || [];
+    var p = f.properties || {};
+    if (c.length < 2) throw new Error("photon-nocoord");
+    return {
+      lat: c[1], lon: c[0],
+      displayName: [p.name, p.street, p.city, p.country].filter(Boolean).join(", ") || query,
+      country: (p.countrycode || "").toLowerCase()
+    };
+  }).catch(function(){
+    var nUrl = "https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(query)
+      + "&format=json&limit=1&countrycodes=be,fr";
+    return fetchWithTimeout(nUrl, {}, 9000).then(function(r){ return r.json(); }).then(function(arr){
+      if (!arr || !arr.length) throw new Error("Adresse introuvable");
+      var dn = (arr[0].display_name || "").toLowerCase();
+      return {
+        lat: parseFloat(arr[0].lat), lon: parseFloat(arr[0].lon),
+        displayName: arr[0].display_name,
+        country: dn.indexOf("belgi") !== -1 ? "be" : dn.indexOf("france") !== -1 ? "fr" : ""
+      };
+    });
+  });
+}
+
+function fetchBuildingFootprint(address, prefCountry) {
+  return geocodeAddress(address).then(function(geo){
+    var country = prefCountry || geo.country || "auto";
+    if (country !== "fr" && country !== "be") country = "auto";
+    var chain;
+    if (country === "fr") chain = [fetchFootprintIGN, fetchFootprintOSM];
+    else if (country === "be") chain = [fetchFootprintUrbIS, fetchFootprintPICC, fetchFootprintOSM];
+    else chain = [fetchFootprintIGN, fetchFootprintUrbIS, fetchFootprintPICC, fetchFootprintOSM];
+    var idx = 0;
+    function tryNext() {
+      if (idx >= chain.length) return Promise.reject(new Error("Bâtiment introuvable dans cadastre/OSM"));
+      var fn = chain[idx++];
+      return fn(geo.lat, geo.lon).then(function(res){
+        if (res) return Object.assign({}, res, { lat: geo.lat, lon: geo.lon, displayName: geo.displayName });
+        return tryNext();
+      }).catch(function(){ return tryNext(); });
+    }
+    return tryNext();
+  });
+}
+
+function sourceLabel(src) {
+  var m = { "fr-ign":"IGN BDTOPO (FR)", "be-urbis":"UrbIS (Bruxelles)", "be-picc":"PICC (Wallonie)", "osm":"OpenStreetMap" };
+  return m[src] || src;
+}
+
+/* Génère project.rooms[] (4 murs + toit) au format lu par Elevation + buildBuildingScene.
+   C'est CE tableau que les plans 2D et la 3D consultent — sans lui ils ne réagissent pas. */
+function roomsFromWDH(W, D, H, roofArea) {
+  var wH = (W * H).toFixed(1), dH = (D * H).toFixed(1);
+  return [
+    { n:"Mur Sud",   a:wH, l:W.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Nord",  a:wH, l:W.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Est",   a:dH, l:D.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Mur Ouest", a:dH, l:D.toFixed(1) + " m", h:H.toFixed(1) + " m", t:"w" },
+    { n:"Toiture",   a:String(Math.round(roofArea)), l:"---", h:"---", t:"r" }
+  ];
+}
+
+/* Extrait une longueur numérique d'un room dont le nom matche la regex
+   (mur de façade uniquement, t!=="r"). \b évite ouest⊃est. */
+function _roomLenByName(rooms, re) {
+  var r = (rooms || []).find(function(x){
+    return x && x.t !== "r" && re.test(x.n || "");
+  });
+  if (!r) return 0;
+  var v = parseFloat(String(r.l || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+  return isFinite(v) && v > 0 ? v : 0;
+}
+function _roomHeightByName(rooms, re) {
+  var r = (rooms || []).find(function(x){
+    return x && x.t !== "r" && re.test(x.n || "");
+  });
+  if (!r) return 0;
+  var v = parseFloat(String(r.h || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+  return isFinite(v) && v > 0 ? v : 0;
+}
+
+/* Régénère rooms[] cohérent depuis meas. Préserve les dimensions W/D
+   réelles des rooms existantes (cadastre) si l'emprise n'a pas changé ;
+   sinon recalcule W/D depuis foot (+ perim pour les vraies proportions).
+   C'est CE pont qui fait réagir les plans 2D/3D aux sliders + onglet Mesures. */
+function roomsFromMeas(meas, prevRooms) {
+  meas = meas || {};
+  var foot = parseFloat(meas.foot) || 0;
+  var H = parseFloat(meas.h) || 6;
+  var perim = parseFloat(meas.perim) || 0;
+  var roofArea = parseFloat(meas.roof) || 0;
+  var W = _roomLenByName(prevRooms, /\bsud\b/i) || _roomLenByName(prevRooms, /\bnord\b/i);
+  var D = _roomLenByName(prevRooms, /\best\b/i) || _roomLenByName(prevRooms, /\bouest\b/i);
+  /* Recalcule W/D si absents OU si l'emprise a bougé de plus de 5 %. */
+  if (!(W > 0 && D > 0) || (foot > 0 && Math.abs(W * D - foot) > foot * 0.05)) {
+    if (foot > 0 && perim > 0) {
+      var half = perim / 2;
+      var disc = half * half - 4 * foot;
+      if (disc >= 0) { W = (half + Math.sqrt(disc)) / 2; D = (half - Math.sqrt(disc)) / 2; }
+      else { W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6); }
+    } else if (foot > 0) {
+      W = Math.sqrt(foot * 1.6); D = Math.sqrt(foot / 1.6);
+    }
+  }
+  if (!(W > 0) || !(D > 0)) return prevRooms || [];
+  if (!(roofArea > 0)) roofArea = W * D * 1.15;
+  return roomsFromWDH(W, D, H, roofArea);
+}
+
+/* Sens inverse : recalcule meas agrégé depuis rooms[] (édition directe
+   d'une longueur de mur dans l'onglet Mesures). Garde meas ↔ rooms synchro. */
+function measFromRooms(rooms, prevMeas) {
+  var next = Object.assign({}, prevMeas || {});
+  var W = _roomLenByName(rooms, /\bsud\b/i) || _roomLenByName(rooms, /\bnord\b/i);
+  var D = _roomLenByName(rooms, /\best\b/i) || _roomLenByName(rooms, /\bouest\b/i);
+  var H = _roomHeightByName(rooms, /\bsud\b/i) || _roomHeightByName(rooms, /\bnord\b/i)
+       || _roomHeightByName(rooms, /\best\b/i) || _roomHeightByName(rooms, /\bouest\b/i);
+  if (W > 0 && D > 0) {
+    next.foot = (W * D).toFixed(1);
+    next.perim = (2 * (W + D)).toFixed(1);
+    if (H > 0) {
+      next.h = H.toFixed(1);
+      next.walls = (2 * (W + D) * H).toFixed(1);
+    }
+  }
+  var roofRoom = (rooms || []).find(function(x){ return x && x.t === "r"; });
+  if (roofRoom) {
+    var ra = parseFloat(String(roofRoom.a || "").replace(/[^\d.,-]/g, "").replace(",", "."));
+    if (isFinite(ra) && ra > 0) next.roof = String(Math.round(ra));
+  }
+  return next;
+}
+
+/* Mappe une forme de toit OSM (roof:shape) vers les types MesurePro. */
+function roofShapeToType(shape) {
+  if (!shape) return null;
+  var s = String(shape).toLowerCase();
+  if (s.indexOf("flat") !== -1) return "Terrasse";
+  if (s.indexOf("hip") !== -1) return "4 pans";
+  if (s.indexOf("mansard") !== -1) return "Mansart";
+  if (s.indexOf("gabl") !== -1 || s.indexOf("pitch") !== -1) return "Pignon";
+  return null;
+}
+
+/* Mappe le code matériau toiture IGN BDTOPO vers un libellé lisible. */
+function ignRoofMaterialLabel(code) {
+  var m = { "10":"Béton", "20":"Ardoise", "30":"Tuile", "40":"Métal", "50":"Verre/translucide", "60":"Végétalisé" };
+  return m[String(code)] || String(code);
+}
+
+function TabExteriorAuto({ project, onUpdate }) {
+  var [busy, setBusy] = useState(false);
+  var [error, setError] = useState("");
+  var [result, setResult] = useState(null);
+  var [floors, setFloors] = useState(parseInt(project.floors) || 2);
+
+  var hasAddress = !!(project.addr && project.city);
+  var fullAddr = hasAddress
+    ? ((project.num ? project.num + " " : "") + project.addr + ", " + (project.cp ? project.cp + " " : "") + project.city)
+    : "";
+
+  function runFetch() {
+    if (!fullAddr || fullAddr.length < 6) { setError("Renseigne l'adresse du projet (bouton Modifier)."); return; }
+    setBusy(true); setError(""); setResult(null);
+    fetchBuildingFootprint(fullAddr).then(function(r){
+      var area = polygonAreaM2_v2(r.ring);
+      var perim = polygonPerimM_v2(r.ring);
+      var bbox = polygonBBoxM_v2(r.ring);
+      var props = r.props || {};
+      setResult({ ring: r.ring, source: r.source, areaM2: area, perimM: perim, W: bbox.W, D: bbox.D, lat: r.lat, lon: r.lon, props: props });
+      /* Si le cadastre fournit le nombre d'étages réel, on cale le slider dessus. */
+      if (props.etages && props.etages >= 1 && props.etages <= 6) setFloors(props.etages);
+      setBusy(false);
+    }).catch(function(err){
+      setError(err.message || "Aucun bâtiment trouvé");
+      setBusy(false);
+    });
+  }
+
+  /* Auto-fetch au mount ET à chaque changement de projet (chaque projet
+     a ses propres mesures — règle non négociable). */
+  useEffect(function(){
+    if (hasAddress) runFetch();
+    // eslint-disable-next-line
+  }, [project.id]);
+
+  function computeMetrics() {
+    if (!result) return null;
+    var props = result.props || {};
+    /* Hauteur RÉELLE du cadastre prioritaire ; sinon estimée depuis nb étages. */
+    var realH = (props.hauteur && props.hauteur > 2) ? props.hauteur : null;
+    var H = realH || (floors * 2.7 + 0.5);
+    var emp = result.areaM2;
+    var perim = result.perimM;
+    return {
+      H: Math.round(H * 10) / 10,
+      hSource: realH ? "cadastre" : "estimée",
+      perim: Math.round(perim * 10) / 10,
+      W: Math.round(result.W * 10) / 10,
+      D: Math.round(result.D * 10) / 10,
+      empriseM2: Math.round(emp),
+      murs: Math.round(perim * H),
+      toit: Math.round(emp * 1.15)
+    };
+  }
+
+  function apply() {
+    var m = computeMetrics();
+    if (!m) return;
+    var prevMeas = project.meas || {};
+    var props = result.props || {};
+    /* FIX réactivité plans 2D/3D : Elevation + buildBuildingScene lisent project.rooms[].
+       Sans réécrire rooms[], les plans restent figés sur les anciennes dimensions. */
+    var rooms = roomsFromWDH(m.W, m.D, m.H, m.toit);
+    var patch = {
+      meas: Object.assign({}, prevMeas, {
+        foot: String(m.empriseM2),
+        walls: String(m.murs),
+        roof: String(m.toit),
+        perim: String(m.perim),
+        h: String(m.H)
+      }),
+      rooms: rooms,
+      floors: floors,
+      exterior_meta: {
+        source: result.source,
+        lat: result.lat, lon: result.lon,
+        polygon: result.ring,
+        building: props,
+        fetched_at: new Date().toISOString()
+      }
+    };
+    /* Type de toit déduit si la source le fournit (OSM roof:shape). */
+    var roofType = roofShapeToType(props.formeToit);
+    if (roofType) patch.roof = roofType;
+    onUpdate(patch);
+  }
+
+  /* Lignes de données bâtiment disponibles selon la source (pour affichage). */
+  function buildingDataRows() {
+    if (!result || !result.props) return [];
+    var p = result.props, rows = [];
+    if (p.hauteur)  rows.push(["Hauteur réelle", p.hauteur.toFixed(1) + " m"]);
+    if (p.etages)   rows.push(["Étages", String(p.etages)]);
+    if (p.usage)    rows.push(["Usage", String(p.usage)]);
+    if (p.nature)   rows.push(["Nature", String(p.nature)]);
+    if (p.matToit)  rows.push(["Matériau toit", result.source === "fr-ign" ? ignRoofMaterialLabel(p.matToit) : String(p.matToit)]);
+    if (p.formeToit) rows.push(["Forme toit", String(p.formeToit)]);
+    if (p.penteToit) rows.push(["Pente toit", p.penteToit + "°"]);
+    return rows;
+  }
+
+  function ringToSvgPath(ring) {
+    if (!ring || ring.length < 3) return "";
+    var bbox = polygonBBoxM_v2(ring);
+    var padX = (bbox.maxLon - bbox.minLon) * 0.1 || 0.0001;
+    var padY = (bbox.maxLat - bbox.minLat) * 0.1 || 0.0001;
+    var dx = (bbox.maxLon - bbox.minLon) + padX * 2;
+    var dy = (bbox.maxLat - bbox.minLat) + padY * 2;
+    var pts = ring.map(function(p){
+      var x = ((p[1] - (bbox.minLon - padX)) / dx) * 200;
+      var y = ((bbox.maxLat + padY) - p[0]) / dy * 160 + 5;
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    return "M" + pts.join("L") + "Z";
+  }
+
+  var WRAP = { display:"flex", flexDirection:"column", height:"calc(100vh - 92px)", overflow:"hidden", background:"#08111E" };
+  var HEAD = { padding:"14px 20px", borderBottom:"1px solid #1C3050", flexShrink:0, background:"#0F1C2E" };
+  var BODY = { flex:1, padding:"14px 20px", overflow:"hidden", display:"flex", flexDirection:"column", gap:12, minHeight:0 };
+  var FOOT = { padding:"10px 18px", borderTop:"1px solid #1C3050", flexShrink:0, display:"flex", gap:8, background:"#0F1C2E", alignItems:"center" };
+  var H1 = { fontSize:17, fontWeight:800, color:"#E8EDF5", marginBottom:2 };
+  var MUT = { fontSize:12, color:"#607898" };
+  var STAT_CARD = { background:"#0A1828", border:"1px solid #1C3050", borderRadius:8, padding:"10px 12px", textAlign:"center", flex:1 };
+  var STAT_VAL = { fontFamily:"monospace", fontSize:20, fontWeight:800, color:"#E8EDF5" };
+  var STAT_LBL = { fontSize:10, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginTop:2 };
+
+  var m = computeMetrics();
+
+  return (
+    <div style={WRAP}>
+      <div style={HEAD}>
+        <div style={{display:"flex", alignItems:"center", gap:10}}>
+          <div style={{fontSize:24}}>🗺️</div>
+          <div style={{flex:1}}>
+            <div style={H1}>Mesures auto depuis le cadastre</div>
+            <div style={MUT}>{hasAddress ? fullAddr : "⚠️ Adresse du projet non renseignée"}</div>
+          </div>
+          {result && (
+            <span style={{padding:"3px 9px", borderRadius:5, fontSize:10, fontWeight:800, background:"rgba(0,229,160,0.15)", color:"#00E5A0", letterSpacing:0.5}}>
+              Source : {sourceLabel(result.source)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={BODY}>
+        {!hasAddress && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
+            <div style={{fontSize:48}}>📍</div>
+            <div style={Object.assign({}, H1, {fontSize:16})}>Adresse manquante</div>
+            <div style={Object.assign({}, MUT, {maxWidth:380})}>Renseigne l'adresse du bâtiment (bouton <strong style={{color:"#E8EDF5"}}>Modifier</strong> en haut) pour récupérer automatiquement l'emprise au sol depuis le cadastre belge/français ou OpenStreetMap.</div>
+          </div>
+        )}
+
+        {hasAddress && busy && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14}}>
+            <div style={{fontSize:36}}>⏳</div>
+            <div style={Object.assign({}, H1, {fontSize:16})}>Récupération en cours…</div>
+            <div style={MUT}>IGN BDTOPO → UrbIS → PICC → OSM</div>
+          </div>
+        )}
+
+        {hasAddress && error && !busy && (
+          <div style={{flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:14, textAlign:"center"}}>
+            <div style={{fontSize:36}}>⚠️</div>
+            <div style={Object.assign({}, H1, {fontSize:15, color:"#F5B400"})}>{error}</div>
+            <div style={Object.assign({}, MUT, {maxWidth:400})}>Le bâtiment n'est dans aucune base publique gratuite pour cette adresse. Saisis manuellement dans l'onglet <strong style={{color:"#E8EDF5"}}>Mesures</strong> ou réessaie avec une adresse plus précise.</div>
+            <Btn onClick={runFetch} style={{padding:"8px 16px"}}>↻ Réessayer</Btn>
+          </div>
+        )}
+
+        {result && !busy && m && (
+          <>
+            <div style={{display:"flex", gap:12, flexShrink:0}}>
+              <div style={{width:220, height:170, background:"#0A1828", borderRadius:9, padding:5, border:"1px solid #1C3050", flexShrink:0}}>
+                <svg viewBox="0 0 200 170" style={{width:"100%", height:"100%"}}>
+                  <path d={ringToSvgPath(result.ring)} fill="rgba(0,194,255,0.25)" stroke="#00C2FF" strokeWidth="1.5"/>
+                </svg>
+              </div>
+              <div style={{flex:1, display:"flex", flexDirection:"column", gap:8}}>
+                <div style={{display:"flex", gap:8}}>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.empriseM2}</div><div style={STAT_LBL}>Emprise m²</div></div>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.perim}</div><div style={STAT_LBL}>Périmètre m</div></div>
+                </div>
+                <div style={{display:"flex", gap:8}}>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.W}</div><div style={STAT_LBL}>Largeur m</div></div>
+                  <div style={STAT_CARD}><div style={STAT_VAL}>{m.D}</div><div style={STAT_LBL}>Profondeur m</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{background:"#0A1828", border:"1px solid #1C3050", borderRadius:9, padding:"12px 14px", flexShrink:0}}>
+              <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6}}>
+                <span style={{fontSize:13, fontWeight:700, color:"#E8EDF5"}}>Nombre d'étages</span>
+                <span style={{fontFamily:"monospace", fontSize:18, fontWeight:800, color:"#00C2FF"}}>
+                  {floors} · h {m.hSource === "cadastre" ? "=" : "≈"} {m.H} m
+                  <span style={{fontSize:9, fontWeight:600, color: m.hSource === "cadastre" ? "#00E5A0" : "#607898", marginLeft:6}}>
+                    {m.hSource === "cadastre" ? "réelle" : "estimée"}
+                  </span>
+                </span>
+              </div>
+              <input type="range" min="1" max="6" value={floors} onChange={function(e){ setFloors(parseInt(e.target.value)); }} style={{width:"100%", accentColor:"#00C2FF"}}/>
+            </div>
+
+            <div style={{display:"flex", gap:8, flexShrink:0}}>
+              <div style={Object.assign({}, STAT_CARD, {background:"rgba(0,194,255,0.08)", borderColor:"rgba(0,194,255,0.35)"})}>
+                <div style={Object.assign({}, STAT_VAL, {fontSize:24, color:"#00C2FF"})}>{m.murs}</div>
+                <div style={STAT_LBL}>m² murs (périm × H)</div>
+              </div>
+              <div style={Object.assign({}, STAT_CARD, {background:"rgba(245,196,0,0.08)", borderColor:"rgba(245,196,0,0.35)"})}>
+                <div style={Object.assign({}, STAT_VAL, {fontSize:24, color:"#F5C400"})}>{m.toit}</div>
+                <div style={STAT_LBL}>m² toit (emprise × 1.15)</div>
+              </div>
+            </div>
+
+            {buildingDataRows().length > 0 && (
+              <div style={{background:"#0A1828", border:"1px solid #1C3050", borderRadius:9, padding:"9px 12px", flexShrink:0}}>
+                <div style={{fontSize:9, fontWeight:700, color:"#607898", letterSpacing:1, textTransform:"uppercase", marginBottom:6}}>
+                  🏢 Données bâtiment — {sourceLabel(result.source)}
+                </div>
+                <div style={{display:"flex", flexWrap:"wrap", gap:6}}>
+                  {buildingDataRows().map(function(row, i){
+                    return (
+                      <span key={i} style={{display:"inline-flex", alignItems:"baseline", gap:5, background:"#0F1C2E", border:"1px solid #1C3050", borderRadius:6, padding:"4px 9px"}}>
+                        <span style={{fontSize:9, color:"#607898", textTransform:"uppercase", letterSpacing:0.5}}>{row[0]}</span>
+                        <span style={{fontSize:12, fontWeight:700, color:"#E8EDF5"}}>{row[1]}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{background:"rgba(0,194,255,0.04)", border:"1px solid rgba(0,194,255,0.2)", borderRadius:7, padding:"8px 12px", fontSize:11, color:"#8DAFC8", flexShrink:0}}>
+              💡 « Appliquer » met à jour mesures, plans 2D, modèle 3D et façades du projet. Retouche fine par façade dans l'onglet Mesures.
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={FOOT}>
+        {hasAddress && !busy && (
+          <Btn onClick={runFetch} style={{flex:0, padding:"10px 16px"}}>↻ Recalculer</Btn>
+        )}
+        {result && !busy && (
+          <Btn primary={true} onClick={apply} style={{flex:1, background:"#00E5A0", color:"#000"}}>✓ Appliquer au projet</Btn>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+export {
+  slug,
+  csvEscape,
+  estimatePhotosSizeKB,
+  parseSolarBuilding,
+  BLE_DRIVERS,
+  DEFAULT_PREFS,
+  EMPTY_MEAS,
+  ErrorBoundary,
+  /* === Session 3 / world-class features === */
+  I18N,
+  SUPPORTED_LANGS,
+  detectLang,
+  t,
+  BE_MATERIALS,
+  computePEB,
+  PEB_COLORS,
+  encodeProjectForShare,
+  decodeProjectFromShare,
+  buildBuildingScene,
+  detectArPlatform,
+  /* === Phase A — Module Intérieur (2026-05-20) === */
+  LEVEL_TYPES,
+  ROOM_TYPES,
+  emptyInterior,
+  emptyLevel,
+  emptyRoom,
+  roomArea,
+  roomVolume,
+  levelArea,
+  interiorArea,
+  interiorIsValidated,
+  interiorCount,
+  /* === Phase B — Module Extérieur (2026-05-20) === */
+  FACADE_SIDES,
+  FACADE_MATERIALS,
+  FACADE_CONDITIONS,
+  emptyExterior,
+  emptyFacade,
+  facadeBruteArea,
+  facadeOpeningsArea,
+  facadeNetArea,
+  exteriorTotalBrute,
+  exteriorTotalNet,
+  exteriorCount,
+  roofPitchFromFacades,
+};

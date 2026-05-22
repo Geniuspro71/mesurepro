@@ -6,6 +6,7 @@ import {
   slug,
   csvEscape,
   publicAsset,
+  facadesAreEmpty,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,
@@ -730,5 +731,47 @@ describe("publicAsset() — chemins assets compatibles sous-chemin", () => {
 
   it("ne perd pas les sous-dossiers ni l'extension", () => {
     expect(publicAsset("photos/sub/dir/photo.jpg")).toBe("/photos/sub/dir/photo.jpg");
+  });
+});
+
+describe("facadesAreEmpty() — protection des mesures manuelles", () => {
+  const empty = {
+    sud:   { l:"", h:"", win:"", doors:"" },
+    est:   { l:"", h:"", win:"", doors:"" },
+    nord:  { l:"", h:"", win:"", doors:"" },
+    ouest: { l:"", h:"", win:"", doors:"" },
+  };
+
+  it("true quand aucune façade n'a de saisie", () => {
+    expect(facadesAreEmpty(empty)).toBe(true);
+    expect(facadesAreEmpty(null)).toBe(true);
+    expect(facadesAreEmpty(undefined)).toBe(true);
+  });
+
+  it("false dès qu'une longueur est saisie", () => {
+    const f = JSON.parse(JSON.stringify(empty));
+    f.sud.l = "10";
+    expect(facadesAreEmpty(f)).toBe(false);
+  });
+
+  it("false dès qu'une hauteur est saisie", () => {
+    const f = JSON.parse(JSON.stringify(empty));
+    f.est.h = "6";
+    expect(facadesAreEmpty(f)).toBe(false);
+  });
+
+  it("false dès qu'un nombre de fenêtres/portes est saisi", () => {
+    const fw = JSON.parse(JSON.stringify(empty));
+    fw.nord.win = "3";
+    expect(facadesAreEmpty(fw)).toBe(false);
+    const fd = JSON.parse(JSON.stringify(empty));
+    fd.ouest.doors = "1";
+    expect(facadesAreEmpty(fd)).toBe(false);
+  });
+
+  it("ignore les valeurs non numériques / zéro", () => {
+    const f = JSON.parse(JSON.stringify(empty));
+    f.sud.l = "0"; f.sud.h = "abc";
+    expect(facadesAreEmpty(f)).toBe(true);
   });
 });

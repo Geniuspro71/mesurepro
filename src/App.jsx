@@ -5179,15 +5179,68 @@ function TabShare({ project, setToast }) {
    modèle 3D en grand, dimensions clés, et canvas e-signature. Branding
    subtil "Made with MesurePro".
 ============================================================================ */
+/* Clé localStorage de la signature d'un projet partagé (par adresse). */
+function shareSigKey(project) {
+  return "mesurepro.sharesig." + slug((project && project.addr) || "projet");
+}
+
+/* PDF récapitulatif signé — le client le télécharge et l'envoie lui-même
+   au prestataire (pas de backend : aucune transmission automatique). */
+function downloadSignedSharePdf(project, signature, signerName, signedAt) {
+  var doc = new jsPDF();
+  var m = project.meas || {};
+  doc.setFontSize(17);
+  doc.text("MesurePro — Prise de connaissance", 14, 20);
+  doc.setFontSize(11);
+  doc.text("Bien : " + ((project.addr || "") + " " + (project.city || "")).trim(), 14, 32);
+  doc.text("Client : " + (project.client || "—"), 14, 40);
+  autoTable(doc, {
+    startY: 48,
+    head: [["Mesure", "Valeur"]],
+    body: [
+      ["Emprise sol",  (parseFloat(m.foot)||0).toFixed(0) + " m2"],
+      ["Surface murs", (parseFloat(m.walls)||0).toFixed(0) + " m2"],
+      ["Toiture",      (parseFloat(m.roof)||0).toFixed(0) + " m2"],
+      ["Perimetre",    (parseFloat(m.perim)||0).toFixed(0) + " m"],
+      ["Hauteur",      (parseFloat(m.h)||0).toFixed(1) + " m"],
+    ],
+    headStyles: { fillColor: [21,33,53] },
+  });
+  var y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 100) + 14;
+  doc.setFontSize(11);
+  doc.text("Signe par : " + (signerName || "—"), 14, y);
+  doc.text("Date : " + (signedAt ? new Date(signedAt).toLocaleString() : "—"), 14, y + 8);
+  if (signature) {
+    try { doc.addImage(signature, "PNG", 14, y + 14, 80, 30); } catch (e) { /* image invalide */ }
+  }
+  doc.setFontSize(8);
+  doc.setTextColor(120);
+  doc.text("Signature electronique a valeur indicative. Document a transmettre au prestataire.", 14, y + 52);
+  doc.save("mesurepro-signature-" + slug(project.addr || "projet") + ".pdf");
+}
+
 function ShareView({ project, onExitShare }) {
   var [signature, setSignature] = useState(null);
   var [signedAt, setSignedAt] = useState(null);
+  var [signerName, setSignerName] = useState("");
   var canvasRef = useRef(null);
   var drawingRef = useRef(false);
 
-  /* Apply theme au boot ShareView */
+  /* Apply theme au boot ShareView + restaure une signature déjà posée
+     sur CET appareil (localStorage) — sinon elle serait perdue au reload. */
   useEffect(function(){
     applyTheme(getPrefs().theme);
+    try {
+      var raw = localStorage.getItem(shareSigKey(project));
+      if (raw) {
+        var s = JSON.parse(raw);
+        if (s && s.signature) {
+          setSignature(s.signature);
+          setSignedAt(s.signedAt || null);
+          setSignerName(s.signerName || "");
+        }
+      }
+    } catch (e) { /* localStorage indisponible — signature non restaurée */ }
   }, []);
 
   /* Signature canvas — mouse + touch */
@@ -5222,15 +5275,35 @@ function ShareView({ project, onExitShare }) {
     };
   }, []);
 
+  /* Redessine une signature restaurée depuis localStorage sur le canvas. */
+  useEffect(function(){
+    var cv = canvasRef.current;
+    if (!cv || !signature) return;
+    var ctx = cv.getContext("2d");
+    var img = new Image();
+    img.onload = function(){ ctx.drawImage(img, 0, 0, cv.width, cv.height); };
+    img.src = signature;
+  }, [signature]);
+
   function clearSig() {
     var cv = canvasRef.current; if (!cv) return;
     cv.getContext("2d").clearRect(0,0,cv.width,cv.height);
     setSignature(null); setSignedAt(null);
+    try { localStorage.removeItem(shareSigKey(project)); } catch (e) { /* ignore */ }
   }
   function saveSig() {
     var cv = canvasRef.current; if (!cv) return;
-    setSignature(cv.toDataURL("image/png"));
-    setSignedAt(new Date().toISOString());
+    var data = cv.toDataURL("image/png");
+    var when = new Date().toISOString();
+    setSignature(data);
+    setSignedAt(when);
+    /* Persistance LOCALE uniquement — aucun backend, donc rien n'est
+       transmis : on sauve sur l'appareil pour survivre à un reload. */
+    try {
+      localStorage.setItem(shareSigKey(project), JSON.stringify({
+        signature: data, signedAt: when, signerName: signerName
+      }));
+    } catch (e) { /* quota plein — la signature reste au moins en mémoire */ }
   }
 
   var m = project.meas || {};
@@ -5296,7 +5369,7 @@ function ShareView({ project, onExitShare }) {
           </div>
         )}
 
-        {/* E-Signature */}
+        {/* E-Signature — 100% locale (pas de backend) */}
         <div style={{background:"#0F1C2E",border:"1px solid #1C3050",borderRadius:10,padding:"18px 20px"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:13,fontWeight:700,color:"#FF8C42",textTransform:"uppercase"}}>
@@ -5315,18 +5388,39 @@ function ShareView({ project, onExitShare }) {
               </button>
             </div>
           </div>
+          <input value={signerName} onChange={function(e){ setSignerName(e.target.value); }}
+            placeholder="Votre nom (signataire)"
+            style={{width:"100%",boxSizing:"border-box",marginBottom:10,padding:"8px 10px",
+              fontSize:13,background:"#08111E",border:"1px solid #1C3050",borderRadius:7,
+              color:"#E8EDF5",outline:"none"}}/>
           <canvas ref={canvasRef} width={800} height={180}
             style={{width:"100%",height:180,background:"#FAFAFA",borderRadius:8,
               border:"1px solid #1C3050",cursor:"crosshair",touchAction:"none"}}/>
           {signedAt && (
-            <div style={{fontSize:12,color:"#00E5A0",marginTop:10,fontFamily:"monospace"}}>
-              ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}
+            <div style={{marginTop:12,padding:"10px 12px",background:"rgba(0,229,160,0.08)",
+              border:"1px solid rgba(0,229,160,0.35)",borderRadius:8}}>
+              <div style={{fontSize:12,color:"#00E5A0",fontFamily:"monospace"}}>
+                ✓ {t("share.signed")} {new Date(signedAt).toLocaleString()}{signerName ? " — " + signerName : ""}
+              </div>
+              <div style={{fontSize:11,color:"#E8EDF5",marginTop:6,lineHeight:1.45}}>
+                Signature enregistrée <strong>sur cet appareil uniquement</strong>. Elle n'est
+                <strong> pas transmise automatiquement</strong> au prestataire. Téléchargez le
+                PDF signé ci-dessous et envoyez-le vous-même (e-mail / messagerie).
+              </div>
+              <button type="button"
+                onClick={function(){ downloadSignedSharePdf(project, signature, signerName, signedAt); }}
+                style={{marginTop:10,background:"#00C2FF",border:"none",color:"#000",
+                  borderRadius:6,padding:"7px 14px",fontSize:11,fontWeight:800,
+                  cursor:"pointer",outline:"none"}}>
+                📄 Télécharger le PDF signé
+              </button>
             </div>
           )}
           <div style={{fontSize:10,color:"#607898",marginTop:10,lineHeight:1.5}}>
             En signant, vous confirmez avoir pris connaissance des informations présentées
-            dans ce document. Cette signature électronique a valeur indicative et ne se
-            substitue pas à un contrat formel signé en présentiel.
+            dans ce document. Cette signature électronique a valeur indicative, reste
+            <strong> locale à votre appareil</strong> et ne se substitue pas à un contrat
+            formel signé en présentiel.
           </div>
         </div>
 
@@ -6478,6 +6572,18 @@ function parseSolarBuilding(solar, loc, formatted) {
   };
 }
 
+/* True si AUCUNE façade n'a de saisie (longueur/hauteur/fenêtres/portes).
+   Sert à décider si l'autoremplissage peut s'appliquer sans rien écraser :
+   les mesures manuelles de l'utilisateur sont toujours prioritaires. */
+function facadesAreEmpty(facades) {
+  if (!facades) return true;
+  return ["sud", "est", "nord", "ouest"].every(function(side){
+    var f = facades[side] || {};
+    return !parseFloat(f.l) && !parseFloat(f.h)
+        && !parseFloat(f.win) && !parseFloat(f.doors);
+  });
+}
+
 function Modal({ onClose, onCreate }) {
   var [step, setStep]       = useState(0);
   /* Identification fields */
@@ -6502,6 +6608,9 @@ function Modal({ onClose, onCreate }) {
   var [solarBusy,   setSolarBusy]   = useState(false);
   var [solarMsg,    setSolarMsg]    = useState("");
   var [solarData,   setSolarData]   = useState(null);
+  /* Données auto en attente : remplies seulement si l'utilisateur a déjà
+     saisi des façades manuellement → on ne les écrase jamais sans action. */
+  var [pendingAutoFacades, setPendingAutoFacades] = useState(null);
   var [activeField, setActiveField] = useState("sud:l");   /* "sud:l" | "est:h" ... — champ qui recevra la prochaine mesure laser */
   var [bleStatus, setBleStatus] = useState("");
   var [bleConn, setBleConn] = useState(null);   /* { device, driver, disconnect } | null */
@@ -6549,22 +6658,34 @@ function Modal({ onClose, onCreate }) {
     setSolarData(null);   /* reset : pas de récap périmé si la 2ᵉ adresse échoue */
     setSolarMsg("📡 Géocodage + cadastre…");
 
+    /* Applique des façades auto UNIQUEMENT si l'utilisateur n'a encore
+       rien saisi. Sinon les met en attente (pendingAutoFacades) — les
+       mesures manuelles ne sont jamais écrasées sans action explicite. */
+    function applyAutoFacades(autoFac, okMsg) {
+      if (facadesAreEmpty(facades)) {
+        setFacades(autoFac);
+        setSolarMsg("✓ " + okMsg);
+      } else {
+        setPendingAutoFacades(autoFac);
+        setSolarMsg("ℹ️ Données automatiques disponibles — vos mesures manuelles n'ont pas été remplacées.");
+      }
+      setSolarBusy(false);
+    }
+
     function applyFromPolygon(ring, source, displayName) {
       var bbox = polygonBBoxM_v2(ring);
       var area = polygonAreaM2_v2(ring);
       var W = bbox.W, D = bbox.D;
       /* Hauteur estimée depuis nb étages saisi côté projet, défaut 2 → 6m + comble 0.5 */
-      var floors = 2, h = floors * 2.7 + 0.5;
+      var h = 2 * 2.7 + 0.5;
       var hs = h.toFixed(1), Ws = W.toFixed(1), Ds = D.toFixed(1);
-      setFacades({
+      applyAutoFacades({
         sud:   { l: Ws, h: hs, win:"", doors:"" },
         est:   { l: Ds, h: hs, win:"", doors:"" },
         nord:  { l: Ws, h: hs, win:"", doors:"" },
         ouest: { l: Ds, h: hs, win:"", doors:"" },
-      });
-      setSolarMsg("✓ " + (displayName || fullAddr) + " — " + sourceLabel(source)
+      }, (displayName || fullAddr) + " — " + sourceLabel(source)
         + " · emprise " + Math.round(area) + " m², " + Ws + " × " + Ds + " m");
-      setSolarBusy(false);
     }
 
     function runCadastreFallback() {
@@ -6584,18 +6705,30 @@ function Modal({ onClose, onCreate }) {
       var hs = h > 0 ? h.toFixed(1) : "";
       var Ws = W > 0 ? W.toFixed(1) : "";
       var Ds = D > 0 ? D.toFixed(1) : "";
-      setFacades({
+      applyAutoFacades({
         sud:   { l: Ws, h: hs, win:"", doors:"" },
         est:   { l: Ds, h: hs, win:"", doors:"" },
         nord:  { l: Ws, h: hs, win:"", doors:"" },
         ouest: { l: Ds, h: hs, win:"", doors:"" },
-      });
-      setSolarMsg("✓ " + data.formatted + " — Google Solar · " + s.segmentCount + " pans, " +
-        s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
-      setSolarBusy(false);
+      }, data.formatted + " — Google Solar · " + s.segmentCount + " pans, "
+        + s.roofAreaTotalM2.toFixed(1) + " m² toit, h " + hs + " m");
     }).catch(function(){
       runCadastreFallback();
     });
+  }
+
+  /* Applique les données auto en attente — confirmation si ça écrase. */
+  function applyPendingAutoFacades() {
+    if (!pendingAutoFacades) return;
+    if (!facadesAreEmpty(facades)) {
+      var ok = (typeof window !== "undefined" && window.confirm)
+        ? window.confirm("Remplacer vos mesures manuelles par les données automatiques ?")
+        : true;
+      if (!ok) return;
+    }
+    setFacades(pendingAutoFacades);
+    setPendingAutoFacades(null);
+    setSolarMsg("✓ Données automatiques appliquées.");
   }
 
   /* Auto-trigger autofill mesures au passage à l'étape "Remplir" tant
@@ -7019,6 +7152,25 @@ function Modal({ onClose, onCreate }) {
                 {solarBusy ? "…" : "Récupérer"}
               </button>
             </div>
+
+            {/* Données auto en attente — l'utilisateur a déjà saisi des
+                façades : on ne remplace rien sans son action explicite. */}
+            {pendingAutoFacades && (
+              <div style={{background:"rgba(0,194,255,0.10)", border:"1px solid rgba(0,194,255,0.4)",
+                borderRadius:9, padding:"10px 12px", marginBottom:12,
+                display:"flex", alignItems:"center", gap:10}}>
+                <div style={{fontSize:16}}>ℹ️</div>
+                <div style={{flex:1, fontSize:11, color:"#E8EDF5", lineHeight:1.35}}>
+                  Des données automatiques sont disponibles. Vos mesures manuelles n'ont pas été remplacées.
+                </div>
+                <button type="button" onClick={applyPendingAutoFacades}
+                  style={{background:"#00C2FF", color:"#000", border:"none",
+                    borderRadius:7, padding:"6px 12px", fontSize:10, fontWeight:800,
+                    cursor:"pointer", outline:"none", flexShrink:0}}>
+                  Appliquer les données automatiques
+                </button>
+              </div>
+            )}
 
             {/* Récap Solar (si données reçues) — segments + dimensions */}
             {solarData && solarData.summary && (
@@ -9711,6 +9863,7 @@ export {
   slug,
   csvEscape,
   publicAsset,
+  facadesAreEmpty,
   estimatePhotosSizeKB,
   parseSolarBuilding,
   BLE_DRIVERS,
