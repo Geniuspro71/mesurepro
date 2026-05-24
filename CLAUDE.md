@@ -1,7 +1,18 @@
 # MesurePro — Contexte projet pour Claude Code
 
 > **À lire en premier avant de toucher au code.**
-> Dernière mise à jour : 22 mai 2026 — fin de la passe « mégaprompt QA 14 objectifs ».
+> Dernière mise à jour : 24 mai 2026.
+
+---
+
+## 🔒 RÈGLE NON NÉGOCIABLE — projet indépendant de WAELDO
+
+**MesurePro et WAELDO sont 2 projets totalement distincts.** Repos
+différents, serveurs différents, clients différents, contrats différents.
+Si tu travailles sur MesurePro ici (dossier `mesurepro/`), tu ne touches
+**PAS** au dossier WAELDO (`~/Desktop/Bureau - MacBook Pro de Genius - 1/WAELDO/`)
+et vice-versa. Aucun croisement de code, aucune fuite d'un projet vers
+l'autre. Règle posée par Davide le 24/05/2026.
 
 ---
 
