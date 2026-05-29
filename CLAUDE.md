@@ -1,5 +1,15 @@
 # MesurePro — Contexte projet pour Claude Code
 
+## 🤖 RÈGLE NON NÉGOCIABLE — AUTONOMIE TOTALE (Davide, 2026-05-29)
+
+Davide accorde **toutes les autorisations** et travaille souvent en parallèle sur autre chose. Mode de travail **obligatoire** sur ce projet :
+
+- **Pleine autonomie** — ne PAS demander de validation à chaque étape. Décider, agir, et mener la demande **jusqu'au bout**.
+- **Autorisations accordées** : lire/modifier le code, builder, lancer tests + scripts du projet, `commit` + `push` sur `main`, déployer via la procédure documentée du projet.
+- **Tout terminer AVANT de revenir** : implémenter → builder → tester → **analyser chirurgicalement** (règles non négociables, démos, responsive, calculs) → corriger → re-vérifier. Ne revenir vers Davide **qu'une fois tout fini, testé et vérifié**, avec un rapport synthétique : *ce qui a été fait / comment c'est testé / le résultat*.
+- **Seul garde-fou** : ne s'interrompre pour demander QUE devant une action catastrophique et irréversible (suppression de données de prod, `git push --force` réécrivant un historique partagé, destruction d'un dépôt). Tout le reste = on avance seul.
+- Cette autonomie ne dispense jamais des **autres règles non négociables** de ce fichier ni de la qualité chirurgicale attendue.
+
 > **À lire en premier avant de toucher au code.**
 > Dernière mise à jour : 24 mai 2026.
 
