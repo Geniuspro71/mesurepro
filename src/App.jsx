@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Component } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import * as XLSX from "xlsx";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, ContactShadows } from "@react-three/drei";
 import * as THREE from "three";
@@ -432,6 +431,160 @@ function exportCsv(rows, filename) {
   downloadBlob(new Blob([content], {type:"text/csv;charset=utf-8"}), filename);
 }
 
+function xmlEscape(v) {
+  return String(v == null ? "" : v)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function crc32(bytes) {
+  var table = crc32.table;
+  if (!table) {
+    table = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[n] = c >>> 0;
+    }
+    crc32.table = table;
+  }
+  var crc = 0 ^ -1;
+  for (var i = 0; i < bytes.length; i++) {
+    crc = (crc >>> 8) ^ table[(crc ^ bytes[i]) & 0xFF];
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function writeU16(out, n) {
+  out.push(n & 255, (n >>> 8) & 255);
+}
+
+function writeU32(out, n) {
+  out.push(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255);
+}
+
+function zipStore(files) {
+  var enc = new TextEncoder();
+  var out = [];
+  var central = [];
+  var offset = 0;
+  files.forEach(function(file) {
+    var nameBytes = enc.encode(file.name);
+    var data = enc.encode(file.content);
+    var crc = crc32(data);
+    var localOffset = offset;
+
+    writeU32(out, 0x04034b50);
+    writeU16(out, 20);
+    writeU16(out, 0);
+    writeU16(out, 0);
+    writeU16(out, 0);
+    writeU16(out, 0);
+    writeU32(out, crc);
+    writeU32(out, data.length);
+    writeU32(out, data.length);
+    writeU16(out, nameBytes.length);
+    writeU16(out, 0);
+    out.push.apply(out, Array.from(nameBytes));
+    out.push.apply(out, Array.from(data));
+    offset = out.length;
+
+    var entry = [];
+    writeU32(entry, 0x02014b50);
+    writeU16(entry, 20);
+    writeU16(entry, 20);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU32(entry, crc);
+    writeU32(entry, data.length);
+    writeU32(entry, data.length);
+    writeU16(entry, nameBytes.length);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU16(entry, 0);
+    writeU32(entry, 0);
+    writeU32(entry, localOffset);
+    entry.push.apply(entry, Array.from(nameBytes));
+    central.push.apply(central, entry);
+  });
+
+  var centralOffset = out.length;
+  out.push.apply(out, central);
+  var centralSize = central.length;
+  writeU32(out, 0x06054b50);
+  writeU16(out, 0);
+  writeU16(out, 0);
+  writeU16(out, files.length);
+  writeU16(out, files.length);
+  writeU32(out, centralSize);
+  writeU32(out, centralOffset);
+  writeU16(out, 0);
+  return new Uint8Array(out);
+}
+
+function excelColName(index) {
+  var name = "";
+  var n = index + 1;
+  while (n > 0) {
+    var rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+}
+
+function worksheetXml(rows, colWidths) {
+  var cols = (colWidths || []).length
+    ? "<cols>" + colWidths.map(function(w, i) {
+        return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>';
+      }).join("") + "</cols>"
+    : "";
+  var body = rows.map(function(row, rIdx) {
+    var cells = row.map(function(value, cIdx) {
+      if (value === "" || value == null) return "";
+      var ref = excelColName(cIdx) + (rIdx + 1);
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return '<c r="' + ref + '"><v>' + value + '</v></c>';
+      }
+      return '<c r="' + ref + '" t="inlineStr"><is><t>' + xmlEscape(value) + "</t></is></c>";
+    }).join("");
+    return '<row r="' + (rIdx + 1) + '">' + cells + "</row>";
+  }).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    cols + '<sheetData>' + body + '</sheetData></worksheet>';
+}
+
+function makeWorkbookXlsx(sheets) {
+  var workbookSheets = sheets.map(function(sheet, i) {
+    return '<sheet name="' + xmlEscape(sheet.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>';
+  }).join("");
+  var rels = sheets.map(function(_sheet, i) {
+    return '<Relationship Id="rId' + (i + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>';
+  }).join("") +
+    '<Relationship Id="rId' + (sheets.length + 1) + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>';
+  var sheetOverrides = sheets.map(function(_sheet, i) {
+    return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+  }).join("");
+  var files = [
+    { name: "[Content_Types].xml", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheetOverrides + '</Types>' },
+    { name: "_rels/.rels", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: "xl/workbook.xml", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>' + workbookSheets + '</sheets></workbook>' },
+    { name: "xl/_rels/workbook.xml.rels", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels + '</Relationships>' },
+    { name: "xl/styles.xml", content: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellXfs></styleSheet>' }
+  ];
+  sheets.forEach(function(sheet, i) {
+    files.push({ name: "xl/worksheets/sheet" + (i + 1) + ".xml", content: worksheetXml(sheet.rows, sheet.widths) });
+  });
+  return new Blob([zipStore(files)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
 /* Garde-fou export : si les surfaces sont faiblement estimées, demande
    confirmation avant de produire un document final (PDF/Excel/DXF). */
 function confirmExportIfLowConfidence(project) {
@@ -538,13 +691,12 @@ function exportProjectPdf(project) {
   doc.save("mesurepro-" + slug(project.addr) + ".pdf");
 }
 
-/* Vrai export Excel via SheetJS — 2 feuilles : Synthèse + Façades. Remplace
-   l'ancien alias CSV. Garde des cellules numériques (parseFloat) pour que
-   les formules Excel marchent directement. */
+/* Export Excel natif — 2 feuilles : Synthèse + Façades.
+   On génère un XLSX minimal (ZIP + XML Office Open XML) sans dépendance
+   externe vulnérable. Les nombres restent des cellules numériques. */
 function exportProjectXlsx(project) {
   if (!confirmExportIfLowConfidence(project)) return;
   var m = project.meas || {};
-  var wb = XLSX.utils.book_new();
   var synthese = [
     ["MesurePro — Fiche projet"],
     [],
@@ -567,17 +719,15 @@ function exportProjectXlsx(project) {
     ["Toit",    project.roof || ""],
     ["Photos",  (project.photos || []).length],
   ];
-  var ws1 = XLSX.utils.aoa_to_sheet(synthese);
-  ws1["!cols"] = [{ wch: 22 }, { wch: 28 }];
-  XLSX.utils.book_append_sheet(wb, ws1, "Synthèse");
   var rows = [["Façade", "Surface (m²)", "Longueur (m)", "Hauteur (m)", "Type"]];
   (project.rooms || []).forEach(function(r){
     rows.push([r.n || "", parseFloat(r.a) || "", parseFloat(r.l) || "", parseFloat(r.h) || "", r.t === "r" ? "Toit" : "Mur"]);
   });
-  var ws2 = XLSX.utils.aoa_to_sheet(rows);
-  ws2["!cols"] = [{ wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }];
-  XLSX.utils.book_append_sheet(wb, ws2, "Façades");
-  XLSX.writeFile(wb, "mesurepro-" + slug(project.addr) + ".xlsx");
+  var blob = makeWorkbookXlsx([
+    { name: "Synthèse", rows: synthese, widths: [22, 28] },
+    { name: "Façades", rows: rows, widths: [18, 14, 14, 14, 8] },
+  ]);
+  downloadBlob(blob, "mesurepro-" + slug(project.addr) + ".xlsx");
 }
 
 /* Export JSON — backup machine-readable du projet entier (toutes les
