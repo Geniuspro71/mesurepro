@@ -1,0 +1,59 @@
+name: PR checks
+
+# Contrôles de chaque pull request vers main (standard CI/CD de Davide, 20/11/2026).
+# Chaîne : branche → push → PR → CI verte → fusion dans main → mise en ligne par workflow_dispatch.
+# Aucune valeur de contexte n'est interpolée dans un script : tout passe par `env:`.
+# Pas de paths-ignore : ces contrôles sont obligatoires sur main, ils doivent rendre un verdict sur toute PR.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  secrets:
+    name: gitleaks (commits de la PR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: '8.30.1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks sur les commits de la PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tgz gitleaks
+          n="$(git rev-list --count "$BASE_SHA..$HEAD_SHA")"
+          echo "commits à scanner : $n"
+          [ "$n" -gt 0 ] || { echo "⛔ aucun commit à scanner : un contrôle qui compte zéro ne prouve rien"; exit 1; }
+          ./gitleaks git --no-banner --redact --log-opts="$BASE_SHA..$HEAD_SHA" .
+
+  tests:
+    name: tests vitest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: installation exacte
+        run: npm ci --no-audit --no-fund
+      - name: vitest
+        run: npm test
